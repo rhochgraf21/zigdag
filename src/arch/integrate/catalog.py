@@ -21,6 +21,7 @@ from arch.change.ops import Operation as DesignOperation
 from arch.check import Baseline
 from arch.check import check as run_checks
 from arch.guide.infer import infer
+from arch.guide.next import ActionLimit, next_actions
 from arch.guide.plan import plan as make_plan
 from arch.model import codec
 from arch.integrate import workspace
@@ -41,6 +42,7 @@ from arch.view.report import (
     FindingsReport,
     InfoFindings,
     InitReport,
+    NextReport,
     PlanReport,
     Rendering,
 )
@@ -84,6 +86,7 @@ class Command(enum.Enum):
     DIFF = "diff"
     BASELINE = "baseline"
     INIT = "init"
+    NEXT = "next"
 
 
 @dataclass(frozen=True)
@@ -150,6 +153,13 @@ def matrix(ws: Workspace, parent: ComponentId | None = None, overlay: MatrixOver
     return Result(MatrixView(tuple(matrix_of(g, c) for c in parents)))
 
 
+def next_(ws: Workspace, scope: ComponentId | None = None, limit: ActionLimit = ActionLimit(10)) -> Result:
+    """The most valuable next actions, each naming the method or operation that applies."""
+    g = _graph(ws)
+    report = run_checks(g, ws.facts(), ws.baseline())
+    return Result(NextReport(next_actions(g, report, _component(g, scope), limit)))
+
+
 def plan(ws: Workspace, targets: Sequence[ComponentId] = ()) -> Result:
     g = _graph(ws)
     return Result(PlanReport(make_plan(g, [c for t in targets if (c := _component(g, t)) is not None])))
@@ -193,6 +203,8 @@ OPERATIONS: tuple[Operation, ...] = (
               Access.READS, context),
     Operation(Command.OUTLINE, Text("Show the decomposition as an outline, in realization order"), Access.READS, outline),
     Operation(Command.MATRIX, Text("Show design matrices (rows use columns)"), Access.READS, matrix),
+    Operation(Command.NEXT, Text("The most valuable next actions, with the method or operation for each"),
+              Access.READS, next_),
     Operation(Command.PLAN, Text("Show realization layers, or the impact of changing components"), Access.READS, plan),
     Operation(Command.EDIT, Text("Change the design through validated operations (add, set, link, move, remove, ...)"),
               Access.WRITES, edit),
@@ -205,5 +217,5 @@ OPERATIONS: tuple[Operation, ...] = (
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

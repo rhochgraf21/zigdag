@@ -45,6 +45,9 @@ def _parser() -> argparse.ArgumentParser:
     m = sub.add_parser("matrix", help=summary[Command.MATRIX])
     m.add_argument("parent", nargs="?", help="component whose children to show (default: all)")
     m.add_argument("--observed", action="store_true", help="overlay imports and git co-change on declared uses")
+    nx = sub.add_parser("next", help=summary[Command.NEXT])
+    nx.add_argument("scope", nargs="?", help="only actions within this component")
+    nx.add_argument("--limit", type=int, default=10)
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
@@ -173,6 +176,7 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
         "matrix": lambda: catalog.matrix(ws, ComponentId(args.parent) if args.parent else None,
                                          catalog.MatrixOverlay.OBSERVED if args.observed else catalog.MatrixOverlay.DECLARED_ONLY),
         "plan": lambda: catalog.plan(ws, [ComponentId(t) for t in args.targets]),
+        "next": lambda: catalog.next_(ws, ComponentId(args.scope) if args.scope else None, catalog.ActionLimit(args.limit)),
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
         "baseline": lambda: catalog.baseline(ws),
     }

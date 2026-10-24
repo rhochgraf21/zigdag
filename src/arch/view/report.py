@@ -13,6 +13,7 @@ from typing import NewType, Protocol, TypeAlias
 from arch.change import ApplyResult, Outcome
 from arch.change.diff import DesignDiff
 from arch.check.engine import Finding, Report, Severity
+from arch.guide.next import Action
 from arch.guide.plan import Plan
 from arch.model.ids import Text
 
@@ -166,6 +167,26 @@ class DiffReport:
              "classes": sorted(k.value for k in c.classes),
              "fields": [{"field": f.field, "class": f.change_class.value, "before": f.before, "after": f.after} for f in c.fields]}
             for c in self.diff.changes]}
+
+
+@dataclass(frozen=True)
+class NextReport:
+    actions: tuple[Action, ...]
+
+    def to_markdown(self) -> Markdown:
+        if not self.actions:
+            return Markdown("nothing to do: no open findings in scope")
+        lines = []
+        for i, a in enumerate(self.actions, 1):
+            how = ", ".join(x for x in (f"method: {a.method.value}" if a.method else "",
+                                        f"operation: {a.operation.value}" if a.operation else "") if x)
+            lines.append(f"{i}. [{a.kind.value}] {a.subject}: {a.what}" + (f"\n   ({how})" if how else ""))
+        return Markdown("\n".join(lines))
+
+    def to_json(self) -> JsonValue:
+        return [{"kind": a.kind.value, "subject": a.subject, "what": a.what, "rule": a.because.rule,
+                 "method": a.method.value if a.method else None, "operation": a.operation.name if a.operation else None}
+                for a in self.actions]
 
 
 @dataclass(frozen=True)

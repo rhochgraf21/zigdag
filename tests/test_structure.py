@@ -83,6 +83,11 @@ def test_span():
     assert ("S004", "s", Severity.WARNING) in findings(kids)
 
 
+def test_a_lone_root_may_serve_needs_itself():
+    lone = graph({"needs/n.md": NEED, "components/s.md": component(serves="n")})
+    assert not [f for f in check(lone).findings if f.rule == "S003"]
+
+
 def test_dangling_and_untraced():
     got = findings({"components/s/a.md": component(uses="ghost")})
     assert ("S001", "s.a", Severity.ERROR) in got

@@ -74,9 +74,10 @@ def untraced(ctx: Context) -> Iterator[Finding]:
                 sev = by_maturity(g[cid].status, draft=Severity.INFO, specified=Severity.ERROR, contracted=Severity.ERROR)
                 yield _finding("S002", cid, "serves", sev, "top-level component declares no needs it serves",
                                "add `serves: [...]` naming the needs this part exists for", g[cid].location)
-    served_below_root = {n for cid in g.ids() if parent_of(cid) is not None for n in g[cid].serves}
+    # A root that has children delegates; the needs must be traced to the parts. A lone root is a whole project.
+    served = {n for cid in g.ids() if parent_of(cid) is not None or not g.children(cid) for n in g[cid].serves}
     for nid, need in sorted(design.needs.items()):
-        if nid not in served_below_root:
+        if nid not in served:
             yield _finding("S003", nid, "unserved", Severity.ERROR, "no component below the root serves this need",
                            "serve it from a top-level component, or remove the need", need.location)
 
