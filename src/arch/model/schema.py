@@ -74,6 +74,14 @@ class DecisionEntry:
 
 
 @dataclass(frozen=True)
+class Suppression:
+    """A finding the authors decided to accept on this node, with their reason (`suppress:` in frontmatter)."""
+
+    rule: Text
+    reason: Text | None  # None: no reason given, which is itself reported
+
+
+@dataclass(frozen=True)
 class Component:
     id: ComponentId
     realizes: Text
@@ -87,6 +95,7 @@ class Component:
     criteria: tuple[Criterion, ...]
     decisions: tuple[DecisionEntry, ...]
     location: Location
+    suppressions: tuple[Suppression, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,7 @@ class Need:
     stakeholder: Text | None
     signal: Text | None
     location: Location
+    suppressions: tuple[Suppression, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -146,10 +156,12 @@ FIELDS: Mapping[Kind, Mapping[str, FieldSpec]] = {
         "exports": FieldSpec(FieldType.REFS),
         "accepts_coupling": FieldSpec(FieldType.REF_SETS),
         "status": _enum(Status, required=True),
+        "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.NEED: {
         "stakeholder": FieldSpec(FieldType.TEXT),
         "signal": FieldSpec(FieldType.TEXT),
+        "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.CONSTRAINT: {
         "applies_to": FieldSpec(FieldType.REFS, required=True),

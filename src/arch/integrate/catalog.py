@@ -116,7 +116,7 @@ def _component(g: Graph, cid: ComponentId | None) -> ComponentId | None:
 
 
 def check(ws: Workspace, info: InfoFindings = InfoFindings.COUNTED) -> Result:
-    report = run_checks(_graph(ws), ws.facts(), ws.baseline())
+    report = run_checks(_graph(ws), ws.facts(), ws.baseline(), ws.config().lexicon())
     return Result(FindingsReport(report, info), Outcome.BLOCKING if report.blocking else Outcome.OK)
 
 
@@ -131,7 +131,7 @@ def baseline(ws: Workspace) -> Result:
 
 def context(ws: Workspace, target: ContextTarget, budget: TokenBudget = TokenBudget(DEFAULT_BUDGET_TOKENS)) -> Result:
     g, facts = _graph(ws), ws.facts()
-    return Result(make_context(g, facts, run_checks(g, facts, ws.baseline()), target, budget))
+    return Result(make_context(g, facts, run_checks(g, facts, ws.baseline(), ws.config().lexicon()), target, budget))
 
 
 def outline(ws: Workspace, root: ComponentId | None = None, depth: Depth | None = None) -> Result:
@@ -156,7 +156,7 @@ def matrix(ws: Workspace, parent: ComponentId | None = None, overlay: MatrixOver
 def next_(ws: Workspace, scope: ComponentId | None = None, limit: ActionLimit = ActionLimit(10)) -> Result:
     """The most valuable next actions, each naming the method or operation that applies."""
     g = _graph(ws)
-    report = run_checks(g, ws.facts(), ws.baseline())
+    report = run_checks(g, ws.facts(), ws.baseline(), ws.config().lexicon())
     return Result(NextReport(next_actions(g, report, _component(g, scope), limit)))
 
 

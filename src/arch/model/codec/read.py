@@ -39,6 +39,7 @@ from arch.model.schema import (
     Need,
     SourceText,
     Status,
+    Suppression,
     validate_fields,
 )
 
@@ -144,6 +145,12 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
         value = raw.get(name)
         return Text(value.strip()) if isinstance(value, str) and value.strip() else None
 
+    suppress = raw.get("suppress")
+    suppressions = tuple(
+        Suppression(Text(str(rule)), Text(str(reason)) if isinstance(reason, str) and reason.strip() else None)
+        for rule, reason in (suppress.items() if isinstance(suppress, dict) else ())
+    )
+
     def line_at(offset_in_body: int) -> LineNo:
         return LineNo(text.count("\n", 0, body_start + offset_in_body) + 1)
 
@@ -169,12 +176,13 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
                 criteria=criteria,
                 decisions=_decisions(body, path, line_at),
                 location=loc,
+                suppressions=suppressions,
             )
         case Kind.NEED:
             statement = body.strip()
             if not statement:
                 return None, issues + (Issue(loc, None, Text("a need's statement is its body text, which is empty")),)
-            node = Need(NeedId(ident), Text(statement), opt_text("stakeholder"), opt_text("signal"), loc)
+            node = Need(NeedId(ident), Text(statement), opt_text("stakeholder"), opt_text("signal"), loc, suppressions)
         case Kind.CONSTRAINT:
             rule = raw.get("rule")
             policy, problems = Policy.parse(rule) if isinstance(rule, dict) else (Policy(), ())

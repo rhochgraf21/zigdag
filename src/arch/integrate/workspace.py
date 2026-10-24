@@ -17,7 +17,7 @@ from typing import NewType
 
 from arch import realize
 from arch.change import DesignEdit, SourceEdit
-from arch.check import Baseline, BaselineText
+from arch.check import Baseline, BaselineText, Lexicon, Term
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
@@ -70,6 +70,8 @@ class ProjectConfig:
     test_roots: tuple[SourcePath, ...] | None = None
     junit: tuple[SourcePath, ...] = (SourcePath(".arch/evidence/*.xml"),)  # glob patterns for test reports
     history_commits: int = 500
+    solution_terms: tuple[Term, ...] = ()  # added to arch.check.statements' lexicons
+    vague_terms: tuple[Term, ...] = ()
 
     @staticmethod
     def read(path: Path) -> ProjectConfig:
@@ -85,10 +87,16 @@ class ProjectConfig:
         commits = history.get("commits", 500) if isinstance(history, dict) else 500
         if not isinstance(commits, int) or isinstance(commits, bool) or commits < 0:
             raise BadConfig(f"{path.name}: history.commits must be a non-negative integer")
+        statements = raw.get("statements", {})
         return ProjectConfig(
             _paths(roots, "source", path), _paths(roots, "tests", path),
             _paths(evidence, "junit", path) or ProjectConfig.junit, commits,
+            tuple(Term(t) for t in _paths(statements, "solution_terms", path) or ()),
+            tuple(Term(t) for t in _paths(statements, "vague_terms", path) or ()),
         )
+
+    def lexicon(self) -> Lexicon:
+        return Lexicon().extended(self.solution_terms, self.vague_terms)
 
 
 def _paths(table: object, key: str, path: Path) -> tuple[SourcePath, ...] | None:

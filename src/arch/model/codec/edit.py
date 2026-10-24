@@ -24,8 +24,9 @@ FieldValue = Text | tuple[Ref, ...] | tuple[tuple[Ref, ...], ...] | None  # None
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
 _CRITERION = re.compile(r"^- AC(\d+):")
 _ORDER: Mapping[Kind, tuple[str, ...]] = {
-    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "accepts_coupling", "status"),
-    Kind.NEED: ("kind", "stakeholder", "signal"),
+    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "accepts_coupling", "status",
+                     "suppress"),
+    Kind.NEED: ("kind", "stakeholder", "signal", "suppress"),
     Kind.CONSTRAINT: ("kind", "applies_to", "rule"),
 }
 _CRITERIA = "Acceptance criteria"

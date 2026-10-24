@@ -1,6 +1,6 @@
 ---
 kind: component
-realizes: Derive the design matrix of a component's children, classify it, and order the children for realization
+realizes: Derive the design matrix of a component's children, with its coupling class and realization order
 solution: Declared sibling uses are the off-diagonal entries; strongly connected components identify coupled sets; topological layering gives realization order and parallel layers
 hides: Matrix construction and ordering algorithms
 uses: [graph, ids]

@@ -1,9 +1,9 @@
 ---
 kind: component
 realizes: Detect defective need and requirement statements
-solution: Lexicon and pattern rules for solution terms in needs, compound requirements, vague terms without a measure, and acceptance criteria not in EARS form
+solution: Lexicon and pattern rules (S101 solution terms in needs, S102 vague criteria without a measure, S103 criteria without 'shall', S104 compound requirements), lexicons extensible from arch.toml, and suppressions recorded on the node
 hides: Lexicons and patterns
-uses: [engine, model.schema]
+uses: [engine, model.ids]
 status: specified
 ---
 ## Acceptance criteria
