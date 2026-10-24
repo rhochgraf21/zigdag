@@ -3,7 +3,7 @@ kind: component
 realizes: Load and persist everything arch reads and writes in a project, quickly
 solution: Find the project root and optional `arch.toml`, read design files and sources into snapshots, run `git` for history and base revisions, cache facts by content hash under `.arch/cache/`, and write edits atomically
 hides: Filesystem layout, caching and version-control invocation
-uses: [change, model.codec, model.ids, model.schema, realize]
+uses: [change, check, model.codec, model.ids, model.schema, realize]
 status: specified
 ---
 ## Acceptance criteria

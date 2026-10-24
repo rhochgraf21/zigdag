@@ -65,6 +65,8 @@ class Unit:
     language: Language
     role: Role
     capabilities: frozenset[Capability]
+    summary: Text | None = None  # first line of the unit's leading documentation, if any
+    package: bool = False  # a unit that contains other units (a Python package)
 
 
 class ImportForm(enum.Enum):

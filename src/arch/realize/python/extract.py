@@ -77,8 +77,11 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
                 links.append(DesignLink(unit, SymbolName(qual), Text(target), at(dec)))
 
     effects, calls = _effects_and_calls(tree, unit, package, at)
+    doc = ast.get_docstring(tree)
+    summary = Text(next((line.strip() for line in doc.splitlines() if line.strip()), "")) if doc else None
+    is_package = path.endswith("__init__.py")
     return Facts(
-        units=(Unit(unit, path, LANGUAGE, role, CAPABILITIES),),
+        units=(Unit(unit, path, LANGUAGE, role, CAPABILITIES, summary or None, is_package),),
         imports=imports,
         symbols=tuple(symbols),
         contracts=tuple(contracts),

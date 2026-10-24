@@ -35,9 +35,10 @@ class EditMode(enum.Enum):
     DRY_RUN = "dry run"
 
 
-def _finding_line(f: Finding) -> str:
+def _finding_line(f: Finding, baselined: bool = False) -> str:
     where = f" ({f.location})" if f.location else ""
-    return f"{f.severity.value:7} {f.rule} {f.subject}: {f.message}{where}\n        hint: {f.hint}"
+    mark = " (baselined)" if baselined else ""
+    return f"{f.severity.value:7} {f.rule} {f.subject}: {f.message}{where}{mark}\n        hint: {f.hint}"
 
 
 def _finding_json(f: Finding) -> JsonValue:
@@ -56,13 +57,59 @@ class FindingsReport:
     info: InfoFindings = InfoFindings.COUNTED
 
     def to_markdown(self) -> Markdown:
-        shown = [f for f in self.report.findings if self.info is InfoFindings.LISTED or f.severity is not Severity.INFO]
+        everything = self.info is InfoFindings.LISTED
+        shown = [f for f in self.report.findings
+                 if everything or (f.severity is not Severity.INFO and not self.report.is_baselined(f))]
         hidden = len(self.report.findings) - len(shown)
-        tail = f" (--all to list info)" if hidden else ""
-        return Markdown("\n".join([*(_finding_line(f) for f in shown), _counts(self.report.findings) + tail]))
+        base = len(self.report.baselined)
+        tail = (f"; {base} baselined, not blocking" if base else "") + (" (--all to list the rest)" if hidden else "")
+        lines = [_finding_line(f, self.report.is_baselined(f)) for f in shown]
+        return Markdown("\n".join([*lines, _counts(self.report.findings) + tail]))
 
     def to_json(self) -> JsonValue:
-        return [_finding_json(f) for f in self.report.findings]
+        return [{**_finding_json(f), "baselined": self.report.is_baselined(f)} for f in self.report.findings]
+
+
+@dataclass(frozen=True)
+class InitReport:
+    """What `arch init` drafted from the code."""
+
+    edit: EditReport
+    components: int
+    cycles: tuple[tuple[Text, ...], ...]
+    baselined: int
+    notes: tuple[Text, ...]
+
+    def to_markdown(self) -> Markdown:
+        if self.edit.result.outcome is Outcome.REJECTED:
+            return self.edit.to_markdown()
+        done = "would draft" if self.edit.mode is EditMode.DRY_RUN else "drafted"
+        lines = [f"{done} {self.components} components (status draft) from the code"]
+        if self.cycles:
+            lines.append(f"{len(self.cycles)} import cycles accepted for review: " + "; ".join(", ".join(c) for c in self.cycles))
+        if self.baselined:
+            lines.append(f"{self.baselined} remaining errors recorded in design/baseline, so only new ones block")
+        lines += [f"note: {n}" for n in self.notes]
+        lines += ["next: add needs (`arch add need`), state what each top-level part realizes, then `arch check`"]
+        return Markdown("\n".join(lines))
+
+    def to_json(self) -> JsonValue:
+        return {"edit": self.edit.to_json(), "components": self.components,
+                "cycles": [list(c) for c in self.cycles], "baselined": self.baselined, "notes": list(self.notes)}
+
+
+@dataclass(frozen=True)
+class BaselineReport:
+    before: int
+    after: int
+    dropped: int
+
+    def to_markdown(self) -> Markdown:
+        return Markdown(f"baseline: {self.after} findings recorded ({self.dropped} fixed ones dropped, "
+                        f"{max(0, self.after - self.before + self.dropped)} newly accepted)")
+
+    def to_json(self) -> JsonValue:
+        return {"recorded": self.after, "dropped": self.dropped, "previous": self.before}
 
 
 @dataclass(frozen=True)

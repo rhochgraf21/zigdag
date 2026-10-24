@@ -18,8 +18,11 @@ from arch.change import Outcome as ApplyOutcome
 from arch.change import apply
 from arch.change.diff import diff as design_diff
 from arch.change.ops import Operation as DesignOperation
+from arch.check import Baseline
 from arch.check import check as run_checks
+from arch.guide.infer import infer
 from arch.guide.plan import plan as make_plan
+from arch.model import codec
 from arch.integrate import workspace
 from arch.integrate.workspace import Revision, Workspace
 
@@ -30,7 +33,17 @@ from arch.view.context import DEFAULT_BUDGET_TOKENS, UnknownTarget
 from arch.view.context import context as make_context
 from arch.view.diagram import MatrixView
 from arch.view.outline import outline as make_outline
-from arch.view.report import DiffReport, EditMode, EditReport, FindingsReport, InfoFindings, PlanReport, Rendering
+from arch.view.report import (
+    BaselineReport,
+    DiffReport,
+    EditMode,
+    EditReport,
+    FindingsReport,
+    InfoFindings,
+    InitReport,
+    PlanReport,
+    Rendering,
+)
 
 ContextTarget = NewType("ContextTarget", str)  # a component id, module name, or path[:line]
 Depth = NewType("Depth", int)
@@ -41,7 +54,7 @@ class UnknownComponent(Exception):
     pass
 
 
-UsageError = (UnknownComponent, UnknownTarget, workspace.NoRevision, workspace.StaleEdit)
+UsageError = (UnknownComponent, UnknownTarget, workspace.NoRevision, workspace.StaleEdit, workspace.AlreadyDesigned)
 NoProject = (workspace.NoProject, workspace.BadConfig)
 
 
@@ -69,6 +82,8 @@ class Command(enum.Enum):
     PLAN = "plan"
     EDIT = "edit"
     DIFF = "diff"
+    BASELINE = "baseline"
+    INIT = "init"
 
 
 @dataclass(frozen=True)
@@ -83,6 +98,10 @@ def open_project(start: Path) -> Workspace:
     return workspace.find(start)
 
 
+def new_project(start: Path) -> Workspace:
+    return workspace.create(start)
+
+
 def _graph(ws: Workspace) -> Graph:
     return Graph(ws.design())
 
@@ -94,13 +113,22 @@ def _component(g: Graph, cid: ComponentId | None) -> ComponentId | None:
 
 
 def check(ws: Workspace, info: InfoFindings = InfoFindings.COUNTED) -> Result:
-    report = run_checks(_graph(ws), ws.facts())
+    report = run_checks(_graph(ws), ws.facts(), ws.baseline())
     return Result(FindingsReport(report, info), Outcome.BLOCKING if report.blocking else Outcome.OK)
+
+
+def baseline(ws: Workspace) -> Result:
+    """Accept today's errors as the starting point; fixed ones drop out."""
+    old = ws.baseline()
+    report = run_checks(_graph(ws), ws.facts())
+    new = Baseline.of(report.findings)
+    ws.write_baseline(new)
+    return Result(BaselineReport(len(old.entries), len(new.entries), len(old.stale(report))))
 
 
 def context(ws: Workspace, target: ContextTarget, budget: TokenBudget = TokenBudget(DEFAULT_BUDGET_TOKENS)) -> Result:
     g, facts = _graph(ws), ws.facts()
-    return Result(make_context(g, facts, run_checks(g, facts), target, budget))
+    return Result(make_context(g, facts, run_checks(g, facts, ws.baseline()), target, budget))
 
 
 def outline(ws: Workspace, root: ComponentId | None = None, depth: Depth | None = None) -> Result:
@@ -129,6 +157,24 @@ def edit(ws: Workspace, operations: Sequence[DesignOperation], mode: EditMode = 
     return Result(EditReport(result, mode), Outcome.OK if result.outcome is ApplyOutcome.APPLIED else Outcome.BLOCKING)
 
 
+def init(ws: Workspace, mode: EditMode = EditMode.WRITE) -> Result:
+    """Draft a design from the code, so an existing project starts with a design that passes."""
+    snapshot = ws.snapshot()
+    facts = realize.extract(snapshot)
+    inference = infer(facts)
+    result = apply(codec.load({}), inference.operations, snapshot, facts.links)
+    edit_report = EditReport(result, mode)
+    if result.outcome is not ApplyOutcome.APPLIED:
+        return Result(InitReport(edit_report, 0, (), 0, inference.notes), Outcome.BLOCKING)
+    remaining = Baseline.of(run_checks(Graph(result.after), facts).findings)
+    if mode is EditMode.WRITE:
+        ws.write(result.design_edits, result.source_edits)
+        if remaining.entries:
+            ws.write_baseline(remaining)
+    cycles = tuple(tuple(Text(c) for c in group) for group in inference.cycles)
+    return Result(InitReport(edit_report, len(inference.components), cycles, len(remaining.entries), inference.notes))
+
+
 def diff(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
     return Result(DiffReport(design_diff(ws.design_at(base), ws.design()), Text(base)))
 
@@ -143,9 +189,13 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(Command.EDIT, Text("Change the design through validated operations (add, set, link, move, remove, ...)"),
               Access.WRITES, edit),
     Operation(Command.DIFF, Text("Show how the design changed since a git revision, by kind of change"), Access.READS, diff),
+    Operation(Command.INIT, Text("Draft a design from existing code (draft components, uses = imports, cycles accepted)"),
+              Access.WRITES, init),
+    Operation(Command.BASELINE, Text("Accept current errors as the starting point, so only new ones block"),
+              Access.WRITES, baseline),
 )
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "TokenBudget", "UsageError", "Workspace", "open_project",
+    "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

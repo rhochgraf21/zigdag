@@ -17,6 +17,7 @@ from typing import NewType
 
 from arch import realize
 from arch.change import DesignEdit, SourceEdit
+from arch.check import Baseline, BaselineText
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
@@ -43,6 +44,10 @@ class StaleEdit(Exception):
 
 class NoRevision(Exception):
     pass
+
+
+class AlreadyDesigned(Exception):
+    """`init` would overwrite an existing design."""
 
 
 @dataclass(frozen=True)
@@ -118,6 +123,19 @@ class Workspace:
     def facts(self) -> Facts:
         return realize.extract(self.snapshot())
 
+    @property
+    def baseline_path(self) -> Path:
+        return self.design_dir / "baseline"
+
+    def baseline(self) -> Baseline:
+        path = self.baseline_path
+        return Baseline.parse(BaselineText(path.read_text(encoding="utf-8"))) if path.is_file() else Baseline()
+
+    def write_baseline(self, baseline: Baseline) -> None:
+        tmp = self.baseline_path.with_suffix(".arch-tmp")
+        tmp.write_text(baseline.render(), encoding="utf-8")
+        os.replace(tmp, self.baseline_path)
+
     def read_input(self, path: Path) -> str:
         """A file named on the command line (e.g. a batch of operations), relative to the working directory."""
         return path.read_text(encoding="utf-8")
@@ -178,6 +196,14 @@ class Workspace:
         while directory != self.design_dir and directory.is_dir() and not any(directory.iterdir()):
             directory.rmdir()
             directory = directory.parent
+
+
+def create(start: Path) -> Workspace:
+    """A workspace for a project that has no design yet, rooted at `start`."""
+    ws = Workspace(start.resolve())
+    if any((ws.design_dir / "components").rglob("*.md")):
+        raise AlreadyDesigned(f"{ws.design_dir} already has components; arch init only starts new designs")
+    return ws
 
 
 def find(start: Path) -> Workspace:

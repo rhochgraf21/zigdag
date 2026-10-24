@@ -7,10 +7,14 @@ comments and formatting people chose, is left exactly as it was.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from arch.model.ids import CriterionLabel, Ref, Text
 from arch.model.schema import DecisionLabel, Kind, SourceText
@@ -29,11 +33,21 @@ _DECISIONS = "Decisions"
 _PLAIN_UNSAFE = re.compile(r"^[-?:,\[\]{}#&*!|>'\"%@`\s]|: | #|\s$|^(true|false|yes|no|on|off|null|~)$|^[0-9.+-]", re.I)
 
 
+_yaml = YAML(typ="safe", pure=True)
+
+
 def scalar(value: str) -> str:
-    """A YAML scalar for `value`: plain when unambiguous, else double-quoted."""
-    if value and not _PLAIN_UNSAFE.search(value) and "\n" not in value:
+    """A YAML scalar for `value`: plain when it reads back as exactly `value`, else double-quoted."""
+    if value and not _PLAIN_UNSAFE.search(value) and "\n" not in value and _reads_back(value):
         return value
     return json.dumps(value, ensure_ascii=False)
+
+
+def _reads_back(plain: str) -> bool:
+    try:
+        return _yaml.load(io.StringIO(f"k: {plain}\n")) == {"k": plain}
+    except YAMLError:
+        return False
 
 
 def render(value: FieldValue) -> str:

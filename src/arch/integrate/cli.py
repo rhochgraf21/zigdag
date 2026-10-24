@@ -46,6 +46,9 @@ def _parser() -> argparse.ArgumentParser:
     m.add_argument("parent", nargs="?", help="component whose children to show (default: all)")
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
+    sub.add_parser("baseline", help=summary[Command.BASELINE])
+    i = sub.add_parser("init", help=summary[Command.INIT])
+    i.add_argument("--dry-run", action="store_true", help="show what would be drafted, write nothing")
     d = sub.add_parser("diff", help=summary[Command.DIFF])
     d.add_argument("base", nargs="?", default="HEAD", help="git revision to compare with (default HEAD)")
 
@@ -169,6 +172,7 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
         "matrix": lambda: catalog.matrix(ws, ComponentId(args.parent) if args.parent else None),
         "plan": lambda: catalog.plan(ws, [ComponentId(t) for t in args.targets]),
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
+        "baseline": lambda: catalog.baseline(ws),
     }
     return runners[args.cmd]()
 
@@ -176,8 +180,11 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        ws = catalog.open_project(args.project)
-        result = _run(args, ws)
+        if args.cmd == "init":
+            mode = EditMode.DRY_RUN if args.dry_run else EditMode.WRITE
+            result = catalog.init(catalog.new_project(args.project), mode)
+        else:
+            result = _run(args, catalog.open_project(args.project))
     except (*catalog.NoProject, *catalog.UsageError, ops.Rejected) as e:
         print(f"arch: {e}", file=sys.stderr)
         return USAGE_ERROR

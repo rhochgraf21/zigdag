@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import NewType
+from typing import NewType, TypeAlias
 
 from arch.model.graph import Graph
 from arch.model.ids import Location, Text
@@ -19,6 +19,7 @@ from arch.realize.facts import Facts, SourceLocation
 RuleId = NewType("RuleId", str)
 Subject = NewType("Subject", str)  # a node id, or a design path for file-level problems
 FindingKey = NewType("FindingKey", str)
+FindingIdentity: TypeAlias = tuple[RuleId, Subject, FindingKey]
 
 
 class Severity(enum.Enum):
@@ -42,7 +43,7 @@ class Finding:
     location: Location | SourceLocation | None = None
 
     @property
-    def identity(self) -> tuple[RuleId, Subject, FindingKey]:
+    def identity(self) -> FindingIdentity:
         return (self.rule, self.subject, self.key)
 
 
@@ -62,10 +63,14 @@ class Rule:
 @dataclass(frozen=True)
 class Report:
     findings: tuple[Finding, ...]
+    baselined: frozenset[FindingIdentity] = frozenset()  # existed before; reported but never blocking
 
     @property
     def blocking(self) -> tuple[Finding, ...]:
-        return tuple(f for f in self.findings if f.severity.blocks)
+        return tuple(f for f in self.findings if f.severity.blocks and f.identity not in self.baselined)
+
+    def is_baselined(self, finding: Finding) -> bool:
+        return finding.identity in self.baselined
 
 
 def by_maturity(status: Status, *, draft: Severity, specified: Severity, contracted: Severity) -> Severity:

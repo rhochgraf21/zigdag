@@ -116,8 +116,10 @@ class Operation:
                 out[k] = v.key
             elif isinstance(v, enum.Enum):
                 out[k] = v.value
+            elif isinstance(v, tuple):
+                out[k] = [list(x) if isinstance(x, tuple) else x for x in v]
             else:
-                out[k] = list(v) if isinstance(v, tuple) else v
+                out[k] = v
         return out
 
 
@@ -139,6 +141,7 @@ class AddComponent(Operation):
     exports: tuple[Ref, ...] = ()
     serves: tuple[NeedId, ...] = ()
     criteria: tuple[Text, ...] = ()
+    accepts_coupling: tuple[tuple[Ref, ...], ...] = ()
 
     def apply_to(self, draft: Draft) -> None:
         if draft.exists(Kind.COMPONENT, self.id):
@@ -149,7 +152,7 @@ class AddComponent(Operation):
         fields: dict[str, FieldValue] = {
             "realizes": self.realizes, "solution": self.solution, "hides": self.hides,
             "serves": tuple(Ref(n) for n in self.serves), "uses": self.uses, "exports": self.exports,
-            "status": Text(self.status.value),
+            "accepts_coupling": self.accepts_coupling, "status": Text(self.status.value),
         }
         node = NodeFile.new(Kind.COMPONENT, fields)
         for text in self.criteria:
@@ -475,6 +478,8 @@ def from_json(raw: JsonObject) -> Operation:
                 args[key] = _ENUM_FIELDS[key](value)
             except ValueError:
                 raise Rejected(f"{name}: invalid {key} '{value}'") from None
+        elif key == "accepts_coupling" and isinstance(value, list):
+            args[key] = tuple(tuple(Ref(r) for r in group) for group in value if isinstance(group, list))
         elif isinstance(value, list):
             args[key] = tuple(value)
         else:

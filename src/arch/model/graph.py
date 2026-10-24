@@ -12,7 +12,7 @@ from functools import cached_property
 
 import deal
 
-from arch.model.ids import ComponentId, ConstraintId, NeedId, Ref, is_within, parent_of
+from arch.model.ids import ComponentId, ConstraintId, NeedId, Ref, is_within, parent_of, reference_in, resolve_in
 from arch.model.policy import Policy
 from arch.model.schema import Component, Design
 
@@ -67,20 +67,11 @@ class Graph:
     @deal.has()
     def resolve(self, cid: ComponentId, ref: Ref) -> ComponentId | None:
         """Resolve `ref` as written in component `cid`: the nearest ancestor with a descendant path `ref`."""
-        for anc in self.ancestors(cid):
-            candidate = ComponentId(f"{anc}.{ref}")
-            if candidate in self:
-                return candidate
-        return None
+        return resolve_in(self.design.components, cid, ref)
 
     def reference(self, cid: ComponentId, target: ComponentId) -> Ref | None:
         """The shortest reference that, written in `cid`, resolves to `target`; the inverse of resolve."""
-        segments = target.split(".")
-        for k in range(1, len(segments) + 1):
-            ref = Ref(".".join(segments[-k:]))
-            if self.resolve(cid, ref) == target:
-                return ref
-        return None
+        return reference_in(self.design.components, cid, target)
 
     def users_of(self, target: ComponentId) -> tuple[ComponentId, ...]:
         """Components outside `target` whose declared uses name `target` or one of its parts."""

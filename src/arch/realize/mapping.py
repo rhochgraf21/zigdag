@@ -16,11 +16,15 @@ from arch.realize.facts import Facts, Import, ImportForm, Role, Unit, UnitName
 
 
 @dataclass(frozen=True)
-class UnitMap:
-    component_of: Mapping[UnitName, ComponentId]
-    unmapped: tuple[Unit, ...]
-    known_units: frozenset[UnitName] = field(default=frozenset())
-    bound_names: frozenset[tuple[UnitName, str]] = field(default=frozenset())  # (unit, name) it re-exports
+class UnitIndex:
+    """Which units exist and which names they re-export: enough to resolve imports without a design."""
+
+    known_units: frozenset[UnitName] = frozenset()
+    bound_names: frozenset[tuple[UnitName, str]] = frozenset()  # (unit, name) it re-exports
+
+    @staticmethod
+    def of(facts: Facts) -> UnitIndex:
+        return UnitIndex(frozenset(u.name for u in facts.units), frozenset((a.unit, a.name) for a in facts.aliases))
 
     def target_of(self, imp: Import) -> UnitName | None:
         """The project unit an import reaches. `from p import n` reaches p itself when p binds n."""
@@ -37,6 +41,19 @@ class UnitMap:
                 return name
             name = UnitName(name.rpartition(".")[0])
         return None
+
+
+@dataclass(frozen=True)
+class UnitMap:
+    component_of: Mapping[UnitName, ComponentId]
+    unmapped: tuple[Unit, ...]
+    index: UnitIndex = field(default_factory=UnitIndex)
+
+    def target_of(self, imp: Import) -> UnitName | None:
+        return self.index.target_of(imp)
+
+    def resolve(self, target: UnitName) -> UnitName | None:
+        return self.index.resolve(target)
 
     def units_in(self, cid: ComponentId) -> tuple[UnitName, ...]:
         return tuple(sorted(u for u, c in self.component_of.items() if c == cid or c.startswith(cid + ".")))
@@ -56,5 +73,4 @@ def map_units(graph: Graph, facts: Facts) -> UnitMap:
             mapped[unit.name] = ComponentId(name)
         else:
             unmapped.append(unit)
-    bound = frozenset((a.unit, a.name) for a in facts.aliases)
-    return UnitMap(mapped, tuple(unmapped), frozenset(u.name for u in facts.units), bound)
+    return UnitMap(mapped, tuple(unmapped), UnitIndex.of(facts))
