@@ -10,12 +10,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from arch import realize
 from arch.model import codec
-from arch.model.graph import Graph
-from arch.model.schema import DesignPath
+from arch.model.schema import Design, DesignPath
+from arch.realize.facts import Facts, Roots, Snapshot, SourcePath
 
 DESIGN_DIR = "design"
 CONFIG_FILE = "arch.toml"
+_SKIP_DIRS = frozenset({"__pycache__", "node_modules", "venv", "build", "dist", DESIGN_DIR})
 
 
 class NoProject(Exception):
@@ -38,8 +40,29 @@ class Workspace:
                 files[rel] = path.read_text(encoding="utf-8")
         return files
 
-    def graph(self) -> Graph:
-        return Graph(codec.load(self.design_files()))
+    def design(self) -> Design:
+        return codec.load(self.design_files())
+
+    def roots(self) -> Roots:
+        """Defaults until arch.toml is read: `src/` (else the project root) and `tests/`."""
+        source = SourcePath("src") if (self.root / "src").is_dir() else SourcePath("")
+        tests = (SourcePath("tests"),) if (self.root / "tests").is_dir() else ()
+        return Roots((source,), tests)
+
+    def snapshot(self) -> Snapshot:
+        roots = self.roots()
+        files: dict[SourcePath, str] = {}
+        for base in (*roots.source, *roots.test):
+            top = self.root / base
+            for path in sorted(top.rglob("*.py")):
+                rel = path.relative_to(self.root)
+                if any(p.startswith(".") or p in _SKIP_DIRS for p in rel.parts[:-1]):
+                    continue
+                files.setdefault(SourcePath(rel.as_posix()), path.read_text(encoding="utf-8", errors="replace"))
+        return Snapshot(files, roots)
+
+    def facts(self) -> Facts:
+        return realize.extract(self.snapshot())
 
 
 def find(start: Path) -> Workspace:

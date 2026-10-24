@@ -12,7 +12,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from arch.integrate import catalog
-from arch.integrate.workspace import NoProject, find
 
 USAGE_ERROR = 2
 INTERNAL_ERROR = 3
@@ -24,7 +23,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="machine-readable output")
     sub = p.add_subparsers(dest="op", required=True, metavar="command")
     ops = {op.name: op for op in catalog.OPERATIONS}
-    sub.add_parser("check", help=ops["check"].summary)
+    c = sub.add_parser("check", help=ops["check"].summary)
+    c.add_argument("--all", action="store_true", help="also list info findings")
     o = sub.add_parser("outline", help=ops["outline"].summary)
     o.add_argument("root", nargs="?", help="component id to start from")
     o.add_argument("--depth", type=int, help="levels below the root to show")
@@ -39,17 +39,17 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        ws = find(args.project)
+        ws = catalog.open_project(args.project)
         match args.op:
             case "check":
-                result = catalog.check(ws)
+                result = catalog.check(ws, args.all)
             case "outline":
                 result = catalog.outline(ws, args.root, args.depth)
             case "matrix":
                 result = catalog.matrix(ws, args.parent)
             case "plan":
                 result = catalog.plan(ws, args.targets)
-    except (NoProject, catalog.UnknownComponent) as e:
+    except (catalog.NoProject, catalog.UnknownComponent) as e:
         print(f"arch: {e}", file=sys.stderr)
         return USAGE_ERROR
     except Exception as e:  # noqa: BLE001

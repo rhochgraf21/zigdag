@@ -13,6 +13,7 @@ from typing import NewType
 
 from arch.model.graph import Graph
 from arch.model.schema import Location, Status, Text
+from arch.realize.facts import Facts, SourceLocation
 
 RuleId = NewType("RuleId", str)
 Subject = NewType("Subject", str)  # a node id, or a design path for file-level problems
@@ -37,17 +38,17 @@ class Finding:
     severity: Severity
     message: Text
     hint: Text
-    location: Location | None = None
+    location: Location | SourceLocation | None = None
 
     @property
     def identity(self) -> tuple[RuleId, Subject, FindingKey]:
         return (self.rule, self.subject, self.key)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)  # identity-hashed, so rules can cache what they derive from it
 class Context:
     graph: Graph
-    # realize.facts joins here when conformance rules land
+    facts: Facts | None = None  # None: check the design alone
 
 
 @dataclass(frozen=True)

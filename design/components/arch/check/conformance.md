@@ -3,7 +3,7 @@ kind: component
 realizes: Detect where the realization departs from the design
 solution: Rules comparing mapped facts with the design for undeclared or invisible imports, effects outside the effective allowance, unmapped units, missing code, acceptance criteria without evidence, failing or stale evidence, budget breaches and dependencies outside the allowlist
 hides: Comparison rules
-uses: [engine, model.graph, realize.facts, realize.mapping]
+uses: [engine, model.graph, model.schema, realize.facts, realize.mapping]
 status: specified
 ---
 ## Acceptance criteria
@@ -12,3 +12,5 @@ status: specified
 - AC3: An acceptance criterion without a linked contract or test shall be info below status contracted and an error at or above it.
 - AC4: Each finding shall name both the design element and the source location.
 - AC5: When a rule needs a capability the unit's adapter did not analyze, it shall report "not analyzed" at info level and shall never pass silently.
+- AC6: A design link naming an unknown component or acceptance criterion shall be an error at the link's location.
+- AC7: Components without code shall be reported once per unbuilt subtree, at info below status contracted and as an error at or above it.

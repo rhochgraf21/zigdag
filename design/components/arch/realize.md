@@ -10,7 +10,7 @@ status: specified
 ---
 ## Acceptance criteria
 - AC1: Extraction shall be a pure function of (snapshot, config); the same snapshot shall yield identical facts.
-- AC2: No component outside realize shall depend on a language adapter; adapters are supplied by the caller and selected by file pattern, with a language-specific adapter taking precedence over the structural one.
+- AC2: No component outside realize shall depend on a language adapter. realize selects among its built-in adapters by file pattern; a caller may add adapters implementing the protocol in `realize.facts`, and added adapters take precedence, as does a language-specific adapter over the structural one.
 - AC3: Facts for an unchanged file shall be reusable, keyed by the file's content hash.
 
 ## Rationale

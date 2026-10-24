@@ -13,6 +13,10 @@ status: specified
 - AC4: Relative imports shall resolve to absolute module paths.
 - AC5: `@deal.has(...)` and `@deal.pre/post/ensure/inv` on public symbols shall become ContractDecl facts.
 
+## Status
+Effects (AC2, AC3) are not analyzed yet, so Python units do not claim that capability and
+`check.conformance` reports effect constraints as not analyzed (C007).
+
 ## Rationale
 Static inference over-approximates in places and misses dynamic dispatch. Reporting `unknown` keeps
 it honest; deal's runtime checks on declared-pure ports remain the backstop.
