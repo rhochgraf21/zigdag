@@ -10,7 +10,7 @@ from arch.model.graph import Graph
 from arch.model.ids import DesignPath, Text
 from arch.realize.facts import Compatibility, FileChange, LineNo, PortChangeType, Roots, Snapshot, SourcePath, port_changes
 from arch.realize.history import NumStat, parse_numstat
-from arch.view.review import Risk, ReviewInput, review
+from arch.review.summary import Risk, ReviewInput, review
 from tests.conftest import NEED, component
 
 ROOTS = Roots(("src",), ("tests",))
@@ -78,7 +78,7 @@ def run_review(code_after, design_after=DESIGN, changed=None):
     return review(inp)
 
 
-@realizes("arch.view.review#AC1")
+@realizes("arch.review.summary#AC1")
 def test_layers_come_in_review_order_and_collapse():
     text = run_review({**CODE, "src/s/b.py": "import s.c\ndef g() -> Z: ...\n"}).to_markdown()
     titles = ["1. Intent", "2. Design", "3. Structure", "4. Contracts", "5. Evidence", "6. Code"]
@@ -86,7 +86,7 @@ def test_layers_come_in_review_order_and_collapse():
     assert positions == sorted(positions) and text.count("<details") >= 6
 
 
-@realizes("arch.view.review#AC2", "arch.view.review#AC3")
+@realizes("arch.review.summary#AC2", "arch.review.summary#AC3")
 def test_files_are_ranked_by_documented_risk():
     r = run_review({**CODE, "src/s/a.py": "def f(x: X, y: Y) -> Y: ...\n",  # breaking change in a verified component
                     "src/s/b.py": "import s.c\ndef g() -> Z: ...\n",     # undeclared new dependency
@@ -100,7 +100,7 @@ def test_files_are_ranked_by_documented_risk():
     assert quiet.files[0].risk is Risk.LOW and "verified, evidence passing" not in quiet.files[0].reasons  # no report yet
 
 
-@realizes("arch.view.review#AC4")
+@realizes("arch.review.summary#AC4")
 def test_summary_fits_a_pull_request_comment():
     many = tuple(FileChange(SourcePath(f"src/s/gen{i:04}.py"), LineNo(300), LineNo(0)) for i in range(3000))
     r = run_review(CODE, changed=many)
@@ -120,3 +120,36 @@ def test_cli_review_against_the_merge_base(tmp_path, capsys):
     assert main(["--project", str(tmp_path), "review", "HEAD"]) == 0
     out = capsys.readouterr().out
     assert "1 breaking port changes" in out and "| low | `src/s/new.py` | s |" in out  # new module of component s
+
+
+DIFF = """diff --git a/src/s/a.py b/src/s/a.py
+index 1..2 100644
+--- a/src/s/a.py
++++ b/src/s/a.py
+@@ -1,3 +1,4 @@ def f
+ def f(x):
+-    return x
++    y = x + 1
++    return y
+ # end
+diff --git a/src/s/old.py b/src/s/new.py
+similarity index 92%
+rename from src/s/old.py
+rename to src/s/new.py
+diff --git a/img.png b/img.png
+new file mode 100644
+Binary files /dev/null and b/img.png differ
+"""
+
+
+@realizes("arch.realize.history#AC3")
+def test_unified_diffs_become_hunks_with_line_numbers():
+    from arch.realize.facts import Content, DiffLineKind, FileShape
+    from arch.realize.history import UnifiedDiff, parse_diff
+    files = {f.path: f for f in parse_diff(UnifiedDiff(DIFF))}
+    a = files["src/s/a.py"]
+    assert a.shape is FileShape.MODIFIED and (a.added, a.removed) == (2, 1) and a.hunks[0].header == "def f"
+    added = [l for l in a.hunks[0].lines if l.kind is DiffLineKind.ADDED]
+    assert [(l.text, l.new_line) for l in added] == [("    y = x + 1", 2), ("    return y", 3)]
+    assert files["src/s/new.py"].shape is FileShape.RENAMED and files["src/s/new.py"].old_path == "src/s/old.py"
+    assert files["img.png"].content is Content.BINARY and files["img.png"].shape is FileShape.ADDED

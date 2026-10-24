@@ -235,6 +235,64 @@ class FileChange:
     removed: LineNo
 
 
+class DiffLineKind(enum.Enum):
+    CONTEXT = " "
+    ADDED = "+"
+    REMOVED = "-"
+
+
+@dataclass(frozen=True)
+class DiffLine:
+    kind: DiffLineKind
+    text: Text
+    old_line: LineNo | None  # None for added lines
+    new_line: LineNo | None  # None for removed lines
+
+
+@dataclass(frozen=True)
+class Hunk:
+    old_start: LineNo
+    new_start: LineNo
+    header: Text  # what git shows after @@, usually the enclosing definition
+    lines: tuple[DiffLine, ...]
+
+    @property
+    def changed(self) -> tuple[DiffLine, ...]:
+        return tuple(line for line in self.lines if line.kind is not DiffLineKind.CONTEXT)
+
+
+class FileShape(enum.Enum):
+    MODIFIED = "modified"
+    ADDED = "added"
+    DELETED = "deleted"
+    RENAMED = "renamed"
+
+
+class Content(enum.Enum):
+    TEXT = "text"
+    BINARY = "binary"
+
+
+@dataclass(frozen=True)
+class FileDiff:
+    """One file's change between two revisions, as hunks of lines."""
+
+    path: SourcePath  # the new path (the old one for deletions)
+    old_path: SourcePath | None  # set for renames
+    shape: FileShape
+    hunks: tuple[Hunk, ...]
+    content: Content = Content.TEXT
+    similarity: LineNo | None = None  # rename similarity, in percent
+
+    @property
+    def added(self) -> LineNo:
+        return LineNo(sum(1 for h in self.hunks for line in h.lines if line.kind is DiffLineKind.ADDED))
+
+    @property
+    def removed(self) -> LineNo:
+        return LineNo(sum(1 for h in self.hunks for line in h.lines if line.kind is DiffLineKind.REMOVED))
+
+
 class PortChangeType(enum.Enum):
     ADDED = "added"
     REMOVED = "removed"

@@ -17,6 +17,7 @@ from arch.integrate import agent, catalog
 from arch.integrate.agent.claude import BadSettings
 from arch.integrate.catalog import Command, ContextTarget, Depth, Revision, TokenBudget, Workspace
 from arch.model.ids import ComponentId, CriterionLabel, NeedId, Ref, Text
+from arch.review.items import ItemId
 from arch.model.schema import Kind, Status
 from arch.view.report import EditMode, InfoFindings
 
@@ -64,6 +65,12 @@ def _parser() -> argparse.ArgumentParser:
     dg.add_argument("--format", default="markdown", choices=[f.value for f in catalog.DiagramFormat])
     rv = sub.add_parser("review", help=summary[Command.REVIEW])
     rv.add_argument("base", nargs="?", default="HEAD", help="compare with where the work diverged from this revision")
+    mode = rv.add_mutually_exclusive_group()
+    mode.add_argument("--serve", action="store_true", help="review step by step in the browser (127.0.0.1 only)")
+    mode.add_argument("--feedback", action="store_true", help="list open change requests, for the author or agent")
+    mode.add_argument("--note", nargs=2, metavar=("ITEM", "TEXT"), help="add the author's note to a review item")
+    mode.add_argument("--record", action="store_true", help="summarise what the review concluded, for a commit or PR")
+    rv.add_argument("--port", type=int, default=0, help="with --serve: the port (default: any free one)")
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
@@ -207,10 +214,31 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
             Revision(args.diff) if args.diff else None, catalog.DiagramFormat(args.format)),
         "next": lambda: catalog.next_(ws, ComponentId(args.scope) if args.scope else None, catalog.ActionLimit(args.limit)),
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
-        "review": lambda: catalog.review(ws, Revision(args.base)),
+        "review": lambda: _review(args, ws),
         "baseline": lambda: catalog.baseline(ws),
     }
     return runners[args.cmd]()
+
+
+def _review(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
+    base = Revision(args.base)
+    if args.feedback:
+        return catalog.review_feedback(ws, base)
+    if args.note:
+        return catalog.review_note(ws, ItemId(args.note[0]), Text(args.note[1]), base)
+    if args.record:
+        return catalog.review_record(ws, base)
+    return catalog.review(ws, base)
+
+
+def _serve_review(args: argparse.Namespace) -> int:
+    from arch.integrate import server
+
+    ws = catalog.open_project(args.project)
+    print("building the review…", file=sys.stderr)
+    server.serve(ws, Revision(args.base), server.Port(args.port),
+                 lambda url: print(f"reviewing {ws.branch()} against {args.base}: open {url}  (Ctrl+C to stop)", flush=True))
+    return 0
 
 
 def _hook(args: argparse.Namespace) -> int:
@@ -253,6 +281,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _hook(args)
     if args.cmd == "agent":
         return _install(args)
+    if args.cmd == "review" and args.serve:
+        try:
+            return _serve_review(args)
+        except (*catalog.NoProject, *catalog.UsageError) as e:
+            print(f"arch: {e}", file=sys.stderr)
+            return USAGE_ERROR
     if args.cmd == "mcp":
         try:
             from arch.integrate import mcp

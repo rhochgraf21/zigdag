@@ -73,15 +73,18 @@ class Problems:
 class EffectRule:
     forbid: frozenset[EffectKind] = frozenset()
     allow: frozenset[EffectKind] | None = None  # None: no allow-list applies
+    exempt: frozenset[ComponentId] = frozenset()  # subtrees the forbid list does not reach (a recorded exception)
 
     @staticmethod
     def parse(raw: RawRule, problems: Problems) -> EffectRule:
         allow = problems.effects(raw["allow"], Text("effects.allow")) if "allow" in raw else None
-        return EffectRule(problems.effects(raw.get("forbid"), Text("effects.forbid")), allow)
+        exempt = frozenset(ComponentId(n) for n in problems.names(raw.get("except_in"), Text("effects.except_in")))
+        return EffectRule(problems.effects(raw.get("forbid"), Text("effects.forbid")), allow, exempt)
 
     @staticmethod
     def combine(rules: Iterable[EffectRule]) -> EffectRule:
-        """Forbids accumulate; allow-lists intersect, so a descendant can only tighten."""
+        """Forbids accumulate; allow-lists intersect, so a descendant can only tighten. Exemptions are kept
+        per rule: they are resolved against the component by `for_component` before combining."""
         forbid: set[EffectKind] = set()
         allow: frozenset[EffectKind] | None = None
         for r in rules:
@@ -89,6 +92,12 @@ class EffectRule:
             if r.allow is not None:
                 allow = r.allow if allow is None else allow & r.allow
         return EffectRule(frozenset(forbid), allow)
+
+    def for_component(self, cid: ComponentId) -> EffectRule:
+        """This rule as it applies to `cid`: without its forbid list inside an exempt subtree."""
+        if any(is_within(cid, e) for e in self.exempt):
+            return EffectRule(frozenset(), self.allow)
+        return EffectRule(self.forbid, self.allow)
 
     def verdict(self, effect: EffectKind) -> EffectVerdict:
         if effect in self.forbid:
@@ -267,6 +276,33 @@ class Policy:
             port_types=PortTypeRule.combine(p.port_types for p in ps),
             budget=BudgetRule.combine(p.budget for p in ps),
         )
+
+    def describe(self) -> Text:
+        """The policy in plain words, one rule per line, for people reviewing a change to it."""
+        names = lambda xs: ", ".join(sorted(str(x.value if isinstance(x, enum.Enum) else x) for x in xs))  # noqa: E731
+        lines = []
+        if self.effects.forbid:
+            lines.append(f"forbids effects: {names(self.effects.forbid)}"
+                         + (f" (except in {names(self.effects.exempt)})" if self.effects.exempt else ""))
+        if self.effects.allow is not None:
+            lines.append(f"allows only effects: {names(self.effects.allow) or 'none'}")
+        if self.direct_effects is not None:
+            grants = "; ".join(f"{c}: {names(k)}" for c, k in sorted(self.direct_effects.grants.items()))
+            lines.append(f"effects done directly only by: {grants or 'nobody'}")
+        if self.imports is not None:
+            per = "; ".join(f"{c}: {names(p)}" for c, p in sorted(self.imports.allowed_in.items()))
+            lines.append(f"third-party imports allowed: {names(self.imports.allowed) or 'none'}" + (f"; and in {per}" if per else ""))
+        if self.port_types.forbid:
+            lines.append(f"ports may not expose: {names(self.port_types.forbid)}"
+                         + (f" (allowed as returns: {names(self.port_types.allow_in_returns)})" if self.port_types.allow_in_returns else "")
+                         + (f" (except in {names(self.port_types.exempt)})" if self.port_types.exempt else ""))
+        if self.budget.limits:
+            lines.append("budgets: " + ", ".join(f"{k} ≤ {v:g}" for k, v in sorted(self.budget.limits.items())))
+        return Text("\n".join(lines) or "no machine-checked rules")
+
+    def for_component(self, cid: ComponentId) -> Policy:
+        """This policy with exemptions resolved for `cid`."""
+        return Policy(self.effects.for_component(cid), self.direct_effects, self.imports, self.port_types, self.budget)
 
     @property
     def restricts_effects(self) -> bool:

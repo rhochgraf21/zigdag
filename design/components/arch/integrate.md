@@ -4,7 +4,7 @@ realizes: Make arch available inside the workflows where humans and agents alrea
 solution: A workspace shell that owns all I/O, one operation catalog, and thin surfaces over it (CLI, MCP server, agent skills and hooks, CI recipe)
 hides: Transports, filesystem layout and environment detection
 serves: [right-context, low-adoption-cost, catch-departures]
-uses: [model, realize, check, change, view, guide]
+uses: [model, realize, check, change, view, guide, review]
 status: specified
 ---
 ## Acceptance criteria

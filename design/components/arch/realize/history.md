@@ -9,3 +9,4 @@ status: specified
 ## Acceptance criteria
 - AC1: Co-change shall count only commits touching at most N files (default 30), so mass edits do not create false coupling.
 - AC2: The window shall be measured in commits, not time, so the same log yields the same facts.
+- AC3: When given unified diff output, history shall produce each file's change (modified, added, deleted or renamed, text or binary) as hunks of lines with their old and new line numbers.

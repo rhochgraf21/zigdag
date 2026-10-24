@@ -57,9 +57,12 @@ from arch.view.report import (
     PlanReport,
     Rendering,
 )
+from arch.review import items as review_items
+from arch.review.assess import ReviewInput
+from arch.review.page import Board
+from arch.review.session import Anchor, Category, Decision, Feedback, Record, Verdict, Weight
+from arch.review.summary import review as make_review
 from arch.view.render import Count
-from arch.view.review import ReviewInput
-from arch.view.review import review as make_review
 
 
 
@@ -68,6 +71,7 @@ class UnknownComponent(Exception):
 
 
 UsageError = (UnknownComponent, UnknownTarget, workspace.NoRevision, workspace.StaleEdit, workspace.AlreadyDesigned)
+# ReviewRejected joins UsageError below, once defined
 NoProject = (workspace.NoProject, workspace.BadConfig)
 
 
@@ -100,6 +104,16 @@ class Command(enum.Enum):
     NEXT = "next"
     DIAGRAM = "diagram"
     REVIEW = "review"
+    REVIEW_BOARD = "review_board"
+    REVIEW_DECIDE = "review_decide"
+    REVIEW_FEEDBACK = "review_feedback"
+    REVIEW_NOTE = "review_note"
+    REVIEW_RECORD = "review_record"
+
+
+class Audience(enum.Enum):
+    ANYONE = "anyone"  # people and agents
+    HUMAN_ONLY = "human only"  # never offered to agents: an author must not approve its own work
 
 
 @dataclass(frozen=True)
@@ -108,6 +122,7 @@ class Operation:
     summary: Text
     access: Access
     run: Callable[..., Result]
+    audience: Audience = Audience.ANYONE
 
 
 def open_project(start: Path) -> Workspace:
@@ -196,20 +211,83 @@ def diagram(ws: Workspace, root: ComponentId | None = None, depth: Depth = Depth
     return Result(DiagramView(d, form))
 
 
-def review(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
-    """The change since `base` (from where the work diverged from it), layered for a reviewer."""
+def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     since = ws.merge_base(base)
     before = ws.design_at(since)
     facts_before = realize.extract(ws.snapshot_at(since))
     after, facts_after = ws.design(), ws.facts()
     baseline, lexicon = ws.baseline(), ws.config().lexicon()
-    inp = ReviewInput(
+    return ReviewInput(
         base=Text(base), before=before, after=after, facts_before=facts_before, facts_after=facts_after,
         report_before=run_checks(Graph(before), facts_before, baseline, lexicon),
         report_after=run_checks(Graph(after), facts_after, baseline, lexicon),
-        changed=ws.changed_files(since),
+        changed=ws.changed_files(since), diffs=ws.diffs(since),
     )
-    return Result(make_review(inp))
+
+
+def review(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
+    """The change since `base` (from where the work diverged from it), layered for a pull request."""
+    return Result(make_review(_review_input(ws, base)))
+
+
+def review_board(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
+    """The change as review items, with the verdicts given so far: what the review page shows."""
+    branch = ws.branch()
+    items = review_items.build(_review_input(ws, base))
+    return Result(Board(items, ws.session(branch), Text(f"Review {branch} against {base}")))
+
+
+class ReviewRejected(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class VerdictInput:
+    """A verdict as a reviewer gave it on the page."""
+
+    item: review_items.ItemId
+    digest: review_items.Digest  # what the reviewer was looking at
+    decision: Decision
+    comment: Text | None = None
+    category: Category = Category.OTHER
+    weight: Weight = Weight.BLOCKING
+    anchor: Anchor | None = None
+
+
+def review_decide(ws: Workspace, board: Board, verdict: VerdictInput) -> Result:
+    """Record a reviewer's verdict on one item. People only: agents are never offered this."""
+    item = next((i for i in board.items if i.id == verdict.item), None)
+    if item is None:
+        raise ReviewRejected(f"no review item '{verdict.item}'")
+    if item.digest != verdict.digest:
+        raise ReviewRejected("this item changed since the page was loaded; refresh to see the current version")
+    session = ws.session(board.session.name).decide(Verdict(
+        item.id, verdict.decision, item.digest, ws.reviewer(), verdict.comment, verdict.category, verdict.weight,
+        verdict.anchor))
+    ws.save_session(session)
+    return Result(Board(board.items, session, board.title))
+
+
+def review_feedback(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
+    """Open change requests from the review, item by item: what the author (often an agent) must still do."""
+    board = review_board(ws, base).view
+    return Result(Feedback(board.session, board.items))
+
+
+def review_note(ws: Workspace, item: review_items.ItemId, text: Text, base: Revision = Revision("HEAD")) -> Result:
+    """The author's note on an item: what they were unsure about, or what the reviewer should look at."""
+    board = review_board(ws, base).view
+    if item not in {i.id for i in board.items}:
+        raise ReviewRejected(f"no review item '{item}' (see `arch review --feedback --json` for ids)")
+    session = ws.session(board.session.name).note(item, text)
+    ws.save_session(session)
+    return Result(Board(board.items, session, board.title))
+
+
+def review_record(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
+    """What the review concluded, for a commit message or pull-request description."""
+    board = review_board(ws, base).view
+    return Result(Record(board.session, board.items))
 
 
 def plan(ws: Workspace, targets: Sequence[ComponentId] = ()) -> Result:
@@ -250,6 +328,9 @@ def diff(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
     return Result(DiffReport(design_diff(ws.design_at(base), ws.design()), Text(base)))
 
 
+UsageError = (*UsageError, ReviewRejected)
+
+
 OPERATIONS: tuple[Operation, ...] = (
     Operation(Command.CHECK, Text("Check the design, and the code against it"), Access.READS, check),
     Operation(Command.CONTEXT, Text("What you need to work on a component or file: intent, port, rules, neighbours"),
@@ -262,6 +343,15 @@ OPERATIONS: tuple[Operation, ...] = (
                                     "since a revision; overlays for effects and observed coupling"), Access.READS, diagram),
     Operation(Command.REVIEW, Text("Summarise a change for review: intent, design, structure, contracts, evidence, "
                                    "then code ranked by risk"), Access.READS, review),
+    Operation(Command.REVIEW_BOARD, Text("The change as review items with the verdicts so far"), Access.READS, review_board,
+              Audience.HUMAN_ONLY),
+    Operation(Command.REVIEW_DECIDE, Text("Record a reviewer's verdict on one item"), Access.WRITES, review_decide,
+              Audience.HUMAN_ONLY),
+    Operation(Command.REVIEW_FEEDBACK, Text("Open change requests from the review, item by item"), Access.READS,
+              review_feedback),
+    Operation(Command.REVIEW_NOTE, Text("Add the author's note to a review item"), Access.WRITES, review_note),
+    Operation(Command.REVIEW_RECORD, Text("What the review concluded, for a commit message or PR description"),
+              Access.READS, review_record),
     Operation(Command.PLAN, Text("Show realization layers, or the impact of changing components"), Access.READS, plan),
     Operation(Command.EDIT, Text("Change the design through validated operations (add, set, link, move, remove, ...)"),
               Access.WRITES, edit),
@@ -274,5 +364,5 @@ OPERATIONS: tuple[Operation, ...] = (
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "DiagramFormat", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "Audience", "DiagramFormat", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

@@ -26,7 +26,7 @@ from arch.integrate.catalog import (
     Revision,
     TokenBudget,
 )
-from arch.model.ids import ComponentId
+from arch.model.ids import ComponentId, Text
 from arch.view.report import EditMode, InfoFindings
 
 INSTRUCTIONS = (
@@ -81,6 +81,17 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
     def review(base: str = "HEAD") -> str:
         return text(catalog.review(ws(), Revision(base)))
 
+    def review_feedback(base: str = "HEAD") -> str:
+        """Open change requests from the human review, item by item. Address each one."""
+        return text(catalog.review_feedback(ws(), Revision(base)))
+
+    def review_note(item: str, note: str, base: str = "HEAD") -> str:
+        """Tell the reviewer something about one item: what you were unsure about, or where to look."""
+        return text(catalog.review_note(ws(), catalog.review_items.ItemId(item), Text(note), Revision(base)))
+
+    def review_record(base: str = "HEAD") -> str:
+        return text(catalog.review_record(ws(), Revision(base)))
+
     def baseline() -> str:
         return text(catalog.baseline(ws()))
 
@@ -89,13 +100,16 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
 
     return {Command.CHECK: check, Command.CONTEXT: context, Command.OUTLINE: outline, Command.MATRIX: matrix,
             Command.PLAN: plan, Command.NEXT: next_, Command.DIAGRAM: diagram, Command.EDIT: edit, Command.DIFF: diff,
-            Command.BASELINE: baseline, Command.REVIEW: review, Command.INIT: init}
+            Command.BASELINE: baseline, Command.REVIEW: review, Command.REVIEW_FEEDBACK: review_feedback,
+            Command.REVIEW_NOTE: review_note, Command.REVIEW_RECORD: review_record, Command.INIT: init}
 
 
 def server(project: Path) -> MCPServer:
     srv = MCPServer("arch", instructions=INSTRUCTIONS)
     tools = _tools(project)
     for op in catalog.OPERATIONS:
+        if op.audience is not catalog.Audience.ANYONE:
+            continue  # verdicts are given by people, on the review page; an agent must not approve its own work
         fn = tools[op.command]
         description = op.summary + (f"\n\n{fn.__doc__}" if fn.__doc__ else "")
         srv.add_tool(fn, name=op.command.value, description=description, structured_output=False)

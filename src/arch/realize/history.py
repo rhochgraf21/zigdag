@@ -13,9 +13,30 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import NewType
 
-from arch.realize.facts import ChangeEvent, CommitId, Facts, FileChange, LineNo, SourcePath, UnitName, VcsLog
+import re
+
+from arch.realize.facts import (
+    ChangeEvent,
+    CommitId,
+    Content,
+    DiffLine,
+    DiffLineKind,
+    Facts,
+    FileChange,
+    FileDiff,
+    FileShape,
+    Hunk,
+    LineNo,
+    SourcePath,
+    SourceText,
+    Text,
+    UnitName,
+    VcsLog,
+)
 
 NumStat = NewType("NumStat", str)  # raw `git diff --numstat` output
+UnifiedDiff = NewType("UnifiedDiff", str)  # raw `git diff -M` output
+_HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$")
 
 Count = NewType("Count", int)
 FileLimit = NewType("FileLimit", int)
@@ -94,3 +115,70 @@ class History:
             if (x in a and y in b) or (x in b and y in a):
                 total += n
         return Count(total)
+
+
+def parse_diff(text: UnifiedDiff) -> tuple[FileDiff, ...]:
+    """Files and hunks from `git diff -M --no-color` output; renames, additions and deletions included."""
+    files: list[FileDiff] = []
+    current: dict = {}
+    hunks: list[Hunk] = []
+    lines: list[DiffLine] = []
+    hunk_head: tuple[int, int, str] | None = None
+    old_no = new_no = 0
+
+    def close_hunk() -> None:
+        nonlocal lines, hunk_head
+        if hunk_head is not None:
+            hunks.append(Hunk(LineNo(hunk_head[0]), LineNo(hunk_head[1]), Text(hunk_head[2]), tuple(lines)))
+        lines, hunk_head = [], None
+
+    def close_file() -> None:
+        nonlocal hunks
+        close_hunk()
+        if current:
+            shape = current.get("shape", FileShape.MODIFIED)
+            path = current.get("new") if shape is not FileShape.DELETED else current.get("old")
+            old = current.get("old") if shape is FileShape.RENAMED else None
+            files.append(FileDiff(SourcePath(path), SourcePath(old) if old else None, shape, tuple(hunks),
+                                  current.get("content", Content.TEXT), current.get("similarity")))
+        current.clear()
+        hunks = []
+
+    for line in text.split("\n"):
+        if line.startswith("diff --git "):
+            close_file()
+            a, _, b = line[len("diff --git "):].partition(" b/")
+            current.update(old=a.removeprefix("a/"), new=b)
+        elif hunk_head is None and line.startswith("new file mode"):
+            current["shape"] = FileShape.ADDED
+        elif hunk_head is None and line.startswith("deleted file mode"):
+            current["shape"] = FileShape.DELETED
+        elif hunk_head is None and line.startswith("rename from "):
+            current.update(shape=FileShape.RENAMED, old=line[len("rename from "):])
+        elif hunk_head is None and line.startswith("rename to "):
+            current["new"] = line[len("rename to "):]
+        elif hunk_head is None and line.startswith("similarity index "):
+            current["similarity"] = LineNo(int(line[len("similarity index "):].rstrip("%") or 0))
+        elif line.startswith("Binary files "):
+            current["content"] = Content.BINARY
+        elif (m := _HUNK.match(line)) is not None:
+            close_hunk()
+            old_no, new_no = int(m.group(1)), int(m.group(2))
+            hunk_head = (old_no, new_no, m.group(3))
+        elif hunk_head is not None and line[:1] in (" ", "+", "-"):
+            kind = DiffLineKind(line[0])
+            lines.append(DiffLine(kind, Text(line[1:]), LineNo(old_no) if kind is not DiffLineKind.ADDED else None,
+                                  LineNo(new_no) if kind is not DiffLineKind.REMOVED else None))
+            old_no += kind is not DiffLineKind.ADDED
+            new_no += kind is not DiffLineKind.REMOVED
+    close_file()
+    return tuple(sorted(files, key=lambda f: f.path))
+
+
+def added_file(path: SourcePath, text: SourceText) -> FileDiff:
+    """A new, untracked file as a diff in which every line is added."""
+    rows = text.split("\n")
+    if rows and rows[-1] == "":
+        rows.pop()
+    lines = tuple(DiffLine(DiffLineKind.ADDED, Text(r), None, LineNo(i)) for i, r in enumerate(rows, 1))
+    return FileDiff(path, None, FileShape.ADDED, (Hunk(LineNo(0), LineNo(1), Text(""), lines),) if lines else ())

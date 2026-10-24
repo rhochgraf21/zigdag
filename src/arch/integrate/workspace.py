@@ -19,10 +19,11 @@ from arch import realize
 from arch.change import DesignEdit, SourceEdit
 from arch.check import Baseline, BaselineText, Lexicon, Term
 from arch.model import codec
-from arch.model.ids import DesignPath
+from arch.model.ids import DesignPath, Text
 from arch.model.schema import Design
-from arch.realize.facts import FileChange, Facts, LineNo, Roots, Snapshot, SourcePath, SourceText, VcsLog
-from arch.realize.history import CommitWindow, NumStat, parse_numstat
+from arch.realize.facts import FileChange, FileDiff, Facts, LineNo, Roots, Snapshot, SourcePath, SourceText, VcsLog
+from arch.realize.history import CommitWindow, NumStat, UnifiedDiff, added_file, parse_diff, parse_numstat
+from arch.review.session import Reviewer, Session, SessionText
 
 Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
 
@@ -232,6 +233,42 @@ class Workspace:
             text = (self.root / name).read_text(encoding="utf-8", errors="replace")
             untracked.append(FileChange(SourcePath(name), LineNo(text.count("\n")), LineNo(0)))
         return tuple(sorted((*tracked, *untracked), key=lambda c: c.path))
+
+    def diffs(self, revision: Revision) -> tuple[FileDiff, ...]:
+        """The source files' actual changes since `revision`, renames detected, new untracked files included."""
+        roots = self.roots()
+        paths = [r or "." for r in (*roots.source, *roots.test)]
+        tracked = parse_diff(UnifiedDiff(self._git("diff", "-M", "--no-color", "--relative", "-U3", revision, "--", *paths)))
+        untracked = [added_file(SourcePath(name), (self.root / name).read_text(encoding="utf-8", errors="replace"))
+                     for name in self._git("ls-files", "--others", "--exclude-standard", "--", *paths).splitlines()]
+        return tuple(sorted((*tracked, *untracked), key=lambda d: d.path))
+
+    def _review_file(self, name: Text) -> Path:
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in name) or "review"
+        return self.root / ".arch" / "reviews" / f"{safe}.json"
+
+    def session(self, name: Text) -> Session:
+        """The local review session for `name` (a branch): verdicts and notes, kept out of git."""
+        path = self._review_file(name)
+        return Session.load(SessionText(path.read_text(encoding="utf-8")), name) if path.is_file() else Session(name)
+
+    def save_session(self, session: Session) -> None:
+        path = self._review_file(session.name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".arch-tmp")
+        tmp.write_text(session.dump(), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def reviewer(self) -> Reviewer:
+        try:
+            return Reviewer(self._git("config", "user.name").strip())
+        except NoRevision:
+            return Reviewer("")
+
+    def branch(self) -> Text:
+        """The current branch name (or the commit, when detached); names a review session."""
+        name = self._git("rev-parse", "--abbrev-ref", "HEAD").strip()
+        return Text(name if name != "HEAD" else self._git("rev-parse", "--short", "HEAD").strip())
 
     def _git_root(self) -> Path:
         return Path(self._git("rev-parse", "--show-toplevel").strip())

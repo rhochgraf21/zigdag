@@ -14,7 +14,9 @@ mcp = pytest.importorskip("arch.integrate.mcp")
 def test_every_catalog_operation_is_one_tool(tmp_path):
     srv = mcp.server(project(tmp_path).root)
     tools = anyio.run(srv.list_tools)
-    assert sorted(t.name for t in tools) == sorted(op.command.value for op in catalog.OPERATIONS)
+    offered = sorted(op.command.value for op in catalog.OPERATIONS if op.audience is catalog.Audience.ANYONE)
+    assert sorted(t.name for t in tools) == offered
+    assert "review_decide" not in offered  # agents never record verdicts
 
 
 def test_tools_run_the_same_operations_as_the_cli(tmp_path):

@@ -108,7 +108,7 @@ class Graph:
 
     def effective_policy(self, cid: ComponentId) -> Policy:
         """The combined policy of every constraint in force for `cid`."""
-        return Policy.combine(self.design.constraints[k].policy for k in self.effective_constraints(cid))
+        return Policy.combine(self.design.constraints[k].policy.for_component(cid) for k in self.effective_constraints(cid))
 
     def needs_of(self, cid: ComponentId) -> tuple[NeedId, ...]:
         for c in (cid, *self.ancestors(cid)):

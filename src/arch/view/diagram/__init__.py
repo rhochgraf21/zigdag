@@ -10,7 +10,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 
-from arch.view.diagram import dot, mermaid
+from arch.view.diagram import dot, mermaid, svg
 from arch.view.diagram.matrix import (
     MatrixView,
     ObservedMatrix,
@@ -40,6 +40,7 @@ class DiagramFormat(enum.Enum):
     MARKDOWN = "markdown"  # a fenced Mermaid block, ready to paste into a PR or a doc
     MERMAID = "mermaid"
     DOT = "dot"
+    SVG = "svg"  # laid out by arch itself: deterministic positions
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ class DiagramView:
     def to_markdown(self) -> Markdown:
         if self.format is DiagramFormat.DOT:
             return Markdown(dot.render(self.diagram))
+        if self.format is DiagramFormat.SVG:
+            return Markdown(svg.render(self.diagram))
         text = mermaid.render(self.diagram)
         return Markdown(text if self.format is DiagramFormat.MERMAID else f"```mermaid\n{text}\n```")
 
@@ -66,7 +69,7 @@ class DiagramView:
 
 
 __all__ = [
-    "Diagram", "DiagramFormat", "DiagramView", "Edge", "EdgeKind", "Edges", "EffectClass", "Mark", "MatrixView", "Node",
+    "svg", "Diagram", "DiagramFormat", "DiagramView", "Edge", "EdgeKind", "Edges", "EffectClass", "Mark", "MatrixView", "Node",
     "Observed", "ObservedMatrix", "ObservedMatrixView", "changes", "containment", "matrix_json", "matrix_text",
     "observed_matrix", "with_effects", "with_observed",
 ]

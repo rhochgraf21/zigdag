@@ -71,7 +71,11 @@ what it may use, and the criteria that prove it. arch checks the code against it
 4. **Link tests to criteria** with `@realizes("component#ACn")` from `arch`.
 5. **After changing anything:** `arch check`. Errors block; fix them, or change the design deliberately
    (with a decision entry: `arch add decision`).
-6. **Reviewing:** `arch diff <base>` shows design changes by kind; read intent first.
+6. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
+   point them at what matters with `arch review --note <item> "..."` (where you were unsure, what to
+   check). Afterwards, `arch review --feedback` lists their open change requests, blocking ones first;
+   address each one. You cannot approve items yourself.
+7. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
 
 Methods for design work:
 {methods}

@@ -172,5 +172,5 @@ def _need_fields(a: Need, b: Need) -> Iterator[FieldChange]:
 def _constraint_fields(a: Constraint, b: Constraint) -> Iterator[FieldChange]:
     yield from _compare("applies_to", ChangeClass.POLICY, a.applies_to, b.applies_to)
     if a.policy != b.policy:
-        yield FieldChange(FieldName("rule"), ChangeClass.POLICY, Text("(previous rule)"), Text("(new rule)"))
+        yield FieldChange(FieldName("rule"), ChangeClass.POLICY, a.policy.describe(), b.policy.describe())
     yield from _compare("statement", ChangeClass.PROSE, a.statement, b.statement)
