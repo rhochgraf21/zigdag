@@ -17,3 +17,4 @@ status: specified
 - AC6: A design link naming an unknown component or acceptance criterion shall be an error at the link's location.
 - AC7: Components without code shall be reported once per unbuilt subtree, at info below status contracted and as an error at or above it.
 - AC10: When a public port of a component under a port_types rule exposes a forbidden built-in at a leaf position, conformance shall report an error (bool returns aside where allowed), and an unannotated port parameter as a warning.
+- AC11: When a function declares its side effects with deal (has or pure), conformance shall report each inferred effect that no declared marker covers as an error, and dynamic code as a warning.

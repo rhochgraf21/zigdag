@@ -106,3 +106,16 @@ def test_unmapped_and_unparseable():
     f = run({**BASE, "src/stray.py": "", "src/s/shell.py": "def (:\n"})
     assert ("C002", "stray") in rules(f, Severity.WARNING)
     assert ("C000", "src/s/shell.py") in rules(f, Severity.ERROR)
+
+
+@realizes("arch.check.conformance#AC11")
+def test_deal_declarations_must_cover_inferred_effects():
+    code = {**BASE, "src/s/core/api.py": (
+        "import deal\nimport os\nfrom deal import has as effects\n\n"
+        "@deal.has()\ndef pure_but_reads(p):\n    return open(p).read()\n\n"
+        "@effects('read')\ndef declared_read(p):\n    return open(p).read()\n\n"
+        "@deal.pure\ndef pure_env():\n    return os.environ\n\n"
+        "@deal.has('io')\ndef helper_user(p):\n    return pure_but_reads(p)\n")}
+    found = {f.key: f.severity.value for f in run(code) if f.rule == "C012"}
+    assert found == {"declared:s.core.api.pure_but_reads:fs.read": "error",
+                     "declared:s.core.api.pure_env:env": "error"}

@@ -82,8 +82,10 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
             symbols.append(PublicSymbol(unit, SymbolName(qual), Text("value"), Text(name), at(node)))
         for dec in getattr(node, "decorator_list", ()):
             if (kind := _contract_kind(dec, deal_names)) is not None:
-                args = ", ".join(ast.unparse(a) for a in getattr(dec, "args", ())) if isinstance(dec, ast.Call) else ""
-                contracts.append(ContractDecl(unit, SymbolName(qual), Text(kind), Text(args), at(dec)))
+                call_args = dec.args if isinstance(dec, ast.Call) else []
+                args = ", ".join(ast.unparse(a) for a in call_args)
+                literals = tuple(Text(a.value) for a in call_args if isinstance(a, ast.Constant) and isinstance(a.value, str))
+                contracts.append(ContractDecl(unit, SymbolName(qual), Text(kind), Text(args), at(dec), literals))
             for target in _realizes_targets(dec):
                 links.append(DesignLink(unit, SymbolName(qual), Text(target), at(dec)))
 

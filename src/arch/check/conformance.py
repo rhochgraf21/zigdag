@@ -151,6 +151,46 @@ def port_types(ctx: Context) -> Iterator[Finding]:
                                sym.location)
 
 
+# deal's side-effect markers that cover each effect arch infers (deal.readthedocs.io/basic/side-effects.html)
+_DEAL_MARKERS: dict[Effect, frozenset[str]] = {
+    Effect.FS_READ: frozenset({"read", "io"}),
+    Effect.FS_WRITE: frozenset({"write", "io"}),
+    Effect.NETWORK: frozenset({"network", "io"}),
+    Effect.STDIO: frozenset({"stdout", "stderr", "stdin", "io"}),
+    Effect.SUBPROCESS: frozenset({"syscall"}),
+    Effect.ENV: frozenset({"syscall", "global"}),
+    Effect.TIME: frozenset({"time"}),
+    Effect.RANDOM: frozenset({"random"}),
+}
+
+
+def declared_effects(ctx: Context) -> Iterator[Finding]:
+    """A `@deal.has(...)` (or `@deal.pure`) declaration must cover every effect inferred for that function."""
+    if not ctx.facts:
+        return
+    m = _mapping(ctx)
+    effects: dict[tuple[UnitName, str], list] = {}
+    for e in ctx.facts.effects:
+        effects.setdefault((e.unit, e.symbol), []).append(e)
+    for decl in ctx.facts.contracts:
+        if decl.kind not in ("has", "pure") or (cid := m.component_of.get(decl.unit)) is None:
+            continue
+        markers = frozenset(decl.literals) if decl.kind == "has" else frozenset()
+        declared = f"has({', '.join(repr(x) for x in decl.literals)})" if decl.kind == "has" else "pure"
+        for e in effects.get((decl.unit, decl.symbol), ()):
+            how = "directly" if e.reach is Reach.DIRECT else f"via {e.via}"
+            where = f"{decl.unit}.{decl.symbol}"
+            if e.effect is Effect.UNKNOWN:
+                yield _finding("C012", cid, f"declared:{where}:unknown", Severity.WARNING,
+                               f"{where} declares {declared} but uses dynamic code ({how})",
+                               "remove the dynamic code, or widen the declaration", e.location)
+            elif not _DEAL_MARKERS[e.effect] & markers:
+                yield _finding("C012", cid, f"declared:{where}:{e.effect.value}", Severity.ERROR,
+                               f"{where} declares {declared} but has effect {e.effect.value} ({how})",
+                               f"remove the effect, or declare one of: {', '.join(sorted(_DEAL_MARKERS[e.effect]))}",
+                               e.location)
+
+
 def third_party(ctx: Context) -> Iterator[Finding]:
     """Imports outside the project and the standard library must be allowed by an imports constraint."""
     g, m = ctx.graph, _mapping(ctx)
@@ -235,4 +275,5 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C008"), Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
     Rule(RuleId("C010"), Text("linked tests pass"), failing_evidence),
     Rule(RuleId("C011"), Text("public ports use domain types"), port_types),
+    Rule(RuleId("C012"), Text("declared side effects (deal) cover the inferred ones"), declared_effects),
 )

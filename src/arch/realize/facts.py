@@ -134,9 +134,10 @@ class PublicSymbol:
 class ContractDecl:
     unit: UnitName
     symbol: SymbolName
-    kind: Text  # e.g. "pre", "post", "ensure", "inv", "has", "raises"
+    kind: Text  # e.g. "pre", "post", "ensure", "inv", "has", "raises", "pure"
     expression: Text
     location: SourceLocation
+    literals: tuple[Text, ...] = ()  # string arguments, e.g. the markers of has("network", "io")
 
 
 @dataclass(frozen=True)
