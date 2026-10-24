@@ -30,6 +30,20 @@ class Capability(enum.Enum):
     LINKS = "links"  # links to design ids
 
 
+class Effect(enum.Enum):
+    """What code can do to the world beyond computing a result. `unknown`: arch could not tell."""
+
+    FS_READ = "fs.read"
+    FS_WRITE = "fs.write"
+    SUBPROCESS = "subprocess"
+    STDIO = "stdio"
+    NETWORK = "network"
+    TIME = "time"
+    RANDOM = "random"
+    ENV = "env"
+    UNKNOWN = "unknown"
+
+
 class Role(enum.Enum):
     SOURCE = "source"
     TEST = "test"  # evidence for the design; never mapped to a component
@@ -79,6 +93,28 @@ class ContractDecl:
 
 
 @dataclass(frozen=True)
+class EffectUse:
+    """`symbol` has `effect`: directly, or (direct=False) through a call to `via`."""
+
+    unit: UnitName
+    symbol: SymbolName  # "<module>" for code that runs at import
+    effect: Effect
+    direct: bool
+    location: SourceLocation
+    via: Text | None = None
+
+
+@dataclass(frozen=True)
+class Call:
+    """`symbol` calls (or passes as a callback) the dotted name `callee`, as far as the adapter resolved it."""
+
+    unit: UnitName
+    symbol: SymbolName
+    callee: Text
+    location: SourceLocation
+
+
+@dataclass(frozen=True)
 class DesignLink:
     unit: UnitName
     symbol: SymbolName
@@ -101,6 +137,8 @@ class Facts:
     contracts: tuple[ContractDecl, ...] = ()
     links: tuple[DesignLink, ...] = ()
     errors: tuple[ParseError, ...] = ()
+    effects: tuple[EffectUse, ...] = ()
+    calls: tuple[Call, ...] = ()
     _by_name: Mapping[UnitName, Unit] = field(default=None, init=False, repr=False, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -114,7 +152,7 @@ class Facts:
         parts = list(parts)
         def gather(attr: str) -> tuple:
             return tuple(sorted((x for p in parts for x in getattr(p, attr)), key=_sort_key))
-        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors")))
+        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls")))
 
 
 def _sort_key(fact: object) -> tuple:

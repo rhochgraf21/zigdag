@@ -134,6 +134,9 @@ Escalate per component, by maturity and risk; never force formal methods everywh
 
 **Effects as architecture:** `effects: none` on the core, network only in adapters, and so on, checked
 statically (with direct vs. transitive effects distinguished) and backed by deal's runtime checks.
+An effect is charged where code obtains access to an effectful API (an import such as `os`, `open`,
+the clock) and reaches every caller arch can resolve; a call on an object that was merely handed in is
+charged where that object came from. Importing a module is not using it; dynamic code is `unknown`.
 **Performance:** budgets per component, gated by benchmark regression with tolerance; Scalene used for
 *attribution*, with line-level CPU, memory and copy volume rolled up to components. arch reads reports;
 CI runs the tools.

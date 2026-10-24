@@ -62,7 +62,32 @@ def test_evidence_strictness_scales_with_maturity():
 
 @realizes("arch.check.conformance#AC5")
 def test_unanalyzed_effects_are_reported_not_passed():
-    assert ("C007", "s.core.api") in rules(run(BASE), Severity.INFO)
+    f = run({**BASE, "src/s/core/api.py": "def broken(:\n"})  # unparseable, so nothing was analyzed
+    assert ("C007", "s.core.api") in rules(f, Severity.INFO)
+    assert ("C007", "s.core.inner") not in rules(f)
+
+
+SHELL = "---\nkind: constraint\napplies_to: [s.shell]\nrule:\n  effects:\n    forbid: [network]\n  direct_effects:\n    s.shell.io: [fs.read]\n---\nShell.\n"
+
+
+@realizes("arch.check.conformance#AC2", "arch.check.conformance#AC8")
+def test_effect_constraints():
+    design = {**DESIGN, "constraints/shell.md": SHELL, "components/s/shell/io.md": component(),
+              "components/s/shell/cmd.md": component(uses="io")}
+    code = {**BASE, "src/s/shell/__init__.py": "",
+            "src/s/shell/io.py": "def load(p):\n    return open(p).read()\n",
+            "src/s/shell/cmd.py": "import socket\nfrom s.shell.io import load\n\ndef run(p):\n    print(load(p))\n\ndef ping():\n    return socket.create_connection(('x', 1))\n",
+            "src/s/core/api.py": "import os\n\ndef home():\n    return os.environ['HOME']\n",
+            "src/s/core/inner.py": "def dyn(src):\n    return eval(src)\n"}
+    got = {(f.rule, f.subject, f.key) for f in run(code, design)}
+    assert ("C008", "s.core.api", "effect:env") in got  # pure component reads the environment
+    assert ("C009", "s.core.inner", "unknown:s.core.inner.dyn") in got  # dynamic code in a pure component
+    assert ("C008", "s.shell.cmd", "effect:network") in got  # forbidden in the shell subtree
+    assert ("C008", "s.shell.cmd", "effect:stdio") in got  # direct, but only io may act directly
+    assert not any(r == "C008" and s == "s.shell.io" for r, s, _ in got)  # io reads files directly: allowed
+    assert not any(k == "effect:fs.read" and s == "s.shell.cmd" for _, s, k in got)  # reached via io: fine
+    unused = run({**code, "src/s/shell/cmd.py": "import socket\n"}, design)
+    assert not any(f.key == "effect:network" for f in unused)  # importing is not using
 
 
 def test_third_party_allowlist_and_stdlib():

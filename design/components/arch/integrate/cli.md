@@ -14,3 +14,11 @@ status: specified
 ## Rationale
 The CLI is the primary agent interface. Every agent can run shell commands, and shell commands are
 easy to show, reproduce and paste.
+
+## Decisions
+### Start from the working directory
+- Chose: `--project` defaults to the current working directory, so the CLI reads the environment.
+- Over: requiring `--project` on every command.
+- Because: running a tool from inside the project it acts on is the convention people and agents expect.
+- Consequences: env is allowed directly in the CLI only.
+- Backed by: shell-io.

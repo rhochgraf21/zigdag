@@ -14,7 +14,7 @@ from weakref import WeakKeyDictionary
 from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
 from arch.model.graph import is_within, parent_of
 from arch.model.schema import ComponentId, CriterionId, Text
-from arch.realize.facts import Capability, Facts, Role, UnitName
+from arch.realize.facts import Capability, Effect, Facts, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
 
 _maps: WeakKeyDictionary[Context, UnitMap] = WeakKeyDictionary()
@@ -143,16 +143,77 @@ def _allowed_third_party(ctx: Context, cid: ComponentId) -> tuple[str, ...] | No
     return tuple(allowed) if allowed is not None else None
 
 
+class _EffectPolicy:
+    """The effect rules in force for one component, merged from its effective constraints."""
+
+    def __init__(self, ctx: Context, cid: ComponentId):
+        self.forbid: set[str] = set()
+        self.allow: set[str] | None = None  # None: no allow-list applies
+        self.direct: dict[str, set[str]] | None = None  # component -> effects it may have directly
+        for kid in ctx.graph.effective_constraints(cid):
+            rule = ctx.graph.design.constraints[kid].rule
+            policy = json.loads(rule) if rule else {}
+            effects = policy.get("effects") or {}
+            self.forbid |= set(effects.get("forbid", []))
+            if "allow" in effects:
+                allowed = set(effects["allow"])
+                self.allow = allowed if self.allow is None else self.allow & allowed
+            if isinstance(policy.get("direct_effects"), dict):
+                self.direct = {**(self.direct or {}), **{k: set(v) for k, v in policy["direct_effects"].items()}}
+
+    @property
+    def restricted(self) -> bool:
+        return bool(self.forbid) or self.allow is not None or self.direct is not None
+
+    def problem(self, cid: ComponentId, effect: str, direct: bool) -> str | None:
+        if effect in self.forbid:
+            return "is forbidden here"
+        if self.allow is not None and effect not in self.allow:
+            return f"is not allowed here (allowed: {', '.join(sorted(self.allow)) or 'none'})"
+        if direct and self.direct is not None:
+            if not any(is_within(cid, ComponentId(k)) and effect in v for k, v in self.direct.items()):
+                holders = sorted(k for k, v in self.direct.items() if effect in v)
+                return f"may be done directly only in {', '.join(holders) or 'no component'}"
+        return None
+
+
+def effect_violations(ctx: Context) -> Iterator[Finding]:
+    """Effects (direct, or reached through calls) outside what the component's constraints allow."""
+    m = _mapping(ctx)
+    policies: dict[ComponentId, _EffectPolicy] = {}
+    seen: set[tuple[ComponentId, str, str]] = set()
+    source = _source_units(ctx)
+    for e in ctx.facts.effects if ctx.facts else ():
+        cid = m.component_of.get(e.unit)
+        if cid is None or e.unit not in source:
+            continue
+        policy = policies.setdefault(cid, _EffectPolicy(ctx, cid))
+        how = "directly" if e.direct else f"via {e.via}"
+        if e.effect is Effect.UNKNOWN:
+            if policy.restricted and (cid, "unknown", e.symbol) not in seen:
+                seen.add((cid, "unknown", e.symbol))
+                yield _finding("C009", cid, f"unknown:{e.unit}.{e.symbol}", Severity.WARNING,
+                               f"{e.unit}.{e.symbol} uses dynamic code ({how}), so its effects cannot be checked",
+                               "avoid eval/exec/dynamic imports here, or move them to a shell component", e.location)
+            continue
+        problem = policy.problem(cid, e.effect.value, e.direct)
+        if problem and (cid, e.effect.value, problem) not in seen:
+            seen.add((cid, e.effect.value, problem))
+            yield _finding("C008", cid, f"effect:{e.effect.value}", Severity.ERROR,
+                           f"{e.unit}.{e.symbol} has effect {e.effect.value} ({how}), which {problem}",
+                           "move the effect behind a shell component and pass data in, or change the constraint "
+                           "(with a decision entry)", e.location)
+
+
 def effects_unanalyzed(ctx: Context) -> Iterator[Finding]:
     g, m = ctx.graph, _mapping(ctx)
     for cid in g.ids():
         units = [ctx.facts.unit(u) for u, c in m.component_of.items() if c == cid] if ctx.facts else []
         if not units or all(Capability.EFFECTS in u.capabilities for u in units if u):
             continue
-        rules = [g.design.constraints[k] for k in g.effective_constraints(cid)]
-        if any(r.rule and "effects" in json.loads(r.rule) for r in rules):
+        if _EffectPolicy(ctx, cid).restricted:
             yield _finding("C007", cid, "effects", Severity.INFO, "effect constraints apply, but effects were not analyzed",
-                           "effects analysis for this language is not implemented yet", g[cid].location)
+                           "the adapter could not analyze effects for some of this component's code", g[cid].location)
 
 
 RULES: tuple[Rule, ...] = (
@@ -164,4 +225,5 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C005"), Text("acceptance criteria have linked evidence"), evidence),
     Rule(RuleId("C006"), Text("third-party imports are allowed by a constraint"), third_party),
     Rule(RuleId("C007"), Text("effect constraints are analyzable"), effects_unanalyzed),
+    Rule(RuleId("C008"), Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
 )

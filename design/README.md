@@ -167,7 +167,7 @@ The design rules that must settle first, since the most depends on them: `model.
 | dependency-allowlist | arch | runtime: ruamel.yaml, deal; optional extras: mcp, tree-sitter |
 | edit-loop-speed | arch | context p95 ≤ 300 ms; scoped check p95 ≤ 1 s; cold full ≤ 30 s |
 | pure-core | model, realize, check, change, view, guide | no effects at all |
-| shell-io | integrate | fs/subprocess(git)/stdio, *directly* only in workspace, cli, mcp |
+| shell-io | integrate | fs/subprocess(git)/stdio/env, *directly* only in workspace, cli (stdio, env), mcp |
 
 ## Where the decisions live
 

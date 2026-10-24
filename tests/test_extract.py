@@ -79,8 +79,8 @@ def test_design_links_carry_locations():
 def test_syntax_errors_become_facts_and_claim_nothing():
     f = facts("def broken(:\n")
     assert len(f.errors) == 1 and f.errors[0].location.line == 1
-    assert f.units[0].capabilities == frozenset()
-    assert Capability.EFFECTS not in facts().units[0].capabilities  # not analyzed yet, so not claimed
+    assert f.units[0].capabilities == frozenset()  # nothing analyzed, so nothing claimed
+    assert Capability.EFFECTS in facts().units[0].capabilities
 
 
 @realizes("arch.realize#AC1", "arch.realize.python#AC1")

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from arch.realize.facts import Adapter, Facts, Snapshot
+from dataclasses import replace
+
+from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Snapshot, Text
 from arch.realize.python import PythonAdapter
 
 BUILT_IN: tuple[Adapter, ...] = (PythonAdapter(),)
@@ -22,7 +24,46 @@ def extract(snapshot: Snapshot, extra: Sequence[Adapter] = ()) -> Facts:
             if path.endswith(adapter.suffixes) and (unit := adapter.unit_name(path, snapshot.roots)) is not None:
                 parts.append(adapter.extract(path, snapshot.files[path], unit, snapshot.roots.role_of(path)))
                 break
-    return Facts.merge(parts)
+    return propagate_effects(Facts.merge(parts))
+
+
+def propagate_effects(facts: Facts) -> Facts:
+    """Add transitive effects: a symbol has every effect of the project symbols it calls (fixed point).
+    Calls that resolve to nothing in the project (stdlib, third parties) contribute nothing here; their
+    known effects were already recorded as direct by the adapter."""
+    key = lambda unit, symbol: f"{unit}.{symbol}"  # noqa: E731
+    direct: dict[str, set[Effect]] = {}
+    for e in facts.effects:
+        direct.setdefault(key(e.unit, e.symbol), set()).add(e.effect)
+    calls: dict[str, list] = {}
+    for c in facts.calls:
+        calls.setdefault(key(c.unit, c.symbol), []).append(c)
+    defined = set(direct) | set(calls)
+
+    def targets(callee: str) -> list[str]:
+        return [t for t in (callee, f"{callee}.__init__", f"{callee}.__post_init__", f"{callee}.__call__") if t in defined]
+
+    total = {k: set(v) for k, v in direct.items()}
+    changed = True
+    while changed:
+        changed = False
+        for k, cs in calls.items():
+            have = total.setdefault(k, set())
+            for c in cs:
+                for t in targets(c.callee):
+                    new = total.get(t, set()) - have
+                    if new:
+                        have |= new
+                        changed = True
+
+    added = []
+    unit_of = {key(c.unit, c.symbol): (c.unit, c.symbol) for c in facts.calls}
+    for k, effects in sorted(total.items()):
+        for effect in sorted(effects - direct.get(k, set()), key=lambda e: e.value):
+            via = next(c for c in calls[k] for t in targets(c.callee) if effect in total.get(t, ()))
+            unit, symbol = unit_of[k]
+            added.append(EffectUse(unit, symbol, effect, False, via.location, Text(via.callee)))
+    return replace(facts, effects=tuple(sorted((*facts.effects, *added), key=lambda e: (e.location.path, e.location.line, repr(e)))))
 
 
 __all__ = ["extract"]
