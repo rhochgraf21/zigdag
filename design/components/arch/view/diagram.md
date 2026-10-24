@@ -14,6 +14,7 @@ status: specified
 - AC5: The diagram of a component's parts shall omit uses implied by other uses (transitive reduction) unless all edges are asked for, keeping exactly the same reachability.
 - AC6: When the effects overlay is on, each part shall be marked pure, effectful within its constraints, violating them, or unknown (no code or not analyzed).
 - AC7: Mermaid and Graphviz output shall be rendered from the same diagram model, and the Markdown format shall be a fenced Mermaid block.
+- AC8: When drawing a before and after pair, both sides shall be laid out over the union of their parts, with a part missing on one side drawn there as a ghost.
 
 ## Decisions
 ### Diagrams are generated views, never sources

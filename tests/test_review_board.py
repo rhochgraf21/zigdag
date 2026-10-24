@@ -52,50 +52,96 @@ diff --git a/uv.lock b/uv.lock
 """)
 
 
-def board_input(extra_ops=(), diff=DIFF):
+CONSTRAINT = "---\nkind: constraint\napplies_to: [s.core]\nrule:\n  effects:\n    allow: []\n---\nThe core is pure.\n"
+
+
+def board_input(extra_ops=(), diff=DIFF, design_after=None):
     before = codec.load({DesignPath(k): v for k, v in DESIGN.items()})
-    after = apply(before, [AddCriterion(ComponentId("s.core"), Text("When asked twice, it shall answer twice.")),
-                           *extra_ops]).after
+    base_after = codec.load({DesignPath(k): v for k, v in (design_after or DESIGN).items()})
+    after = apply(base_after, [AddCriterion(ComponentId("s.core"), Text("When asked twice, it shall answer twice.")),
+                               *extra_ops]).after
     facts = realize.extract(Snapshot({SourcePath(k): v for k, v in CODE.items()}, Roots(("src",), ("tests",))))
     diffs = (*parse_diff(diff), added_file(SourcePath("tests/test_core.py"), CODE["tests/test_core.py"]))
     return ReviewInput(Text("main"), before, after, facts, facts, check(Graph(before), facts), check(Graph(after), facts),
                        tuple(), diffs)
 
 
+def page(items, page_id):
+    return next(i for i in items if i.id == page_id)
+
+
 @realizes("arch.review#AC1", "arch.review#AC2", "arch.review.items#AC1")
-def test_items_come_in_review_order_and_code_in_build_order():
+def test_pages_come_in_review_order_and_code_in_build_order():
     items = review_items.build(board_input())
     stages = [i.stage for i in items]
-    assert stages == sorted(stages, key=list(Stage).index)
-    ids = [i.id for i in items]
-    assert ids[0] == "readiness" and "intent:component:s.core" in ids
-    both = UnifiedDiff(DIFF.replace("+    return  f(1)", "+    return f(2)"))  # now a real change in shell too
+    assert stages == sorted(stages, key=list(Stage).index) and items[0].id == "overview"
+    both = UnifiedDiff(DIFF.replace("+    return  f(1)", "+    return f(2)"))  # a real change in shell too
     order = [i.id for i in review_items.build(board_input(diff=both)) if i.stage is Stage.CODE]
     assert order == ["code:s.core", "code:s.shell"]  # core is used by shell, so it is reviewed first
-    core = next(i for i in items if i.id == "code:s.core").body
+    core = page(items, "code:s.core").body
     assert [h.diff.path for h in core.tests] == ["tests/test_core.py"] and [h.diff.path for h in core.sources] == ["src/s/core.py"]
+    assert core.realizes == "Do the thing" and core.serves == ("n",)
+
+
+@realizes("arch.review.items#AC7")
+def test_hunks_name_their_definition_and_the_criteria_it_proves():
+    core = page(review_items.build(board_input()), "code:s.core").body
     assert core.sources[0].symbols == ("f",)
-    assert "intent:component:s.core" in next(i for i in items if i.id == "code:s.core").blocked_by
+    assert core.tests[0].symbols == ("test_f",) and core.tests[0].proves == (("s.core#AC1",),)
+
+
+@realizes("arch.review.items#AC4")
+def test_needs_and_requirements_are_on_one_page():
+    new_need = "---\nkind: need\nstakeholder: Operator\n---\nAn operator can restart it.\n"
+    items = review_items.build(board_input(design_after={**DESIGN, "needs/restart.md": new_need}))
+    intent = page(items, "intent").body
+    assert [(n.need, n.change.value) for n in intent.needs] == [("restart", "added")]
+    core = next(r for r in intent.requirements if r.component == "s.core")
+    assert [(c.label, c.change.value, c.evidence) for c in core.criteria if c.change.value != "unchanged"] == [
+        ("AC2", "added", "no evidence")]
+    assert core.serves == ("n",)
+
+
+@realizes("arch.review.items#AC5", "arch.review.page#AC3", "arch.view.diagram#AC8")
+def test_architecture_is_shown_before_and_after_on_one_layout():
+    grown = {**DESIGN, "components/s/cache.md": component(serves="n"),
+             "components/s/shell.md": component(serves="n", uses="core, cache")}
+    items = review_items.build(board_input(design_after=grown))
+    arch = page(items, "architecture").body
+    panel = next(p for p in arch.panels if p.parent == "s")
+    assert "s.cache" not in {n.id for n in panel.before.nodes}
+    assert {n.id: n.mark.value for n in panel.after.nodes}["s.cache"] == "added"
+    from arch.view.diagram import svg as svg_render
+    left, right = svg_render.render_pair(panel.before, panel.after)
+    spot = lambda svg, cid: re.search(rf'data-component="{cid}"><title>[^<]*</title><rect x="([\d.]+)" y="([\d.]+)"', svg).groups()
+    assert spot(left, "s.core") == spot(right, "s.core")  # same place on both sides
+    assert 'class="node ghost" data-component="s.cache"' in left  # missing before: drawn as a ghost
+    assert any(r.component == "s.shell" and "now uses cache" in r.detail for r in arch.rewiring)
+
+
+@realizes("arch.review.items#AC6")
+def test_constraints_are_on_one_page_in_plain_words():
+    items = review_items.build(board_input(design_after={**DESIGN, "constraints/pure.md": CONSTRAINT}))
+    body = page(items, "constraints").body
+    (c,) = body.constraints
+    assert c.change.value == "added" and c.scope_after == ("s.core",) and "allows only effects: none" in c.rule_after
 
 
 @realizes("arch.review.items#AC3")
 def test_mechanical_changes_are_batched():
     items = review_items.build(board_input())
-    batch = next(i for i in items if i.stage is Stage.BATCH).body
+    batch = page(items, "batch").body
     assert {(h.diff.path, why) for h, why in batch.files} == {("uv.lock", Mechanical.GENERATED),
                                                             ("src/s/shell.py", Mechanical.FORMATTING)}
-    assert not any(i.id == "code:s.shell" for i in items)  # its only change was formatting
+    assert not any(i.id == "code:s.shell" for i in items)
 
 
 @realizes("arch.review.items#AC2")
-def test_digests_change_exactly_when_the_item_changes():
+def test_digests_change_exactly_when_the_page_changes():
     a = {i.id: i.digest for i in review_items.build(board_input())}
-    b = {i.id: i.digest for i in review_items.build(board_input())}
-    assert a == b
+    assert a == {i.id: i.digest for i in review_items.build(board_input())}
     c = {i.id: i.digest for i in review_items.build(board_input([AddCriterion(ComponentId("s.shell"), Text("It shall start."))]))}
-    assert c["code:s.core"] == a["code:s.core"]  # a change elsewhere leaves this item's approval valid
-    d = {i.id: i.digest for i in review_items.build(board_input([AddCriterion(ComponentId("s.core"), Text("It shall stop."))]))}
-    assert d["code:s.core"] != a["code:s.core"]  # a change to what the item shows invalidates it
+    assert c["batch"] == a["batch"] and c["intent"] != a["intent"]
 
 
 ME = Reviewer("me")
@@ -108,47 +154,41 @@ def verdict(item, decision, weight=Weight.BLOCKING, comment=None):
 @realizes("arch.review.session#AC1", "arch.review.session#AC2")
 def test_verdicts_go_stale_and_block_downstream():
     items = review_items.build(board_input())
-    by_id = {i.id: i for i in items}
-    intent, code = by_id["intent:component:s.core"], by_id["code:s.core"]
+    intent, code = page(items, "intent"), page(items, "code:s.core")
     s = Session(Text("branch")).decide(verdict(intent, Decision.CHANGES_REQUESTED, comment="that is a solution"))
-    assert s.state(intent, items) is ItemState.CHANGES_REQUESTED
-    assert s.state(code, items) is ItemState.BLOCKED
+    assert s.state(intent, items) is ItemState.CHANGES_REQUESTED and s.state(code, items) is ItemState.BLOCKED
     changed = review_items.build(board_input([AddCriterion(ComponentId("s.core"), Text("It shall also log."))]))
-    new_intent = next(i for i in changed if i.id == intent.id)
-    assert s.state(new_intent, changed) is ItemState.STALE and not s.open_requests(changed)
+    assert s.state(page(changed, "intent"), changed) is ItemState.STALE and not s.open_requests(changed)
 
 
 @realizes("arch.review.session#AC3")
 def test_feedback_lists_blocking_requests_first_and_round_trips():
     items = review_items.build(board_input())
-    by_id = {i.id: i for i in items}
     s = (Session(Text("branch"))
-         .decide(verdict(by_id["code:s.core"], Decision.CHANGES_REQUESTED, Weight.NIT, "rename y"))
-         .decide(verdict(by_id["intent:component:s.core"], Decision.CHANGES_REQUESTED, comment="say what, not how"))
-         .decide(verdict(by_id["readiness"], Decision.APPROVED)))
+         .decide(verdict(page(items, "code:s.core"), Decision.CHANGES_REQUESTED, Weight.NIT, "rename y"))
+         .decide(verdict(page(items, "intent"), Decision.CHANGES_REQUESTED, comment="say what, not how"))
+         .decide(verdict(page(items, "overview"), Decision.APPROVED)))
     text = Feedback(s, items).to_markdown()
     assert text.index("say what, not how") < text.index("rename y") and "[blocking, bug]" in text
-    assert Session.load(s.dump(), Text("x")) == s
-    assert Session.load("not json", Text("x")) == Session(Text("x"))
+    assert Session.load(s.dump(), Text("x")) == s and Session.load("not json", Text("x")) == Session(Text("x"))
     assert "Reviewed-by: me" in Record(s, items).to_markdown()
 
 
 @realizes("arch.review.page#AC1")
 def test_page_is_self_contained_and_escapes_content():
     items = review_items.build(board_input([AddCriterion(ComponentId("s.core"), Text("It shall render <script>x</script>."))]))
-    page = render(items, Session(Text("b")), Text("Review"))
-    assert not re.search(r'(src|href)="(https?:)?//', page)
-    assert "<script>x</script>" not in page and "&lt;script&gt;x&lt;/script&gt;" in page
-    assert all(f'id="{i.id}"' in page for i in items)
-    assert '"approved"' in page and "/api/verdict" in page
+    html = render(items, Session(Text("b")), Text("Review"))
+    assert not re.search(r'(src|href)="(https?:)?//', html)
+    assert "<script>x</script>" not in html and "&lt;script&gt;x&lt;/script&gt;" in html
+    assert all(f'id="{i.id}"' in html for i in items) and 'class="t-keyword">def</span>' in html
 
 
 @realizes("arch.review.page#AC2")
-def test_page_has_keys_for_every_action():
-    page = render(review_items.build(board_input()), Session(Text("b")), Text("Review"))
-    for key in ("'j'", "'k'", "'n'", "'a'", "'r'", "'c'"):
-        assert f"k === {key}" in page
-    assert "nextOpen()" in page.split("async function send")[1]  # approving moves on to the next open item
+def test_arrow_keys_flip_pages_and_every_action_has_a_key():
+    html = render(review_items.build(board_input()), Session(Text("b")), Text("Review"))
+    for key in ("'ArrowRight'", "'ArrowLeft'", "'a'", "'r'", "'c'", "'n'"):
+        assert f"k === {key}" in html
+    assert "decision === 'approved' ? nextOpen()" in html  # approving moves on to the next undecided page
 
 
 class FakeWorkspace:

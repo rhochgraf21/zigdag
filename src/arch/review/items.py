@@ -1,10 +1,10 @@
-"""A change divided into review items, pulled in the order a reviewer can decide them.
+"""A change as a deck of review pages, one topic per page, in the order a reviewer can decide them.
 
-Realizes arch.review.items. One item per decision a reviewer makes: is the change ready; each changed
-need, requirement or criterion; each design decision or constraint; the structural change; each breaking
-or uncertain port change; each component's code (tests first, then source, in build order); and one
-batch for mechanical changes. Every item carries a digest of exactly what it shows, so an approval stays
-valid until that item changes, and no longer.
+Realizes arch.review.items. A reviewer reasons in topics, not nodes: what changed in the needs and
+requirements; what the architecture looked like before and after; which constraints changed; which
+decisions were made; then the code, one component at a time in build order, each headed by the component
+and the requirement it realizes. Every page carries a digest of exactly what it shows, so an approval stays
+valid until that page changes, and no longer.
 """
 
 from __future__ import annotations
@@ -14,10 +14,11 @@ import hashlib
 from dataclasses import dataclass
 from typing import NewType
 
-from arch.change.diff import ChangeClass, DesignDiff, NodeChange, NodeChangeType, diff
+from arch.change.diff import ChangeClass, DesignDiff, NodeChangeType, diff
 from arch.model.graph import Graph
-from arch.model.ids import ComponentId, Text, is_within, split_criterion
-from arch.model.matrix import layer
+from arch.model.ids import ComponentId, ConstraintId, NeedId, Text, is_within, parent_of, short_name, split_criterion
+from arch.model.matrix import layer, matrix_of
+from arch.model.schema import Design, Kind
 from arch.realize.facts import (
     Compatibility,
     DiffLineKind,
@@ -31,25 +32,35 @@ from arch.realize.facts import (
 )
 from arch.realize.mapping import map_units
 from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, file_risks
-from arch.view.diagram import Diagram, changes
+from arch.view.diagram import Diagram, Edge, Mark, Node
 from arch.view.render import Count
 
 ItemId = NewType("ItemId", str)
 Digest = NewType("Digest", str)
 
 GENERATED = ("uv.lock", "poetry.lock", "Pipfile.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock")
+MAX_PANELS = 6
 
 
 class Stage(enum.Enum):
-    """In review order: each stage can be decided without the ones after it."""
+    """In review order: each page can be decided without the ones after it."""
 
-    READINESS = "readiness"
-    INTENT = "intent"
-    DESIGN = "design"
-    STRUCTURE = "structure"
-    CONTRACTS = "contracts"
+    OVERVIEW = "overview"
+    INTENT = "needs & requirements"
+    ARCHITECTURE = "architecture"
+    CONSTRAINTS = "constraints"
+    DESIGN = "design decisions"
+    INTERFACES = "interfaces"
     CODE = "code"
-    BATCH = "batch"
+    BATCH = "mechanical changes"
+
+
+class Change(enum.Enum):
+    ADDED = "added"
+    REMOVED = "removed"
+    CHANGED = "changed"
+    MOVED = "moved"
+    UNCHANGED = "unchanged"
 
 
 class Readiness(enum.Enum):
@@ -65,40 +76,131 @@ class Mechanical(enum.Enum):
     FORMATTING = "whitespace and formatting only"
 
 
+# what each page shows
+
+
 @dataclass(frozen=True)
-class ReadinessBody:
-    state: Readiness
+class Tally:
+    label: Text
+    count: Count
+
+
+@dataclass(frozen=True)
+class OverviewBody:
+    readiness: Readiness
     blocking: Count
     new_findings: tuple[Text, ...]
     failing_tests: tuple[Text, ...]
+    tallies: tuple[Tally, ...]
+    lines_added: Count
+    lines_removed: Count
 
 
 @dataclass(frozen=True)
-class NodeBody:
-    """A changed need, component or constraint, with the fields this stage is about."""
-
-    change: NodeChange
-    context: Text | None  # e.g. what the component realizes, for orientation
-
-
-@dataclass(frozen=True)
-class StructureBody:
-    diagram: Diagram
-    changes: tuple[NodeChange, ...]
+class NeedChange:
+    need: NeedId
+    change: Change
+    before: Text | None
+    after: Text | None
+    stakeholder: Text | None
 
 
 @dataclass(frozen=True)
-class PortBody:
-    change: PortChange
+class CriterionChange:
+    label: Text
+    change: Change
+    before: Text | None
+    after: Text | None
+    evidence: Text  # e.g. "passed", "no evidence"
+
+
+@dataclass(frozen=True)
+class RequirementChange:
+    component: ComponentId
+    change: Change
+    moved_from: ComponentId | None
+    before: Text | None  # what it realized
+    after: Text | None
+    serves: tuple[NeedId, ...]
+    criteria: tuple[CriterionChange, ...]
+
+
+@dataclass(frozen=True)
+class IntentBody:
+    needs: tuple[NeedChange, ...]
+    requirements: tuple[RequirementChange, ...]
+
+
+@dataclass(frozen=True)
+class Panel:
+    """One part of the system, before and after: its children and the uses between them."""
+
+    parent: ComponentId | None
+    realizes: Text | None
+    before: Diagram  # empty when the part is new
+    after: Diagram  # empty when the part was removed
+
+
+@dataclass(frozen=True)
+class Rewiring:
+    component: ComponentId
+    change: Change
+    detail: Text  # e.g. "now uses facts; no longer uses history", or "moved from x.y"
+
+
+@dataclass(frozen=True)
+class ArchitectureBody:
+    panels: tuple[Panel, ...]
+    rewiring: tuple[Rewiring, ...]
+    more: Count  # panels left out to keep the page readable
+
+
+@dataclass(frozen=True)
+class ConstraintChange:
+    constraint: ConstraintId
+    change: Change
+    scope_before: tuple[ComponentId, ...]
+    scope_after: tuple[ComponentId, ...]
+    rule_before: Text | None
+    rule_after: Text | None
+    statement: Text
+
+
+@dataclass(frozen=True)
+class ConstraintsBody:
+    constraints: tuple[ConstraintChange, ...]
+
+
+@dataclass(frozen=True)
+class DesignChange:
+    component: ComponentId
+    change: Change
+    realizes: Text
+    solution_before: Text | None
+    solution_after: Text | None
+    hides_before: Text | None
+    hides_after: Text | None
+    decisions: tuple[tuple[Text, Change, Text], ...]  # (title, change, text)
+
+
+@dataclass(frozen=True)
+class DesignBody:
+    changes: tuple[DesignChange, ...]
+
+
+@dataclass(frozen=True)
+class InterfacesBody:
+    ports: tuple[PortChange, ...]
 
 
 @dataclass(frozen=True)
 class Hunked:
-    """One file's diff, with each hunk labelled by the definition it falls in."""
+    """One file's diff, with each hunk labelled by the definition it falls in and the criteria it proves."""
 
     diff: FileDiff
     risk: FileRisk | None
     symbols: tuple[Text | None, ...]  # per hunk
+    proves: tuple[tuple[Text, ...], ...]  # per hunk: criteria linked to that definition
 
 
 @dataclass(frozen=True)
@@ -106,6 +208,7 @@ class CodeBody:
     component: ComponentId | None
     realizes: Text | None
     hides: Text | None
+    serves: tuple[NeedId, ...]
     constraints: tuple[Text, ...]
     criteria: tuple[CriterionEvidence, ...]
     tests: tuple[Hunked, ...]
@@ -117,11 +220,13 @@ class BatchBody:
     files: tuple[tuple[Hunked, Mechanical], ...]
 
 
-ItemBody = ReadinessBody | NodeBody | StructureBody | PortBody | CodeBody | BatchBody
+ItemBody = OverviewBody | IntentBody | ArchitectureBody | ConstraintsBody | DesignBody | InterfacesBody | CodeBody | BatchBody
 
 
 @dataclass(frozen=True)
 class ReviewItem:
+    """One review page."""
+
     id: ItemId
     stage: Stage
     title: Text
@@ -131,8 +236,11 @@ class ReviewItem:
 
     @property
     def digest(self) -> Digest:
-        """Changes exactly when what the item shows changes."""
+        """Changes exactly when what the page shows changes."""
         return Digest(hashlib.sha256(repr((self.title, self.body)).encode()).hexdigest()[:16])
+
+
+# building the deck
 
 
 def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
@@ -141,54 +249,208 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     source = {u.name for u in inp.facts_after.units if u.role is Role.SOURCE}
     ports = tuple(p for p in port_changes(inp.facts_before, inp.facts_after) if p.unit in source)
     risks = {r.path: r for r in file_risks(inp, after, ports)}
-    items: list[ReviewItem] = [_readiness(inp)]
-    items += _node_items(design_diff, after, Stage.INTENT, (ChangeClass.INTENT,))
-    items += _node_items(design_diff, after, Stage.DESIGN, (ChangeClass.DESIGN, ChangeClass.POLICY, ChangeClass.STATUS))
-    structure = _structure(before, after, design_diff)
-    items += [structure] if structure else []
-    items += [ReviewItem(ItemId(f"port:{p.unit}.{p.symbol}:{p.type.name.lower()}"), Stage.CONTRACTS,
-                         Text(f"{p.unit}.{p.symbol}: {p.type.value} ({p.compatibility.value})"), PortBody(p),
-                         Risk.HIGH if p.compatibility is Compatibility.BREAKING else Risk.MEDIUM)
-              for p in ports if p.compatibility is not Compatibility.COMPATIBLE]
-    items += _code_items(inp, after, design_diff, risks, {i.id for i in items})
-    return tuple(items)
+    evidence = {c.criterion: c.verdict for c in criteria_evidence(design_diff, inp.facts_after)}
+
+    pages: list[ReviewItem] = []
+    intent = _intent(design_diff, inp.before, inp.after, evidence)
+    if intent.needs or intent.requirements:
+        pages.append(ReviewItem(ItemId("intent"), Stage.INTENT,
+                                Text(f"{len(intent.needs)} needs and {len(intent.requirements)} requirements changed"),
+                                intent, Risk.HIGH))
+    arch = _architecture(design_diff, before, after)
+    if arch.panels:
+        pages.append(ReviewItem(ItemId("architecture"), Stage.ARCHITECTURE,
+                                Text(f"{len(arch.rewiring)} components added, removed, moved or rewired"), arch, Risk.HIGH))
+    constraints = _constraints(design_diff, inp.before, inp.after)
+    if constraints.constraints:
+        pages.append(ReviewItem(ItemId("constraints"), Stage.CONSTRAINTS,
+                                Text(f"{len(constraints.constraints)} constraints changed"), constraints, Risk.HIGH))
+    design = _design(design_diff, inp.before, inp.after)
+    if design.changes:
+        pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {len(design.changes)} components"),
+                                design, Risk.MEDIUM))
+    attention = tuple(p for p in ports if p.compatibility is not Compatibility.COMPATIBLE)
+    if attention:
+        breaking = sum(1 for p in attention if p.compatibility is Compatibility.BREAKING)
+        pages.append(ReviewItem(ItemId("interfaces"), Stage.INTERFACES,
+                                Text(f"{breaking} breaking and {len(attention) - breaking} uncertain interface changes"),
+                                InterfacesBody(attention), Risk.HIGH if breaking else Risk.MEDIUM))
+    upstream = tuple(p.id for p in pages)
+    pages += _code_pages(inp, after, risks, evidence, upstream)
+    overview = _overview(inp, design_diff, pages)
+    return (overview, *pages)
 
 
-def _readiness(inp: ReviewInput) -> ReviewItem:
+def _overview(inp: ReviewInput, design_diff: DesignDiff, pages: list[ReviewItem]) -> ReviewItem:
     old = {f.identity for f in inp.report_before.blocking}
     new = tuple(Text(f"{f.rule} {f.subject}: {f.message}") for f in inp.report_after.blocking if f.identity not in old)
     failing = tuple(Text(f"{r.test} ({r.verdict.value})") for r in inp.facts_after.evidence if r.verdict.fails)
-    blocking = Count(len(inp.report_after.blocking))
     state = Readiness.READY if not new and not failing else Readiness.NOT_READY
-    body = ReadinessBody(state, blocking, new, failing)
-    title = Text("Machine checks pass" if state is Readiness.READY else "Not ready: machine checks report problems")
-    return ReviewItem(ItemId("readiness"), Stage.READINESS, title, body, Risk.LOW if state is Readiness.READY else Risk.HIGH)
+
+    def count(kind: str, *types: NodeChangeType) -> Count:
+        return Count(sum(1 for c in design_diff.changes if c.kind.value == kind and c.type in types))
+
+    tallies = (
+        Tally(Text("needs added"), count("need", NodeChangeType.ADDED)),
+        Tally(Text("needs changed"), count("need", NodeChangeType.CHANGED)),
+        Tally(Text("components added"), count("component", NodeChangeType.ADDED)),
+        Tally(Text("components removed"), count("component", NodeChangeType.REMOVED)),
+        Tally(Text("components moved"), count("component", NodeChangeType.MOVED)),
+        Tally(Text("constraints changed"), count("constraint", NodeChangeType.ADDED, NodeChangeType.REMOVED, NodeChangeType.CHANGED)),
+        Tally(Text("files changed"), Count(len(inp.diffs))),
+    )
+    body = OverviewBody(state, Count(len(inp.report_after.blocking)), new, failing, tallies,
+                        Count(sum(d.added for d in inp.diffs)), Count(sum(d.removed for d in inp.diffs)))
+    title = Text("Ready for review" if state is Readiness.READY else "Not ready: machine checks report problems")
+    return ReviewItem(ItemId("overview"), Stage.OVERVIEW, title, body, Risk.LOW if state is Readiness.READY else Risk.HIGH)
 
 
-def _node_items(design_diff: DesignDiff, after: Graph, stage: Stage, classes: tuple[ChangeClass, ...]) -> list[ReviewItem]:
+_CHANGE = {NodeChangeType.ADDED: Change.ADDED, NodeChangeType.REMOVED: Change.REMOVED,
+           NodeChangeType.CHANGED: Change.CHANGED, NodeChangeType.MOVED: Change.MOVED}
+
+
+def _intent(design_diff: DesignDiff, before: Design, after: Design, evidence: dict[Text, Text]) -> IntentBody:
+    needs = []
+    for c in design_diff.changes:
+        if c.kind is not Kind.NEED:
+            continue
+        old, new = before.needs.get(NeedId(c.moved_from or c.ident)), after.needs.get(NeedId(c.ident))
+        needs.append(NeedChange(NeedId(c.ident), _CHANGE[c.type], old.statement if old else None,
+                                new.statement if new else None, (new or old).stakeholder if (new or old) else None))
+    requirements = []
+    for c in design_diff.changes:
+        if c.kind is not Kind.COMPONENT:
+            continue
+        intent_fields = [f for f in c.fields if f.change_class is ChangeClass.INTENT]
+        if c.type is NodeChangeType.CHANGED and not intent_fields:
+            continue
+        cid = ComponentId(c.ident)
+        old = before.components.get(ComponentId(c.moved_from or c.ident))
+        new = after.components.get(cid)
+        old_ac = {cr.id.partition("#")[2]: cr.text for cr in old.criteria} if old else {}
+        new_ac = {cr.id.partition("#")[2]: cr.text for cr in new.criteria} if new else {}
+        criteria = []
+        for label in sorted(set(old_ac) | set(new_ac), key=lambda s: int(s[2:]) if s[2:].isdigit() else 0):
+            a, b = old_ac.get(label), new_ac.get(label)
+            change = Change.ADDED if a is None else Change.REMOVED if b is None else Change.CHANGED if a != b else Change.UNCHANGED
+            criteria.append(CriterionChange(Text(label), change, a, b, evidence.get(Text(f"{cid}#{label}"), Text("unchanged"))))
+        requirements.append(RequirementChange(
+            cid, _CHANGE[c.type], ComponentId(c.moved_from) if c.moved_from else None,
+            old.realizes if old else None, new.realizes if new else None,
+            (new or old).serves if (new or old) else (), tuple(criteria)))
+    return IntentBody(tuple(needs), tuple(requirements))
+
+
+def _children_diagram(g: Graph, parent: ComponentId | None, marks: dict[ComponentId, Mark],
+                      edge_marks: dict[tuple[ComponentId, ComponentId], Mark]) -> Diagram:
+    if parent is not None and parent not in g:
+        return Diagram(Text(""), (), ())
+    kids = g.children(parent) if parent is not None else g.roots
+    order = matrix_of(g, parent).order if parent is not None else tuple(sorted(kids))
+    nodes = tuple(Node(k, short_name(k), g[k].realizes, g[k].status, (), marks.get(k, Mark.UNCHANGED)) for k in order)
+    entries = matrix_of(g, parent).entries if parent is not None else frozenset()
+    edges = tuple(Edge(a, b, mark=edge_marks.get((a, b), Mark.UNCHANGED)) for a, b in sorted(entries))
+    return Diagram(Text(parent or "system"), nodes, edges)
+
+
+def _architecture(design_diff: DesignDiff, before: Graph, after: Graph) -> ArchitectureBody:
+    rewiring: list[Rewiring] = []
+    parents: set[ComponentId | None] = set()
+    for c in design_diff.changes:
+        if c.kind is not Kind.COMPONENT:
+            continue
+        structural = c.type is not NodeChangeType.CHANGED or ChangeClass.STRUCTURE in c.classes
+        if not structural:
+            continue
+        cid = ComponentId(c.ident)
+        parents.add(parent_of(cid))
+        if c.moved_from:
+            parents.add(parent_of(ComponentId(c.moved_from)))
+        if c.type is NodeChangeType.ADDED and after.children(cid):
+            parents.add(cid)
+        rewiring.append(Rewiring(cid, _CHANGE[c.type], _rewiring_detail(c, before, after)))
+
+    panels = []
+    for parent in sorted(parents, key=lambda p: (p.count(".") if p else -1, p or "")):
+        old_kids = set(before.children(parent) if parent is None or parent in before else ())
+        new_kids = set(after.children(parent) if parent is None or parent in after else ())
+        if parent is None:
+            old_kids, new_kids = set(before.roots), set(after.roots)
+        old_edges = set(matrix_of(before, parent).entries) if parent is not None and parent in before else set()
+        new_edges = set(matrix_of(after, parent).entries) if parent is not None and parent in after else set()
+        rewired = {a for a, _ in old_edges ^ new_edges}
+        before_marks = {k: Mark.REMOVED for k in old_kids - new_kids} | {k: Mark.CHANGED for k in rewired & old_kids}
+        after_marks = {k: Mark.ADDED for k in new_kids - old_kids} | {k: Mark.CHANGED for k in rewired & new_kids}
+        old_d = _children_diagram(before, parent, before_marks, {e: Mark.REMOVED for e in old_edges - new_edges})
+        new_d = _children_diagram(after, parent, after_marks, {e: Mark.ADDED for e in new_edges - old_edges})
+        if not old_d.nodes and not new_d.nodes:
+            continue
+        g = after if parent is None or parent in after else before
+        panels.append(Panel(parent, g[parent].realizes if parent is not None and parent in g else None, old_d, new_d))
+    shown = tuple(panels[:MAX_PANELS])
+    return ArchitectureBody(shown, tuple(rewiring), Count(len(panels) - len(shown)))
+
+
+def _rewiring_detail(c, before: Graph, after: Graph) -> Text:
+    if c.type is NodeChangeType.MOVED:
+        return Text(f"moved from {c.moved_from}")
+    if c.type is NodeChangeType.ADDED:
+        g = after
+        uses = ", ".join(short_name(u) for u in g.uses(ComponentId(c.ident))) if c.ident in g else ""
+        return Text(f"new; uses {uses}" if uses else "new")
+    if c.type is NodeChangeType.REMOVED:
+        return Text("removed")
+    cid = ComponentId(c.ident)
+    old = {short_name(u) for u in before.uses(cid)} if cid in before else set()
+    new = {short_name(u) for u in after.uses(cid)} if cid in after else set()
+    parts = []
+    if new - old:
+        parts.append("now uses " + ", ".join(sorted(new - old)))
+    if old - new:
+        parts.append("no longer uses " + ", ".join(sorted(old - new)))
+    other = [f.field for f in c.fields if f.change_class is ChangeClass.STRUCTURE and f.field != "uses"]
+    parts += [f"{f} changed" for f in other]
+    return Text("; ".join(parts) or "rewired")
+
+
+def _constraints(design_diff: DesignDiff, before: Design, after: Design) -> ConstraintsBody:
     out = []
     for c in design_diff.changes:
-        relevant = tuple(f for f in c.fields if f.change_class in classes)
-        whole = c.type in (NodeChangeType.ADDED, NodeChangeType.REMOVED) and stage is Stage.INTENT
-        if not relevant and not whole:
+        if c.kind is not Kind.CONSTRAINT:
             continue
-        trimmed = NodeChange(c.kind, c.ident, c.type, relevant, c.moved_from)
-        context = after[ComponentId(c.ident)].realizes if c.kind.value == "component" and c.ident in after else None
-        verb = c.type.value if whole else "changed"
-        title = Text(f"{c.kind.value} {c.ident} {verb}" + (f": {', '.join(f.field for f in relevant)}" if relevant else ""))
-        risk = Risk.HIGH if stage is Stage.INTENT else Risk.MEDIUM
-        out.append(ReviewItem(ItemId(f"{stage.value}:{c.kind.value}:{c.ident}"), stage, title, NodeBody(trimmed, context), risk))
-    return out
+        old = before.constraints.get(ConstraintId(c.moved_from or c.ident))
+        new = after.constraints.get(ConstraintId(c.ident))
+        out.append(ConstraintChange(
+            ConstraintId(c.ident), _CHANGE[c.type],
+            old.applies_to if old else (), new.applies_to if new else (),
+            old.policy.describe() if old else None, new.policy.describe() if new else None,
+            (new or old).statement))
+    return ConstraintsBody(tuple(out))
 
 
-def _structure(before: Graph, after: Graph, design_diff: DesignDiff) -> ReviewItem | None:
-    diagram = changes(before, after, design_diff)
-    structural = tuple(c for c in design_diff.changes if c.kind.value == "component"
-                       and (c.type is not NodeChangeType.CHANGED or ChangeClass.STRUCTURE in c.classes))
-    if not diagram.nodes:
-        return None
-    return ReviewItem(ItemId("structure"), Stage.STRUCTURE, Text(f"Structure: {len(structural)} components rewired"),
-                      StructureBody(diagram, structural), Risk.MEDIUM)
+def _design(design_diff: DesignDiff, before: Design, after: Design) -> DesignBody:
+    out = []
+    for c in design_diff.changes:
+        if c.kind is not Kind.COMPONENT:
+            continue
+        design_fields = [f for f in c.fields if f.change_class is ChangeClass.DESIGN]
+        if c.type is NodeChangeType.CHANGED and not design_fields:
+            continue
+        if c.type is NodeChangeType.REMOVED:
+            continue
+        cid = ComponentId(c.ident)
+        old = before.components.get(ComponentId(c.moved_from or c.ident))
+        new = after.components[cid]
+        old_dec = {d.title: d.text for d in old.decisions} if old else {}
+        decisions = tuple(
+            (d.title, Change.ADDED if d.title not in old_dec else Change.CHANGED, d.text)
+            for d in new.decisions if old_dec.get(d.title) != d.text)
+        if c.type is NodeChangeType.CHANGED and not decisions and not any(
+                f.field in ("solution", "hides") for f in design_fields):
+            continue
+        out.append(DesignChange(cid, _CHANGE[c.type], new.realizes, old.solution if old else None, new.solution,
+                                old.hides if old else None, new.hides, decisions))
+    return DesignBody(tuple(out))
 
 
 def _mechanical(d: FileDiff) -> Mechanical | None:
@@ -203,19 +465,29 @@ def _mechanical(d: FileDiff) -> Mechanical | None:
     return None
 
 
-def _symbols(d: FileDiff, facts: Facts) -> tuple[Text | None, ...]:
-    """The public definition each hunk's first change falls in (nearest definition above it)."""
-    defs = sorted((s.location.line, s.name) for s in facts.symbols if s.location.path == d.path)
-    out: list[Text | None] = []
+def _hunked(d: FileDiff, facts: Facts, risk: FileRisk | None) -> Hunked:
+    """Label each hunk with the public definition its first change falls in, and the criteria that definition proves."""
+    defs = sorted((s.location.line, s.unit, s.name) for s in facts.symbols if s.location.path == d.path)
+    links: dict[tuple[str, str], list[Text]] = {}
+    for link in facts.links:
+        if link.location.path == d.path:
+            links.setdefault((link.unit, link.symbol), []).append(link.target)
+    symbols: list[Text | None] = []
+    proves: list[tuple[Text, ...]] = []
     for h in d.hunks:
         first = next((l.new_line or l.old_line for l in h.lines if l.kind is not DiffLineKind.CONTEXT), h.new_start)
-        above = [name for line, name in defs if line <= (first or LineNo(0))]
-        out.append(Text(above[-1]) if above else None)
-    return tuple(out)
+        added = [l.new_line for l in h.lines if l.kind is DiffLineKind.ADDED and l.new_line is not None]
+        inside = [(unit, name) for line, unit, name in defs if added and min(added) <= line <= max(added)]
+        above = [(unit, name) for line, unit, name in defs if line <= (first or LineNo(0))]
+        label = above[-1] if above else (inside[0] if inside else None)  # a hunk starting on a decorator
+        touched = ([label] if label else []) + [x for x in inside if x != label]
+        symbols.append(Text(label[1]) if label else None)
+        proves.append(tuple(dict.fromkeys(target for x in touched for target in links.get(x, ()))))
+    return Hunked(d, risk, tuple(symbols), tuple(proves))
 
 
-def _code_items(inp: ReviewInput, after: Graph, design_diff: DesignDiff, risks: dict[Text, FileRisk],
-                existing: set[ItemId]) -> list[ReviewItem]:
+def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], evidence: dict[Text, Text],
+                upstream: tuple[ItemId, ...]) -> list[ReviewItem]:
     facts = inp.facts_after
     mapping = map_units(after, facts)
     unit_of = {u.path: u for u in (*inp.facts_before.units, *facts.units)}
@@ -227,48 +499,47 @@ def _code_items(inp: ReviewInput, after: Graph, design_diff: DesignDiff, risks: 
     sources: dict[ComponentId | None, list[Hunked]] = {}
     tests: dict[ComponentId | None, list[Hunked]] = {}
     for d in inp.diffs:
-        view = Hunked(d, risks.get(Text(d.path)), _symbols(d, facts))
+        view = _hunked(d, facts, risks.get(Text(d.path)))
         if (why := _mechanical(d)) is not None:
             batch.append((view, why))
             continue
         unit = unit_of.get(d.path)
         if unit is not None and unit.role is Role.TEST:
             owners = sorted(c for c in linked.get(Text(d.path), set()) if c in after) or [None]
-            tests.setdefault(owners[0], []).append(view)  # with the first component it proves
+            tests.setdefault(owners[0], []).append(view)
             continue
-        owner = mapping.component_of.get(unit.name) if unit else None
-        sources.setdefault(owner, []).append(view)
+        sources.setdefault(mapping.component_of.get(unit.name) if unit else None, []).append(view)
 
     components = sorted({c for c in (*sources, *tests) if c is not None})
     deps = {c: [o for o in components if o != c and any(is_within(u, o) for u in after.uses(c))] for c in components}
-    order = list(layer(components, deps.__getitem__).order)  # what a component depends on comes first
-    evidence = {c.criterion: c for c in criteria_evidence(design_diff, facts)}
+    order = list(layer(components, deps.__getitem__).order)
     out = []
     for cid in [*order, None]:
         mine_src, mine_tests = tuple(sources.get(cid, ())), tuple(tests.get(cid, ()))
         if not mine_src and not mine_tests:
             continue
         if cid is None:
-            body = CodeBody(None, None, None, (), (), mine_tests, mine_src)
+            body = CodeBody(None, None, None, (), (), (), mine_tests, mine_src)
             title = Text("Code outside any component")
         else:
             c = after[cid]
             constraints = tuple(Text(f"{k}: {after.design.constraints[k].statement.split('. ')[0]}")
                                 for k in after.effective_constraints(cid))
-            crit = tuple(evidence.get(Text(cr.id), CriterionEvidence(Text(cr.id), Text("unchanged"))) for cr in c.criteria)
-            body = CodeBody(cid, c.realizes, c.hides, constraints, crit, mine_tests, mine_src)
-            title = Text(f"Code: {cid}")
+            crit = tuple(CriterionEvidence(Text(cr.id), evidence.get(Text(cr.id), Text("unchanged"))) for cr in c.criteria)
+            body = CodeBody(cid, c.realizes, c.hides, after.needs_of(cid), constraints, crit, mine_tests, mine_src)
+            title = Text(str(cid))
         files = [h for h in (*mine_src, *mine_tests) if h.risk is not None]
         risk = min((h.risk.risk for h in files), key=list(Risk).index, default=Risk.LOW)
-        blockers = tuple(i for i in (ItemId(f"intent:component:{cid}"), ItemId(f"design:component:{cid}"), ItemId("readiness"))
-                         if i in existing) if cid else (ItemId("readiness"),)
-        out.append(ReviewItem(ItemId(f"code:{cid or '(none)'}"), Stage.CODE, title, body, risk, blockers))
+        out.append(ReviewItem(ItemId(f"code:{cid or '(none)'}"), Stage.CODE, title, body, risk, upstream))
     if batch:
-        out.append(ReviewItem(ItemId("batch:mechanical"), Stage.BATCH,
-                              Text(f"{len(batch)} mechanical changes (verify at a glance)"), BatchBody(tuple(batch)), Risk.LOW,
-                              (ItemId("readiness"),)))
+        out.append(ReviewItem(ItemId("batch"), Stage.BATCH, Text(f"{len(batch)} mechanical changes"),
+                              BatchBody(tuple(batch)), Risk.LOW, upstream))
     return out
 
 
-__all__ = ["BatchBody", "CodeBody", "Digest", "Hunked", "ItemBody", "ItemId", "Mechanical", "NodeBody", "PortBody",
-           "Readiness", "ReadinessBody", "ReviewItem", "Stage", "StructureBody", "build"]
+__all__ = [
+    "ArchitectureBody", "BatchBody", "Change", "CodeBody", "ConstraintChange", "ConstraintsBody", "CriterionChange",
+    "DesignBody", "DesignChange", "Digest", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
+    "NeedChange", "OverviewBody", "Panel", "Readiness", "RequirementChange", "ReviewItem", "Rewiring", "Stage", "Tally",
+    "build",
+]

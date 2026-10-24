@@ -9,8 +9,8 @@ exports: [summary, assess, items, page, session]
 status: specified
 ---
 ## Acceptance criteria
-- AC1: When a change is reviewed, every changed need, requirement, criterion, decision, constraint, structural change, breaking or uncertain port change and changed file shall appear in exactly one review item.
-- AC2: Review items shall be ordered intent, design, structure, contracts, then code component by component in build order, so a component is reviewed after what it depends on.
+- AC1: When a change is reviewed, every changed need, requirement, criterion, decision, constraint, structural change, breaking or uncertain port change and changed file shall appear on exactly one review page.
+- AC2: Review pages shall be ordered overview, needs and requirements, architecture, constraints, design decisions, interfaces, then code component by component in build order, so a component is reviewed after what it depends on.
 
 ## Decisions
 ### Verdicts stay local; outcomes go into the design
