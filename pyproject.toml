@@ -6,6 +6,9 @@ readme = "DESIGN.md"
 requires-python = ">=3.11"
 dependencies = ["ruamel.yaml>=0.18", "deal>=4.24"]
 
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+
 [project.scripts]
 arch = "arch.integrate.cli:main"
 

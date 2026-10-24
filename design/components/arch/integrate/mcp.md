@@ -3,8 +3,8 @@ kind: component
 realizes: Offer every operation to agents as typed callable tools
 solution: An MCP server over stdio whose tools are generated from the catalog
 hides: The MCP protocol
-uses: [catalog]
-status: draft
+uses: [catalog, change.ops, model.ids, view.report]
+status: specified
 ---
 ## Acceptance criteria
 - AC1: Every catalog operation shall be exposed as exactly one tool with the same input schema.

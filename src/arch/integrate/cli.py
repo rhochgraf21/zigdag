@@ -57,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     ag.add_argument("--agent", default=agent.Product.CLAUDE_CODE.value, choices=[p.value for p in agent.Product])
     ag.add_argument("--command", default="arch", help="how hooks should invoke arch, e.g. 'uv run arch'")
     ag.add_argument("--dry-run", action="store_true", help="list the files that would be written")
+    sub.add_parser("mcp", help="Serve every operation to agents as MCP tools over stdio (needs the mcp extra)")
     hk = sub.add_parser("hook", help="Handle an agent hook event (reads the hook payload on stdin)")
     hk.add_argument("event", choices=[e.value for e in agent.HookEvent])
     i = sub.add_parser("init", help=summary[Command.INIT])
@@ -231,6 +232,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _hook(args)
     if args.cmd == "agent":
         return _install(args)
+    if args.cmd == "mcp":
+        try:
+            from arch.integrate import mcp
+        except ModuleNotFoundError:
+            print("arch: the MCP server needs the optional extra: pip install 'arch-design[mcp]'", file=sys.stderr)
+            return USAGE_ERROR
+        mcp.serve(args.project)
+        return 0
     try:
         if args.cmd == "init":
             mode = EditMode.DRY_RUN if args.dry_run else EditMode.WRITE
