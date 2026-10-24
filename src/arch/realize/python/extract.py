@@ -60,7 +60,7 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
         top = "." not in qual
         public = (name in exported) if (exported is not None and top) else not name.startswith("_")
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) and public:
-            symbols.append(PublicSymbol(unit, SymbolName(qual), *_signature(node), at(node)))
+            symbols.append(PublicSymbol(unit, SymbolName(qual), *_signature(node, qual), at(node)))
         elif isinstance(node, ast.Assign | ast.AnnAssign) and public and top and name != "__all__":
             symbols.append(PublicSymbol(unit, SymbolName(qual), Text("value"), Text(name), at(node)))
         for dec in getattr(node, "decorator_list", ()):
@@ -130,13 +130,14 @@ def _dunder_all(tree: ast.Module) -> frozenset[str] | None:
     return None
 
 
-def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> tuple[Text, Text]:
+def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef, qual: str) -> tuple[Text, Text]:
     if isinstance(node, ast.ClassDef):
         bases = ", ".join(ast.unparse(b) for b in (*node.bases, *node.keywords))
         return Text("class"), Text(f"class {node.name}({bases})" if bases else f"class {node.name}")
     returns = f" -> {ast.unparse(node.returns)}" if node.returns else ""
     prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
-    return Text("function"), Text(f"{prefix}{node.name}({ast.unparse(node.args)}){returns}")
+    kind = "method" if "." in qual else "function"
+    return Text(kind), Text(f"{prefix}{qual}({ast.unparse(node.args)}){returns}")
 
 
 def _deal_aliases(tree: ast.Module) -> tuple[frozenset[str], dict[str, str]]:

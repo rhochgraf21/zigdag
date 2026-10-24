@@ -3,7 +3,7 @@ kind: component
 realizes: Give an actor the minimal sufficient knowledge to work on a component or a source location
 solution: A context card holding the chain up to needs, realizes/solution/hides, acceptance criteria with evidence status, port signatures and contracts, effective constraints, allowed uses described only by their external specs, and open findings, trimmed by priority to a size budget
 hides: Selection and truncation policy
-uses: [model.graph, realize.facts, realize.mapping, check.engine]
+uses: [model.graph, model.matrix, model.schema, realize.facts, realize.mapping, check.engine]
 status: specified
 ---
 ## Acceptance criteria

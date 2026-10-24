@@ -25,6 +25,9 @@ def _parser() -> argparse.ArgumentParser:
     ops = {op.name: op for op in catalog.OPERATIONS}
     c = sub.add_parser("check", help=ops["check"].summary)
     c.add_argument("--all", action="store_true", help="also list info findings")
+    x = sub.add_parser("context", help=ops["context"].summary)
+    x.add_argument("target", help="component id, module, or source path (optionally path:line)")
+    x.add_argument("--budget", type=int, default=4000, help="approximate size limit in tokens")
     o = sub.add_parser("outline", help=ops["outline"].summary)
     o.add_argument("root", nargs="?", help="component id to start from")
     o.add_argument("--depth", type=int, help="levels below the root to show")
@@ -43,13 +46,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         match args.op:
             case "check":
                 result = catalog.check(ws, args.all)
+            case "context":
+                result = catalog.context(ws, args.target, args.budget)
             case "outline":
                 result = catalog.outline(ws, args.root, args.depth)
             case "matrix":
                 result = catalog.matrix(ws, args.parent)
             case "plan":
                 result = catalog.plan(ws, args.targets)
-    except (catalog.NoProject, catalog.UnknownComponent) as e:
+    except (catalog.NoProject, *catalog.UsageError) as e:
         print(f"arch: {e}", file=sys.stderr)
         return USAGE_ERROR
     except Exception as e:  # noqa: BLE001

@@ -20,11 +20,16 @@ from arch.model.graph import Graph
 from arch.model.matrix import matrix_of
 from arch.model.schema import ComponentId
 from arch.view import diagram
+from arch.view.context import DEFAULT_BUDGET_TOKENS, UnknownTarget
+from arch.view.context import context as make_context
 from arch.view.outline import outline as make_outline
 
 
 class UnknownComponent(Exception):
     pass
+
+
+UsageError = (UnknownComponent, UnknownTarget)
 
 
 NoProject = workspace.NoProject
@@ -85,6 +90,12 @@ def check(ws: Workspace, include_info: bool = False) -> Result:
     return Result("\n".join(lines), data, Outcome.BLOCKING if report.blocking else Outcome.OK)
 
 
+def context(ws: Workspace, target: str, budget: int = DEFAULT_BUDGET_TOKENS) -> Result:
+    g, facts = _graph(ws), ws.facts()
+    card = make_context(g, facts, run_checks(g, facts), target, budget)
+    return Result(card.to_text(), card.to_json())
+
+
 def outline(ws: Workspace, root: str | None = None, depth: int | None = None) -> Result:
     g = _graph(ws)
     o = make_outline(g, _component(g, root), depth)
@@ -114,6 +125,7 @@ def plan(ws: Workspace, targets: Sequence[str] = ()) -> Result:
 
 OPERATIONS: tuple[Operation, ...] = (
     Operation("check", "Check the design, and the code against it", False, check),
+    Operation("context", "What you need to work on a component or file: intent, port, rules, neighbours", False, context),
     Operation("outline", "Show the decomposition as an outline, in realization order", False, outline),
     Operation("matrix", "Show design matrices (rows use columns)", False, matrix),
     Operation("plan", "Show realization layers, or the impact of changing components", False, plan),

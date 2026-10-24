@@ -118,8 +118,9 @@ class Facts:
 
 
 def _sort_key(fact: object) -> tuple:
+    """Source order: path, then line as a number, then content for ties."""
     loc = getattr(fact, "location", None)
-    return (str(loc) if loc else getattr(fact, "path", ""), repr(fact))
+    return (loc.path, loc.line, repr(fact)) if loc else (getattr(fact, "path", ""), 0, repr(fact))
 
 
 @dataclass(frozen=True)
