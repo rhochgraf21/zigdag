@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Show what a change to some components affects, and which work can proceed in parallel and in what order
-solution: The reverse-uses closure of the targets gives impact; realization layers from the design matrix, restricted to that closure, give order and parallelism
+solution: Impact from the parts that use the targets, and build order from the design matrix
 hides: Impact and scheduling algorithms
 uses: [model.matrix, model.graph, model.ids]
 status: specified

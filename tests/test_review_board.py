@@ -18,8 +18,8 @@ from arch.realize.facts import Roots, Snapshot, SourcePath
 from arch.realize.history import UnifiedDiff, added_file, parse_diff
 from arch.review import items as review_items
 from arch.review.assess import ReviewInput
-from arch.review.items import Mechanical, Stage
-from arch.review.page import Board, render
+from arch.review.items import Glossary, Mechanical, Stage
+from arch.review.page import Board, Editor, ProjectRoot, render
 from arch.review.session import Category, Decision, Feedback, ItemState, Record, Reviewer, Session, Verdict, Weight
 from tests.conftest import NEED, component
 
@@ -68,6 +68,13 @@ def board_input(extra_ops=(), diff=DIFF, design_after=None):
 
 def page(items, page_id):
     return next(i for i in items if i.id == page_id)
+
+
+def deck(inp=None):
+    """Pages and the glossary that explains their ids."""
+    inp = inp or board_input()
+    items = review_items.build(inp)
+    return items, Glossary.of(inp.after, items, Text("design"))
 
 
 @realizes("arch.review#AC1", "arch.review#AC2", "arch.review.items#AC1")
@@ -124,7 +131,7 @@ def test_constraints_are_on_one_page_in_plain_words():
     items = review_items.build(board_input(design_after={**DESIGN, "constraints/pure.md": CONSTRAINT}))
     body = page(items, "constraints").body
     (c,) = body.constraints
-    assert c.change.value == "added" and c.scope_after == ("s.core",) and "allows only effects: none" in c.rule_after
+    assert c.change.value == "added" and c.scope_after == ("s.core",) and "Code must have no effects." in c.rule_after
 
 
 @realizes("arch.review.items#AC3")
@@ -176,8 +183,8 @@ def test_feedback_lists_blocking_requests_first_and_round_trips():
 
 @realizes("arch.review.page#AC1")
 def test_page_is_self_contained_and_escapes_content():
-    items = review_items.build(board_input([AddCriterion(ComponentId("s.core"), Text("It shall render <script>x</script>."))]))
-    html = render(items, Session(Text("b")), Text("Review"))
+    items, glossary = deck(board_input([AddCriterion(ComponentId("s.core"), Text("It shall render <script>x</script>."))]))
+    html = render(items, Session(Text("b")), Text("Review"), glossary)
     assert not re.search(r'(src|href)="(https?:)?//', html)
     assert "<script>x</script>" not in html and "&lt;script&gt;x&lt;/script&gt;" in html
     assert all(f'id="{i.id}"' in html for i in items) and 'class="t-keyword">def</span>' in html
@@ -185,7 +192,7 @@ def test_page_is_self_contained_and_escapes_content():
 
 @realizes("arch.review.page#AC2")
 def test_arrow_keys_flip_pages_and_every_action_has_a_key():
-    html = render(review_items.build(board_input()), Session(Text("b")), Text("Review"))
+    html = render(*deck()[:1], Session(Text("b")), Text("Review"), deck()[1])
     for key in ("'ArrowRight'", "'ArrowLeft'", "'a'", "'r'", "'c'", "'n'"):
         assert f"k === {key}" in html
     assert "decision === 'approved' ? nextOpen()" in html  # approving moves on to the next undecided page
@@ -212,7 +219,8 @@ class FakeWorkspace:
 def test_server_binds_loopback_and_refuses_foreign_writes():
     from arch.integrate import server
 
-    board = Board(review_items.build(board_input()), Session(Text("b")), Text("Review"))
+    items, glossary = deck()
+    board = Board(items, Session(Text("b")), Text("Review"), glossary)
     reviewing = server.Reviewing.__new__(server.Reviewing)
     reviewing.ws, reviewing.base, reviewing.board = FakeWorkspace(board), "HEAD", board
     try:
@@ -244,3 +252,36 @@ def test_server_binds_loopback_and_refuses_foreign_writes():
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+@realizes("arch.review.page#AC4")
+def test_every_id_explains_itself_on_hover_and_links_somewhere():
+    items, glossary = deck()
+    html = render(items, Session(Text("b")), Text("Review"), glossary, ProjectRoot("/repo"), Editor.VSCODE)
+    assert 'data-tip="AC1: When asked, it shall do the thing.' in html  # a criterion says what it means
+    assert '<a class="ref" href="#code:s.core" data-tip="s.core must do the thing">core</a>' in html  # to its code page
+    assert 'href="vscode://file/repo/src/s/core.py:2"' in html  # a changed line opens in the editor
+    assert 'href="vscode://file/repo/design/components/s/core.md"' in html  # and so does the design
+    assert 'href=""' not in html  # nothing links to nowhere
+    plain = render(items, Session(Text("b")), Text("Review"), glossary, ProjectRoot("/repo"), Editor.NONE)
+    assert "vscode://" not in plain
+
+
+@realizes("arch.review.page#AC5")
+def test_each_page_says_in_one_sentence_what_it_shows():
+    items, glossary = deck()
+    html = render(items, Session(Text("b")), Text("Review"), glossary)
+    leads = re.findall(r'<p class="lead">(.*?)</p>', html)
+    assert len(leads) == len(items)
+    assert all(";" not in lead and lead.count(". ") <= 2 for lead in leads)
+
+
+@realizes("arch.review.items#AC8", "arch.review.page#AC6")
+def test_the_legend_shows_only_the_colours_in_use():
+    grown = {**DESIGN, "components/s/cache.md": component(serves="n"),
+             "components/s/shell.md": component(serves="n", uses="core, cache")}
+    items, glossary = deck(board_input(design_after=grown))
+    html = render(items, Session(Text("b")), Text("Review"), glossary)
+    legend = re.search(r'<div class="legend">(.*?)</div>', html).group(1)
+    assert "Added" in legend and "Removed" not in legend
+    assert page(items, "architecture").title.startswith("2 components changed")

@@ -8,5 +8,6 @@ status: specified
 ---
 ## Acceptance criteria
 - AC1: apply shall be a pure function from (design, facts, operations) to (new design, edits, findings).
-- AC2: A batch shall be rejected if an operation's precondition fails or if it introduces new integrity findings (S000, S001, S011); findings that existed before never block an edit.
+- AC2: If an operation's precondition fails, or the batch adds new integrity findings, then the batch shall be rejected.
 - AC3: Edits shall be ordered and non-overlapping.
+- AC4: Findings that existed before a batch shall never block it.

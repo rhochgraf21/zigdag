@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Name things and places in the design, consistently for every other part of the model
-solution: Distinct id types (component, need, constraint, criterion), text and location value types, issues, and the operations on ids (parent, containment, criterion parts)
+solution: Distinct types for ids, text and locations, with the operations ids need
 hides: How ids are spelled and compared
 uses: []
 status: specified

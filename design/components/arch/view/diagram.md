@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Show structure visually, in forms that stay stable across revisions
-solution: A renderer-neutral diagram model (nested containment with the uses between siblings, transitively reduced by default; effects and observed-coupling overlays; a change diagram) rendered to Mermaid for pull requests and Markdown and to Graphviz for exports; plus design structure matrices as text
+solution: A diagram model rendered to Mermaid, Graphviz and SVG, with overlays for effects, coupling and change
 hides: Diagram construction and target formats
 uses: [render, outline, check.engine, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.history, realize.mapping, change.diff]
 status: specified
@@ -15,6 +15,7 @@ status: specified
 - AC6: When the effects overlay is on, each part shall be marked pure, effectful within its constraints, violating them, or unknown (no code or not analyzed).
 - AC7: Mermaid and Graphviz output shall be rendered from the same diagram model, and the Markdown format shall be a fenced Mermaid block.
 - AC8: When drawing a before and after pair, both sides shall be laid out over the union of their parts, with a part missing on one side drawn there as a ghost.
+- AC9: When a before and after pair has more layers than fit across a page, the layers shall run top to bottom.
 
 ## Decisions
 ### Diagrams are generated views, never sources

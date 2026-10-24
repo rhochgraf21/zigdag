@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Put arch into coding agents' edit loops without anyone having to remember to use it
-solution: Skill packages rendered from guide.method with concrete operations from the catalog, plus hook configurations that inject the context card before an edit and run a scoped check after it; one adapter per agent product, with a generic AGENTS.md fallback
+solution: Agent skills rendered from the methods, hooks that check each edit, and a generic AGENTS.md section
 hides: Agent-specific formats and hook mechanisms
 uses: [catalog, check, guide.method, model.graph, model.ids, realize.facts, realize.mapping, view.outline, view.render]
 status: specified
@@ -9,10 +9,11 @@ status: specified
 ## Acceptance criteria
 - AC1: Installing shall be idempotent, shall write only under the project's agent configuration paths, and shall list those paths before writing.
 - AC2: Hooks shall finish within the edit-loop budget, or skip with a notice rather than block the agent.
-- AC3: Every product-specific adapter shall be optional; the generic fallback shall work with any agent.
+- AC3: Every product-specific adapter shall be optional.
 - AC4: Every abstract operation a method names shall have a command spelling, and every spelled command shall exist in the CLI.
 - AC5: A hook run outside an arch project, or one that fails, shall exit quietly so it never breaks the agent.
 - AC6: After an edit, the hook shall report only blocking findings about the edited file or its component, through Claude Code's documented feedback channel (exit 2, stderr).
+- AC7: The generic AGENTS.md section shall work with any agent.
 
 ## Rationale
 The difference between a tool you have to remember and a tool that is just there. Why packaging lives

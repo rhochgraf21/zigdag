@@ -14,6 +14,7 @@ from arch.model.matrix import layer
 from arch.view.diagram.model import Diagram, EdgeKind, Mark, Node
 
 SvgText = NewType("SvgText", str)
+Address = NewType("Address", str)  # where a box links to
 
 _CHAR = 7.4  # px per character of the label font
 _PAD_X, _BOX_H, _GAP_X, _GAP_Y, _MARGIN = 14, 30, 64, 14, 12
@@ -76,13 +77,35 @@ def _box(n: Node, x: float, y: float, w: float) -> str:
             f'<text x="{x + w / 2:.1f}" y="{y + _BOX_H / 2 + 4:.1f}" text-anchor="middle">{html.escape(n.label)}</text></g>')
 
 
-_PAIR_W, _PAIR_H, _PAIR_GAP_X, _PAIR_GAP_Y = 200, 52, 56, 16
-_FR_CHARS = 30
+_PAIR_W, _PAIR_H, _PAIR_GAP_X, _PAIR_GAP_Y = 250, 74, 70, 20
+_LINE_CHARS = 34  # characters per line of the requirement inside a box
 
 
-def render_pair(before: Diagram, after: Diagram) -> tuple[SvgText, SvgText]:
+def _wrap(text: str, width: int = _LINE_CHARS, lines: int = 2) -> list[str]:
+    words, out, line = text.split(), [], ""
+    for w in words:
+        if len(line) + len(w) + 1 > width and line:
+            out.append(line)
+            line = w
+        else:
+            line = f"{line} {w}".strip()
+    out.append(line)
+    if len(out) > lines:
+        out = out[:lines]
+        out[-1] = out[-1][: width - 1].rstrip() + "…"
+    return out
+
+
+_FIT = 4  # boxes that fit across a review page
+
+
+def render_pair(before: Diagram, after: Diagram, links: dict[ComponentId, Address] | None = None) -> tuple[SvgText, SvgText]:
     """Two diagrams laid out on the same grid (over the union of their nodes and edges), so every component
-    sits in the same place in both. A node missing on one side is drawn there as a faint ghost."""
+    sits in the same place in both. A node missing on one side is drawn there as a faint ghost. `links` maps
+    a component to the address its box should open.
+
+    Layers run left to right while they fit across the page. A long chain of few-wide layers runs top to
+    bottom instead (users above what they use), so the diagram stays readable without scrolling sideways."""
     nodes = {n.id: n for n in (*before.all_nodes(), *after.all_nodes())}
     if not nodes:
         empty = SvgText('<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"></svg>')
@@ -90,44 +113,68 @@ def render_pair(before: Diagram, after: Diagram) -> tuple[SvgText, SvgText]:
     edges = {(e.source, e.target) for e in (*before.edges, *after.edges) if e.source in nodes and e.target in nodes}
     deps = {c: sorted(t for s, t in edges if s == c) for c in nodes}
     columns = layer(tuple(nodes), deps.__getitem__).layers
-    pos = {c: (_MARGIN + i * (_PAIR_W + _PAIR_GAP_X), _MARGIN + 16 + j * (_PAIR_H + _PAIR_GAP_Y))
-           for i, col in enumerate(columns) for j, c in enumerate(col)}
-    width = _MARGIN * 2 + len(columns) * (_PAIR_W + _PAIR_GAP_X) - _PAIR_GAP_X
-    height = _MARGIN * 2 + 16 + max(len(col) for col in columns) * (_PAIR_H + _PAIR_GAP_Y) - _PAIR_GAP_Y
-    return _side(before, nodes, pos, width, height), _side(after, nodes, pos, width, height)
+    widest = max(len(col) for col in columns)
+    vertical = len(columns) > _FIT and widest <= _FIT
+    step_x, step_y = _PAIR_W + _PAIR_GAP_X, _PAIR_H + _PAIR_GAP_Y
+    if vertical:
+        step_y = _PAIR_H + _PAIR_GAP_Y * 2
+        rows = list(reversed(columns))
+        pos = {c: (_MARGIN + (widest - len(row)) * step_x / 2 + j * step_x, _MARGIN + 18 + i * step_y)
+               for i, row in enumerate(rows) for j, c in enumerate(row)}
+        across, down = widest, len(rows)
+    else:
+        pos = {c: (_MARGIN + i * step_x, _MARGIN + 18 + j * step_y) for i, col in enumerate(columns) for j, c in enumerate(col)}
+        across, down = len(columns), widest
+    width = _MARGIN * 2 + across * step_x - _PAIR_GAP_X + (60 if vertical else 0)
+    height = _MARGIN * 2 + 18 + down * step_y - (step_y - _PAIR_H)
+    links = links or {}
+    return (_side(before, nodes, pos, width, height, links, vertical),
+            _side(after, nodes, pos, width, height, links, vertical))
+
+
+def _route(s: tuple[float, float], t: tuple[float, float], vertical: bool) -> str:
+    """The path of an arrow from a user's box to the box it uses."""
+    (sx, sy), (tx, ty) = s, t
+    if vertical and ty > sy:  # down to the layer below
+        x1, y1, x2, y2 = sx + _PAIR_W / 2, sy + _PAIR_H, tx + _PAIR_W / 2, ty
+        mid = (y1 + y2) / 2
+        return f"M{x1:.1f},{y1:.1f} C{x1:.1f},{mid:.1f} {x2:.1f},{mid:.1f} {x2:.1f},{y2:.1f}"
+    if vertical:  # same layer (a cycle): arc around the right
+        x1, y1, x2, y2 = sx + _PAIR_W, sy + _PAIR_H / 2, tx + _PAIR_W, ty + _PAIR_H / 2
+        return f"M{x1:.1f},{y1:.1f} C{x1 + 50:.1f},{y1 - 30:.1f} {x2 + 50:.1f},{y2 + 30:.1f} {x2:.1f},{y2:.1f}"
+    if tx < sx:
+        x1, y1, x2, y2 = sx, sy + _PAIR_H / 2, tx + _PAIR_W, ty + _PAIR_H / 2
+        mid = (x1 + x2) / 2
+        return f"M{x1:.1f},{y1:.1f} C{mid:.1f},{y1:.1f} {mid:.1f},{y2:.1f} {x2:.1f},{y2:.1f}"
+    x1, y1, x2, y2 = sx + _PAIR_W / 2, sy, tx + _PAIR_W / 2, ty  # same column: arc around the top
+    return f"M{x1:.1f},{y1:.1f} C{x1 + 50:.1f},{min(sy, ty) - 30:.1f} {x2 + 50:.1f},{min(sy, ty) - 30:.1f} {x2:.1f},{y2:.1f}"
 
 
 def _side(d: Diagram, union: dict[ComponentId, Node], pos: dict[ComponentId, tuple[float, float]],
-          width: float, height: float) -> SvgText:
+          width: float, height: float, links: dict[ComponentId, Address], vertical: bool) -> SvgText:
     present = {n.id: n for n in d.all_nodes()}
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" class="arch-diagram pair" viewBox="0 0 {width:.0f} {height:.0f}" '
              f'width="{width:.0f}" height="{height:.0f}" role="img" aria-label="{html.escape(d.title)}">',
-             '<defs><marker id="arrow-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" '
+             '<defs><marker id="arrow-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" '
              'orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>']
     for e in d.edges:
         if e.source not in pos or e.target not in pos:
             continue
-        (sx, sy), (tx, ty) = pos[e.source], pos[e.target]
-        if tx < sx:
-            x1, y1, x2, y2 = sx, sy + _PAIR_H / 2, tx + _PAIR_W, ty + _PAIR_H / 2
-            mid = (x1 + x2) / 2
-            path = f"M{x1:.1f},{y1:.1f} C{mid:.1f},{y1:.1f} {mid:.1f},{y2:.1f} {x2:.1f},{y2:.1f}"
-        else:  # same column: arc around the top
-            x1, y1, x2, y2 = sx + _PAIR_W / 2, sy, tx + _PAIR_W / 2, ty
-            path = f"M{x1:.1f},{y1:.1f} C{x1 + 40:.1f},{min(sy, ty) - 26:.1f} {x2 + 40:.1f},{min(sy, ty) - 26:.1f} {x2:.1f},{y2:.1f}"
         mark = f" {e.mark.value}" if e.mark is not Mark.UNCHANGED else ""
-        parts.append(f'<path d="{path}" class="edge{mark}" marker-end="url(#arrow-p)"><title>{html.escape(e.source)} uses '
-                     f'{html.escape(e.target)}</title></path>')
+        parts.append(f'<path d="{_route(pos[e.source], pos[e.target], vertical)}" class="edge{mark}" marker-end="url(#arrow-p)">'
+                     f'<title>{html.escape(e.source)} uses {html.escape(e.target)}</title></path>')
     for c, (x, y) in sorted(pos.items()):
         n = present.get(c)
         ghost = n is None
         node = n or union[c]
         classes = ["node", "ghost" if ghost else "", node.mark.value if not ghost and node.mark is not Mark.UNCHANGED else ""]
-        fr = node.realizes if len(node.realizes) <= _FR_CHARS else node.realizes[: _FR_CHARS - 1] + "…"
-        parts.append(f'<g class="{" ".join(x for x in classes if x)}" data-component="{html.escape(c)}">'
-                     f'<title>{html.escape(c)}: {html.escape(node.realizes)}</title>'
-                     f'<rect x="{x}" y="{y}" width="{_PAIR_W}" height="{_PAIR_H}" rx="9"/>'
-                     f'<text class="name" x="{x + 12}" y="{y + 21}">{html.escape(node.label)}</text>'
-                     f'<text class="fr" x="{x + 12}" y="{y + 39}">{html.escape(fr)}</text></g>')
+        lines = "".join(f'<text class="fr" x="{x + 14:.1f}" y="{y + 44 + 16 * i:.1f}">{html.escape(line)}</text>'
+                        for i, line in enumerate(_wrap(node.realizes)))
+        box = (f'<g class="{" ".join(x for x in classes if x)}" data-component="{html.escape(c)}">'
+               f'<title>{html.escape(c)}: {html.escape(node.realizes)}</title>'
+               f'<rect x="{x:.1f}" y="{y:.1f}" width="{_PAIR_W}" height="{_PAIR_H}" rx="10"/>'
+               f'<text class="name" x="{x + 14:.1f}" y="{y + 24:.1f}">{html.escape(node.label)}</text>{lines}</g>')
+        href = links.get(c)
+        parts.append(f'<a href="{html.escape(href)}">{box}</a>' if href and not ghost else box)
     parts.append("</svg>")
     return SvgText("".join(parts))

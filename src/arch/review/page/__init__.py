@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import NewType
 
 from arch.model.ids import Text
-from arch.review.items import ReviewItem
+from arch.review.items import Glossary, ReviewItem
 from arch.review.page import style
-from arch.review.page.render import page_html
+from arch.review.page.render import Editor, ProjectRoot, Refs, page_html
 from arch.review.session import Category, Decision, ItemState, Session, Weight
 from arch.view.render import Count, JsonValue, Markdown
 
@@ -39,8 +39,11 @@ def _verdict(session: Session, item: ReviewItem) -> JsonValue:
     return {"decision": v.decision.value, "comment": v.comment, "category": v.category.value, "weight": v.weight.value}
 
 
-def render(items: tuple[ReviewItem, ...], session: Session, title: Text) -> HtmlText:
-    pages = "\n".join(page_html(i, Count(n), Count(len(items)), session.notes.get(i.id)) for n, i in enumerate(items, 1))
+def render(items: tuple[ReviewItem, ...], session: Session, title: Text, glossary: Glossary,
+           root: ProjectRoot = ProjectRoot(""), editor: Editor = Editor.VSCODE) -> HtmlText:
+    refs = Refs(glossary, root, editor, frozenset(i.id for i in items))
+    pages = "\n".join(page_html(i, Count(n), Count(len(items)), session.notes.get(i.id), refs)
+                       for n, i in enumerate(items, 1))
     options = {"decisions": [d.value for d in Decision], "categories": [c.value for c in Category],
                "weights": [w.value for w in Weight], "states": [s.value for s in ItemState]}
     doc = style.TEMPLATE
@@ -58,9 +61,12 @@ class Board:
     items: tuple[ReviewItem, ...]
     session: Session
     title: Text
+    glossary: Glossary
+    root: ProjectRoot = ProjectRoot("")
+    editor: Editor = Editor.VSCODE
 
     def to_html(self) -> HtmlText:
-        return render(self.items, self.session, self.title)
+        return render(self.items, self.session, self.title, self.glossary, self.root, self.editor)
 
     def to_json(self) -> JsonValue:
         return state(self.items, self.session)
@@ -70,4 +76,4 @@ class Board:
         return Markdown(f"{self.title}: {done} of {total} pages decided")
 
 
-__all__ = ["Board", "HtmlText", "render", "state"]
+__all__ = ["Board", "Editor", "HtmlText", "ProjectRoot", "render", "state"]

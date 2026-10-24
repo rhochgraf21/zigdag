@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Present the results of checks, edits, diffs and plans to people and agents
-solution: One report type per result (findings, edit, diff, plan) that wraps the model object and renders it as Markdown or JSON with the same content
+solution: One report type per result, each rendering the same content as Markdown or JSON
 hides: Formatting of results
 uses: [render, change, check.engine, guide.next, guide.plan, model.ids]
 status: specified

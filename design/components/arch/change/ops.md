@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Express each kind of design edit as a typed operation with preconditions
-solution: A closed set of operations (add, set, remove, move, link, unlink) that serialize as JSON validated by a published schema
+solution: A closed set of typed operations that serialize as JSON and are checked against a published schema
 hides: Operation semantics and preconditions
 uses: [model.codec, model.graph, model.ids, model.schema, realize.facts]
 status: specified

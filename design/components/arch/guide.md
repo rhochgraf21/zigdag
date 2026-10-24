@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Lead actors through structured design reasoning and toward the most valuable next work
-solution: Deterministic advisors (next actions, work plans, brownfield inference) plus tool-agnostic method documents for elicitation, statement critique, zigzag decomposition, contradiction resolution and review
+solution: Deterministic advisors for next actions, work plans and drafts from code, plus written methods for design reasoning
 hides: Prioritization heuristics and method content
 serves: [sound-reasoning, low-adoption-cost, compose-at-scale]
 uses: [model, realize, check, change]

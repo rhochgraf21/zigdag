@@ -48,7 +48,7 @@ class ItemState(enum.Enum):
     CHANGES_REQUESTED = "changes requested"
     COMMENTED = "commented"
     STALE = "changed since your verdict"
-    BLOCKED = "blocked by a change request upstream"
+    BLOCKED = "waiting on a change to an earlier page"
 
 
 @dataclass(frozen=True)

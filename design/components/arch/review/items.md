@@ -1,9 +1,9 @@
 ---
 kind: component
-realizes: Divide a change into review pages, one topic per page, in an order where each can be decided without the later ones
-solution: "A deck of typed pages: an overview; all changed needs and requirements on one page; the architecture before and after, per part whose children or their uses changed; all changed constraints on one page; design decisions; breaking or uncertain interfaces; code per component in build order, headed by the component, what it realizes, the needs it serves and its criteria; one batch of mechanical changes. Each page has a stable id, a digest of what it shows, a risk, and the pages it depends on"
+realizes: Divide a change into review pages that a reviewer can decide in order
+solution: A deck of pages, one topic per page, from needs and requirements to the code of each component
 hides: How a change is cut into items and how they are ordered
-uses: [assess, change.diff, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.mapping, view.diagram, view.render]
+uses: [assess, change.diff, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.mapping, view.diagram, view.render, model.codec]
 status: specified
 ---
 ## Acceptance criteria
@@ -14,4 +14,5 @@ status: specified
 - AC5: Each part of the system whose children, or the uses between them, changed shall be shown before and after.
 - AC6: All changed constraints shall be on one page, each with its scope and its rule in plain words, before and after.
 - AC7: Each code hunk shall be labelled with the definition it falls in and the criteria that definition is linked to.
+- AC8: When a component's uses change, the after diagram shall mark that component as changed.
 

@@ -1,8 +1,8 @@
 ---
 kind: component
 realizes: Let a person review a change one decision at a time, and get their verdicts back to its author
-solution: Review items built from the design diff, port changes and code diffs, pulled in dependency order; verdicts kept per item against a hash of its content; a step-by-step page and a pull-request summary
-hides: How a change is divided into reviewable items and how verdicts follow them
+solution: Review pages built from the design diff and the code diff, with verdicts kept against each page's content
+hides: How a change is cut into review pages
 serves: [proportional-review, catch-departures, sound-reasoning]
 uses: [model, realize, check, change, view]
 exports: [summary, assess, items, page, session]

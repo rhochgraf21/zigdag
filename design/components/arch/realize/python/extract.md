@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Extract units, imports, public API, ports, contracts, effect uses and design links from Python source
-solution: A stdlib `ast` visitor; effects inferred from a table of known effect sources and propagated through the project call graph; deal decorators and `@realizes(...)` links read syntactically
+solution: A visitor over Python's syntax tree that reads imports, interfaces, contracts and links, and infers effects
 hides: AST traversal and the effect-source table
 uses: [facts]
 status: specified

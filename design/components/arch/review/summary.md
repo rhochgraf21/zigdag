@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Let a reviewer judge a change with effort proportional to its risk
-solution: A layered Markdown summary (intent, design, structure with a change diagram, port changes classified for callers, evidence, then changed files ranked by a documented risk score), each layer collapsible, sized for a pull-request comment
+solution: A Markdown summary in layers, from intent to code ranked by risk, sized for a pull-request comment
 hides: Layering and risk scoring
 uses: [change.diff, realize.facts, check.engine, view.diagram, view.render, model.graph, model.ids, model.schema, realize.history, realize.mapping, assess]
 status: specified

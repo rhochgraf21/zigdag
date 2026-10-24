@@ -18,11 +18,11 @@ import enum
 from dataclasses import dataclass
 from typing import NewType
 
-from arch.change.diff import DesignDiff
+from arch.change.diff import DesignDiff, NodeChangeType
 from arch.check.engine import Report
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, is_within, split_criterion
-from arch.model.schema import Design, Status
+from arch.model.schema import Design, Kind, Status
 from arch.realize.facts import Compatibility, Facts, FileChange, FileDiff, LineNo, PortChange, Role
 from arch.realize.history import History
 from arch.realize.mapping import map_units
@@ -72,11 +72,17 @@ class FileRisk:
 class CriterionEvidence:
     criterion: Text
     verdict: Text  # "passed", "failed", "linked, no report", "no evidence"
+    text: Text | None = None  # what the criterion says
 
 
-def criteria_evidence(design_diff: DesignDiff, facts: Facts) -> tuple[CriterionEvidence, ...]:
-    """Evidence for every criterion the change added or reworded."""
-    return _criteria(design_diff, facts)
+def criteria_evidence(design_diff: DesignDiff, after: Design, facts: Facts) -> tuple[CriterionEvidence, ...]:
+    """Evidence for every criterion the change added or reworded, including those of added components."""
+    return _criteria(design_diff, after, facts)
+
+
+def evidence_of(criterion: Text, facts: Facts) -> CriterionEvidence:
+    """What the linked tests say about one criterion."""
+    return CriterionEvidence(criterion, _verdict(criterion, facts, {r.test: r.verdict for r in facts.evidence}))
 
 
 def file_risks(inp: ReviewInput, after: Graph, ports: tuple[PortChange, ...]) -> tuple[FileRisk, ...]:
@@ -98,24 +104,24 @@ def _component_dependencies(graph: Graph, facts: Facts) -> dict[ComponentId, set
     return out
 
 
-def _criteria(design_diff: DesignDiff, facts: Facts) -> tuple[CriterionEvidence, ...]:
-    """Evidence for every criterion the change added or reworded."""
-    touched = sorted({f"{c.ident}#{f.field}" for c in design_diff.changes for f in c.fields
-                      if f.field.startswith("AC") and f.after is not None})
+def _criteria(design_diff: DesignDiff, after: Design, facts: Facts) -> tuple[CriterionEvidence, ...]:
+    reworded = {f"{c.ident}#{f.field}" for c in design_diff.changes for f in c.fields
+                if f.field.startswith("AC") and f.after is not None}
+    added = {cr.id for c in design_diff.changes if c.kind is Kind.COMPONENT and c.type is NodeChangeType.ADDED
+             and ComponentId(c.ident) in after.components for cr in after.components[ComponentId(c.ident)].criteria}
     verdicts = {r.test: r.verdict for r in facts.evidence}
-    out = []
-    for criterion in touched:
-        tests = [f"{link.unit}.{link.symbol}" for link in facts.links if link.target == criterion]
-        if not tests:
-            verdict = "no evidence"
-        elif any(t in verdicts and verdicts[t].fails for t in tests):
-            verdict = "failed"
-        elif all(t in verdicts for t in tests):
-            verdict = "passed"
-        else:
-            verdict = "linked, no report"
-        out.append(CriterionEvidence(Text(criterion), Text(verdict)))
-    return tuple(out)
+    return tuple(CriterionEvidence(Text(c), _verdict(Text(c), facts, verdicts)) for c in sorted(reworded | added))
+
+
+def _verdict(criterion: Text, facts: Facts, verdicts: dict) -> Text:
+    tests = [f"{link.unit}.{link.symbol}" for link in facts.links if link.target == criterion]
+    if not tests:
+        return Text("no evidence")
+    if any(t in verdicts and verdicts[t].fails for t in tests):
+        return Text("failed")
+    if all(t in verdicts for t in tests):
+        return Text("passed")
+    return Text("linked, no report")
 
 
 def _risks(inp: ReviewInput, after: Graph, ports: tuple[PortChange, ...]) -> list[FileRisk]:

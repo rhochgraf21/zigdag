@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Keep a reviewer's verdicts on items, and tell the author what is still to do
-solution: Verdicts (approve, request changes, comment; with category, weight and anchor) recorded against item digests in a versioned JSON session; feedback and a record rendered from it
+solution: Verdicts kept against page digests in a local JSON file, with feedback and a record for the author
 hides: How verdicts are stored and when they go stale
 uses: [items, model.ids, view.render]
 status: specified

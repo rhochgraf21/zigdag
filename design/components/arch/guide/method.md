@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Describe how to reason well at each design step, independent of any tool surface
-solution: Method documents for eliciting needs, writing solution-neutral needs and EARS requirements, zigzag decomposition with Parnas secrets, resolving coupling with TRIZ separation principles and ASIT closed-world and unification, and reviewing a design diff
+solution: Written methods for eliciting needs, writing requirements, decomposing, resolving coupling and reviewing design changes
 hides: Method content
 uses: [model.ids, model.schema]
 status: specified

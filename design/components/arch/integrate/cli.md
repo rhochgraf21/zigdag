@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Offer every operation as a shell command for humans, scripts and agents
-solution: Commands generated from the catalog, with human-readable output by default, `--json` for machines, and documented exit codes (0 ok, 1 new blocking findings, 2 usage error, 3 internal error)
+solution: Shell commands for every catalog operation, with readable output, JSON output on request, and documented exit codes
 hides: Argument parsing and terminal formatting
 uses: [agent, catalog, change.ops, mcp, model.ids, model.schema, view.report, server, review.items]
 status: specified

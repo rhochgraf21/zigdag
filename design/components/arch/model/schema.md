@@ -1,17 +1,18 @@
 ---
 kind: component
 realizes: Define the node kinds, their fields, and what makes an individual node valid
-solution: Frozen dataclasses and enums per kind (Need, Component, Constraint) with distinct id types, and a JSON Schema generated from them for editors and agents
+solution: Frozen data types for needs, components and constraints, with a JSON Schema generated from them
 hides: Field representation and per-field validation
 uses: [ids, policy]
 status: specified
 ---
 ## Acceptance criteria
-- AC1: The schema shall define exactly three node kinds (need, component, constraint); adding one requires a decision entry on this component.
+- AC1: The schema shall define exactly three node kinds: need, component and constraint.
 - AC2: When a node has an unknown field, lacks a required field, or has a malformed reference, validation shall return an issue naming the field, and shall not raise (check.engine turns issues into findings).
 - AC3: The published JSON Schema shall be generated from the types, never written by hand.
 - AC4: Acceptance criteria shall be parsed from `- ACn:` lines in the component body, each with a stable id `<component>#ACn`.
 - AC5: A component's `## Decisions` section shall be parsed into entries (title, text, labels, location), one per `### title`.
+- AC6: Adding a node kind shall require a decision entry on this component.
 
 ## Rationale
 Ids are distinct domain types (ComponentId, NeedId, ConstraintId), so a need can never be

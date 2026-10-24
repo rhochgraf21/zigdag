@@ -160,6 +160,14 @@ class NodeFile:
         self._lines.insert(last + 1, f"- {label}: {text}")
         return label
 
+    def set_criterion(self, label: CriterionLabel, text: Text) -> bool:
+        span = self._section(_CRITERIA)
+        for i in range(*span) if span else ():
+            if self._lines[i].startswith(f"- {label}:"):
+                self._lines[i] = f"- {label}: {text}"
+                return True
+        return False
+
     def remove_criterion(self, label: CriterionLabel) -> bool:
         span = self._section(_CRITERIA)
         for i in range(*span) if span else ():

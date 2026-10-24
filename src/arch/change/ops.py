@@ -39,6 +39,7 @@ class OpName(enum.Enum):
     ADD_NEED = "add_need"
     ADD_CRITERION = "add_criterion"
     REMOVE_CRITERION = "remove_criterion"
+    SET_CRITERION = "set_criterion"
     ADD_DECISION = "add_decision"
     SET = "set"
     LINK = "link"
@@ -213,6 +214,25 @@ class RemoveCriterion(Operation):
 
     def describe(self) -> Text:
         return Text(f"remove {self.component}#{self.label}")
+
+
+@dataclass(frozen=True)
+class SetCriterion(Operation):
+    """Reword an acceptance criterion; its label, and so every link to it, stays the same."""
+
+    name: ClassVar[OpName] = OpName.SET_CRITERION
+    component: ComponentId
+    label: CriterionLabel
+    text: Text
+
+    def apply_to(self, draft: Draft) -> None:
+        node = _component(draft, self.component)
+        if not node.set_criterion(self.label, self.text):
+            raise Rejected(f"{self.component} has no criterion {self.label}")
+        draft.put(Kind.COMPONENT, self.component, node)
+
+    def describe(self) -> Text:
+        return Text(f"reword {self.component}#{self.label}")
 
 
 @dataclass(frozen=True)
@@ -451,7 +471,7 @@ class Remove(Operation):
 
 
 OPERATIONS: Mapping[OpName, type[Operation]] = {
-    op.name: op for op in (AddComponent, AddNeed, AddCriterion, RemoveCriterion, AddDecision, SetField, Link, Unlink, Move, Remove)
+    op.name: op for op in (AddComponent, AddNeed, AddCriterion, RemoveCriterion, SetCriterion, AddDecision, SetField, Link, Unlink, Move, Remove)
 }
 _ENUM_FIELDS = {"status": Status, "field": Settable, "relation": Relation, "kind": Kind, "mode": Removal}
 
@@ -492,5 +512,5 @@ def from_json(raw: JsonObject) -> Operation:
 
 __all__ = [
     "AddComponent", "AddCriterion", "AddDecision", "AddNeed", "Draft", "JsonObject", "Link", "Move", "OpName",
-    "Operation", "Rejected", "Relation", "Remove", "RemoveCriterion", "Removal", "SetField", "Settable", "Unlink", "from_json",
+    "Operation", "Rejected", "Relation", "Remove", "RemoveCriterion", "Removal", "SetCriterion", "SetField", "Settable", "Unlink", "from_json",
 ]

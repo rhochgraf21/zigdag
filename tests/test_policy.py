@@ -48,4 +48,5 @@ def test_policies_describe_themselves_for_review():
     policy, _ = Policy.parse({"effects": {"forbid": ["network"], "except_in": ["a.server"]},
                               "port_types": {"forbid": ["str"], "allow_in_returns": ["bool"]}})
     text = policy.describe()
-    assert "forbids effects: network (except in a.server)" in text and "ports may not expose: str" in text
+    assert "Code must not use these effects: network.\nThis does not apply in a.server." in text
+    assert "must not take or return these bare types: str." in text and "They may return bool." in text

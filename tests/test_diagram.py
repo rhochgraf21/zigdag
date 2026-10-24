@@ -123,3 +123,19 @@ def test_cli_draws(tmp_path, capsys):
     assert main(["--project", str(tmp_path), "diagram", "--depth", "2", "--effects", "--format", "mermaid"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("flowchart LR") and "classDef effectful" in out
+
+
+@realizes("arch.view.diagram#AC9")
+def test_a_long_chain_of_parts_is_drawn_top_to_bottom():
+    from arch.view.diagram import svg
+    from arch.model.schema import Status
+    from arch.view.diagram.model import Diagram, Edge, Node
+
+    chain = [ComponentId(f"p{i}") for i in range(6)]
+    nodes = tuple(Node(c, Text(c), Text("Do the thing"), Status.SPECIFIED) for c in chain)
+    edges = tuple(Edge(a, b) for a, b in itertools.pairwise(reversed(chain)))  # p5 uses p4 ... uses p0
+    left, _ = svg.render_pair(Diagram(Text("chain"), nodes, edges), Diagram(Text("chain"), nodes, edges))
+    width, height = map(float, left.split('viewBox="0 0 ')[1].split('"')[0].split())
+    assert height > width  # six layers, one part each: top to bottom
+    spot = {c: float(left.split(f'data-component="{c}">')[1].split('y="')[1].split('"')[0]) for c in ("p0", "p5")}
+    assert spot["p5"] < spot["p0"]  # the user sits above what it uses

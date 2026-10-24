@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import enum
 import hashlib
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import NewType
 
 from arch.change.diff import ChangeClass, DesignDiff, NodeChangeType, diff
+from arch.model import codec
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, ConstraintId, NeedId, Text, is_within, parent_of, short_name, split_criterion
 from arch.model.matrix import layer, matrix_of
@@ -31,7 +33,7 @@ from arch.realize.facts import (
     port_changes,
 )
 from arch.realize.mapping import map_units
-from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, file_risks
+from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, evidence_of, file_risks
 from arch.view.diagram import Diagram, Edge, Mark, Node
 from arch.view.render import Count
 
@@ -132,6 +134,15 @@ class IntentBody:
 
 
 @dataclass(frozen=True)
+class OutsideUse:
+    """A use that leaves the drawn part, so it has no box of its own in the diagram."""
+
+    component: ComponentId
+    target: ComponentId
+    change: Change
+
+
+@dataclass(frozen=True)
 class Panel:
     """One part of the system, before and after: its children and the uses between them."""
 
@@ -139,6 +150,7 @@ class Panel:
     realizes: Text | None
     before: Diagram  # empty when the part is new
     after: Diagram  # empty when the part was removed
+    outside: tuple[OutsideUse, ...] = ()  # uses added or removed that point outside the part
 
 
 @dataclass(frozen=True)
@@ -240,6 +252,32 @@ class ReviewItem:
         return Digest(hashlib.sha256(repr((self.title, self.body)).encode()).hexdigest()[:16])
 
 
+@dataclass(frozen=True)
+class Glossary:
+    """What every id means and where it lives, so pages can explain ids on hover and link them."""
+
+    needs: Mapping[NeedId, Text]
+    components: Mapping[ComponentId, Text]  # what each must do
+    criteria: Mapping[Text, Text]  # "component#ACn" -> its text
+    constraints: Mapping[ConstraintId, Text]
+    pages: Mapping[ComponentId, ItemId]  # each component's code page, when it has one
+    files: Mapping[Text, Text]  # node id -> its design file, relative to the project root
+
+    @staticmethod
+    def of(design: Design, items: tuple[ReviewItem, ...], design_dir: Text) -> Glossary:
+        files = {Text(i): Text(f"{design_dir}/{codec.path_of(kind, i)}")
+                 for kind, nodes in ((Kind.COMPONENT, design.components), (Kind.NEED, design.needs),
+                                     (Kind.CONSTRAINT, design.constraints)) for i in nodes}
+        return Glossary(
+            needs={k: n.statement for k, n in design.needs.items()},
+            components={k: c.realizes for k, c in design.components.items()},
+            criteria={Text(cr.id): cr.text for c in design.components.values() for cr in c.criteria},
+            constraints={k: c.statement.split(". ")[0] for k, c in design.constraints.items()},
+            pages={ComponentId(i.id.removeprefix("code:")): i.id for i in items if i.stage is Stage.CODE},
+            files=files,
+        )
+
+
 # building the deck
 
 
@@ -259,7 +297,7 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     source = {u.name for u in inp.facts_after.units if u.role is Role.SOURCE}
     ports = tuple(p for p in port_changes(inp.facts_before, inp.facts_after) if p.unit in source)
     risks = {r.path: r for r in file_risks(inp, after, ports)}
-    evidence = {c.criterion: c.verdict for c in criteria_evidence(design_diff, inp.facts_after)}
+    evidence = {c.criterion: c.verdict for c in criteria_evidence(design_diff, inp.after, inp.facts_after)}
 
     pages: list[ReviewItem] = []
     intent = _intent(design_diff, inp.before, inp.after, evidence)
@@ -269,8 +307,7 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
                                 intent, Risk.HIGH))
     arch = _architecture(design_diff, before, after)
     if arch.panels:
-        pages.append(ReviewItem(ItemId("architecture"), Stage.ARCHITECTURE,
-                                Text(f"{_n(len(arch.rewiring), 'component')} added, removed, moved or rewired"), arch, Risk.HIGH))
+        pages.append(ReviewItem(ItemId("architecture"), Stage.ARCHITECTURE, _architecture_title(arch), arch, Risk.HIGH))
     constraints = _constraints(design_diff, inp.before, inp.after)
     if constraints.constraints:
         pages.append(ReviewItem(ItemId("constraints"), Stage.CONSTRAINTS,
@@ -287,7 +324,7 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
                                               (len(attention) - breaking, "uncertain interface change"))),
                                 InterfacesBody(attention), Risk.HIGH if breaking else Risk.MEDIUM))
     upstream = tuple(p.id for p in pages)
-    pages += _code_pages(inp, after, risks, evidence, upstream)
+    pages += _code_pages(inp, after, risks, upstream)
     overview = _overview(inp, design_diff, pages)
     return (overview, *pages)
 
@@ -301,14 +338,17 @@ def _overview(inp: ReviewInput, design_diff: DesignDiff, pages: list[ReviewItem]
     def count(kind: str, *types: NodeChangeType) -> Count:
         return Count(sum(1 for c in design_diff.changes if c.kind.value == kind and c.type in types))
 
+    def tally(n: Count, noun: str, verb: str) -> Tally:
+        return Tally(Text(f"{noun if n == 1 else noun + 's'} {verb}"), n)
+
     tallies = (
-        Tally(Text("needs added"), count("need", NodeChangeType.ADDED)),
-        Tally(Text("needs changed"), count("need", NodeChangeType.CHANGED)),
-        Tally(Text("components added"), count("component", NodeChangeType.ADDED)),
-        Tally(Text("components removed"), count("component", NodeChangeType.REMOVED)),
-        Tally(Text("components moved"), count("component", NodeChangeType.MOVED)),
-        Tally(Text("constraints changed"), count("constraint", NodeChangeType.ADDED, NodeChangeType.REMOVED, NodeChangeType.CHANGED)),
-        Tally(Text("files changed"), Count(len(inp.diffs))),
+        tally(count("need", NodeChangeType.ADDED), "need", "added"),
+        tally(count("need", NodeChangeType.CHANGED), "need", "changed"),
+        tally(count("component", NodeChangeType.ADDED), "component", "added"),
+        tally(count("component", NodeChangeType.REMOVED), "component", "removed"),
+        tally(count("component", NodeChangeType.MOVED), "component", "moved"),
+        tally(count("constraint", NodeChangeType.ADDED, NodeChangeType.REMOVED, NodeChangeType.CHANGED), "constraint", "changed"),
+        tally(Count(len(inp.diffs)), "file", "changed"),
     )
     body = OverviewBody(state, Count(len(inp.report_after.blocking)), new, failing, tallies,
                         Count(sum(d.added for d in inp.diffs)), Count(sum(d.removed for d in inp.diffs)))
@@ -352,6 +392,19 @@ def _intent(design_diff: DesignDiff, before: Design, after: Design, evidence: di
     return IntentBody(tuple(needs), tuple(requirements))
 
 
+def _architecture_title(arch: ArchitectureBody) -> Text:
+    """Say exactly what happened when it is one thing; otherwise count by kind."""
+    if len(arch.rewiring) == 1:
+        r = arch.rewiring[0]
+        return Text(f"{short_name(r.component)} {r.detail}")
+    counts: dict[Change, int] = {}
+    for r in arch.rewiring:
+        counts[r.change] = counts.get(r.change, 0) + 1
+    words = {Change.ADDED: "added", Change.REMOVED: "removed", Change.MOVED: "moved", Change.CHANGED: "use different parts"}
+    parts = [f"{n} {words[c]}" for c, n in sorted(counts.items(), key=lambda kv: list(Change).index(kv[0]))]
+    return Text(f"{_n(len(arch.rewiring), 'component')} changed: " + ", ".join(parts))
+
+
 def _children_diagram(g: Graph, parent: ComponentId | None, marks: dict[ComponentId, Mark],
                       edge_marks: dict[tuple[ComponentId, ComponentId], Mark]) -> Diagram:
     if parent is not None and parent not in g:
@@ -389,7 +442,8 @@ def _architecture(design_diff: DesignDiff, before: Graph, after: Graph) -> Archi
             old_kids, new_kids = set(before.roots), set(after.roots)
         old_edges = set(matrix_of(before, parent).entries) if parent is not None and parent in before else set()
         new_edges = set(matrix_of(after, parent).entries) if parent is not None and parent in after else set()
-        rewired = {a for a, _ in old_edges ^ new_edges}
+        outside = _outside_uses(before, after, old_kids | new_kids, parent)
+        rewired = {a for a, _ in old_edges ^ new_edges} | {o.component for o in outside}
         before_marks = {k: Mark.REMOVED for k in old_kids - new_kids} | {k: Mark.CHANGED for k in rewired & old_kids}
         after_marks = {k: Mark.ADDED for k in new_kids - old_kids} | {k: Mark.CHANGED for k in rewired & new_kids}
         old_d = _children_diagram(before, parent, before_marks, {e: Mark.REMOVED for e in old_edges - new_edges})
@@ -397,9 +451,21 @@ def _architecture(design_diff: DesignDiff, before: Graph, after: Graph) -> Archi
         if not old_d.nodes and not new_d.nodes:
             continue
         g = after if parent is None or parent in after else before
-        panels.append(Panel(parent, g[parent].realizes if parent is not None and parent in g else None, old_d, new_d))
+        panels.append(Panel(parent, g[parent].realizes if parent is not None and parent in g else None, old_d, new_d, outside))
     shown = tuple(panels[:MAX_PANELS])
     return ArchitectureBody(shown, tuple(rewiring), Count(len(panels) - len(shown)))
+
+
+def _outside_uses(before: Graph, after: Graph, kids: set[ComponentId], parent: ComponentId | None) -> tuple[OutsideUse, ...]:
+    def outside(g: Graph, c: ComponentId) -> set[ComponentId]:
+        return {u for u in g.uses(c) if parent is None or not is_within(u, parent)} if c in g else set()
+
+    out = []
+    for c in sorted(kids):
+        old, new = outside(before, c), outside(after, c)
+        out += [OutsideUse(c, u, Change.ADDED) for u in sorted(new - old)]
+        out += [OutsideUse(c, u, Change.REMOVED) for u in sorted(old - new)]
+    return tuple(out)
 
 
 def _rewiring_detail(c, before: Graph, after: Graph) -> Text:
@@ -497,7 +563,7 @@ def _hunked(d: FileDiff, facts: Facts, risk: FileRisk | None) -> Hunked:
     return Hunked(d, risk, tuple(symbols), tuple(proves))
 
 
-def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], evidence: dict[Text, Text],
+def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk],
                 upstream: tuple[ItemId, ...]) -> list[ReviewItem]:
     facts = inp.facts_after
     mapping = map_units(after, facts)
@@ -536,7 +602,7 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], evi
             c = after[cid]
             constraints = tuple(Text(f"{k}: {after.design.constraints[k].statement.split('. ')[0]}")
                                 for k in after.effective_constraints(cid))
-            crit = tuple(CriterionEvidence(Text(cr.id), evidence.get(Text(cr.id), Text("unchanged"))) for cr in c.criteria)
+            crit = tuple(replace(evidence_of(Text(cr.id), inp.facts_after), text=cr.text) for cr in c.criteria)
             body = CodeBody(cid, c.realizes, c.hides, after.needs_of(cid), constraints, crit, mine_tests, mine_src)
             title = Text(str(cid))
         files = [h for h in (*mine_src, *mine_tests) if h.risk is not None]
@@ -550,7 +616,7 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], evi
 
 __all__ = [
     "ArchitectureBody", "BatchBody", "Change", "CodeBody", "ConstraintChange", "ConstraintsBody", "CriterionChange",
-    "DesignBody", "DesignChange", "Digest", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
+    "DesignBody", "DesignChange", "Digest", "Glossary", "OutsideUse", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
     "NeedChange", "OverviewBody", "Panel", "Readiness", "RequirementChange", "ReviewItem", "Rewiring", "Stage", "Tally",
     "build",
 ]

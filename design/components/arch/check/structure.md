@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Detect structural defects in the design
-solution: Graph rules for dangling references, components with no path to a need, needs served by nothing, more than nine children, coupled sibling sets, stale accepted couplings, missing secrets, decision entries without a choice or reason, children whose uses exceed their parent's, constraints loosened by descendants, and child budgets exceeding the parent's
+solution: Rules over the design graph that flag broken references, untraced parts, coupling, missing secrets and loosened constraints
 hides: The structural rule set
 uses: [engine, model.graph, model.ids, model.matrix, model.schema]
 status: specified

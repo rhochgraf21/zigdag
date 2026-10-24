@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Detect defective need and requirement statements
-solution: Lexicon and pattern rules (S101 solution terms in needs, S102 vague criteria without a measure, S103 criteria without 'shall', S104 compound requirements), lexicons extensible from arch.toml, and suppressions recorded on the node
+solution: Word lists and patterns that flag defective needs and requirements, extensible per project, with suppressions recorded on the node
 hides: Lexicons and patterns
 uses: [engine, model.ids]
 status: specified

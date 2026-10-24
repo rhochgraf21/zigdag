@@ -10,6 +10,7 @@ rule:
     arch.integrate.mcp: [stdio]
     arch.integrate.server: [network]
 ---
-The shell is where effects happen, and only in three places. Other integrate components may have
-effects only transitively, by calling those three. `subprocess` is limited to running `git`; `env`
-(working directory, arguments) is read only by the CLI.
+Effects happen only in the shell, and only four parts of it cause them. Other integrate components
+have effects only by calling those four. `subprocess` runs only `git`. Only the CLI reads `env`, which
+holds the working directory and the arguments. Only the review server uses `network`, and only on the
+local machine.

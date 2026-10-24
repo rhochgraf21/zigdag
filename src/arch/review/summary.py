@@ -178,7 +178,7 @@ def review(inp: ReviewInput) -> Review:
         new_findings=new,
         fixed_findings=fixed,
         blocking=Count(len(now)),
-        criteria=criteria_evidence(design_diff, inp.facts_after),
+        criteria=criteria_evidence(design_diff, inp.after, inp.facts_after),
         files=file_risks(inp, after, ports),
     )
 

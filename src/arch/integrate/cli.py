@@ -16,7 +16,7 @@ from arch.change import ops
 from arch.integrate import agent, catalog
 from arch.integrate.agent.claude import BadSettings
 from arch.integrate.catalog import Command, ContextTarget, Depth, Revision, TokenBudget, Workspace
-from arch.model.ids import ComponentId, CriterionLabel, NeedId, Ref, Text
+from arch.model.ids import ComponentId, CriterionLabel, NeedId, Ref, Text, split_criterion
 from arch.review.items import ItemId
 from arch.model.schema import Kind, Status
 from arch.view.report import EditMode, InfoFindings
@@ -123,7 +123,8 @@ def _parser() -> argparse.ArgumentParser:
 
     s = editing("set", "Set (or --clear) a field of a component or need")
     s.add_argument("node")
-    s.add_argument("field", choices=[f.key for f in ops.Settable])
+    s.add_argument("field", choices=[*(f.key for f in ops.Settable), "text"],
+                   help="for a criterion (component#ACn), the field is 'text'")
     s.add_argument("value", nargs="?")
     s.add_argument("--clear", action="store_true")
     for name, help_text in (("link", "Add a reference to uses, exports or serves"), ("unlink", "Remove such a reference")):
@@ -165,6 +166,11 @@ def _operations(args: argparse.Namespace, ws: Workspace) -> list[ops.Operation]:
         case "add", "decision":
             optional = {k: Text(v) for k in ("over", "consequences", "previously", "backed_by") if (v := getattr(args, k))}
             return [ops.AddDecision(ComponentId(args.component), Text(args.title), Text(args.chose), Text(args.because), **optional)]
+        case "set", _ if "#" in args.node:
+            component, label = split_criterion(Text(args.node))
+            if args.field != "text" or args.value is None or label is None:
+                raise ops.Rejected("to reword a criterion: arch set component#ACn text \"...\"")
+            return [ops.SetCriterion(component, label, Text(args.value))]
         case "set", _:
             if args.clear == (args.value is not None):
                 raise ops.Rejected("give a value, or --clear")

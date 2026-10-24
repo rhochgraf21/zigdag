@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Rank the most valuable next design actions within a scope
-solution: Score open items (blocking findings, unlinked acceptance criteria, unserved needs, components below target maturity, coupled sets) by severity and closeness to needs
+solution: A score for each open problem by its severity and its closeness to a need
 hides: The ranking heuristic
 uses: [check.engine, method, model.graph, model.ids, model.schema]
 status: specified

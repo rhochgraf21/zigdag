@@ -10,9 +10,10 @@ status: specified
 ---
 ## Acceptance criteria
 - AC1: A batch of operations shall apply entirely or not at all.
-- AC2: A batch that introduces integrity errors (dangling references, invalid nodes, cycles in the hierarchy) shall be rejected with those findings; quality findings shall be reported and shall not block.
-- AC3: Applying operations shall produce file edits as data; writing them belongs to the workspace.
+- AC2: When a batch would introduce integrity errors, the change shall be rejected with those findings.
+- AC3: Applying operations shall produce file edits as data, which the workspace writes.
 - AC4: The diff between two design states shall be computable from their files alone, for example HEAD and the working tree.
+- AC5: Quality findings from a batch shall be reported without blocking it.
 
 ## Decisions
 ### Git is the transaction log

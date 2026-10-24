@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Make arch available inside the workflows where humans and agents already work
-solution: A workspace shell that owns all I/O, one operation catalog, and thin surfaces over it (CLI, MCP server, agent skills and hooks, CI recipe)
+solution: A workspace that does all input and output, one catalog of operations, and thin surfaces over the catalog
 hides: Transports, filesystem layout and environment detection
 serves: [right-context, low-adoption-cost, catch-departures]
 uses: [model, realize, check, change, view, guide, review]

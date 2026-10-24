@@ -117,12 +117,52 @@ def rules(lexicon: Lexicon = Lexicon()) -> tuple[Rule, ...]:
                                "one function per requirement: split it into two components, or make one a criterion",
                                c.location)
 
+    def readability(ctx: Context) -> Iterator[Finding]:
+        """Short, single statements: INCOSE's rules on combinators, parentheses and length, made checkable."""
+        g, design = ctx.graph, ctx.graph.design
+        for nid, need in sorted(design.needs.items()):
+            yield from _readable("need", nid, nid, need.statement, need.location, Severity.WARNING)
+        for cid in g.ids():
+            c = g[cid]
+            sev = by_maturity(c.status, draft=Severity.INFO, specified=Severity.WARNING, contracted=Severity.WARNING)
+            yield from _readable("realizes", cid, cid, c.realizes, c.location, sev)
+            yield from _readable("solution", cid, cid, c.solution, c.location, sev)
+            if c.hides:
+                yield from _readable("hides", cid, cid, c.hides, c.location, sev)
+            for cr in c.criteria:
+                yield from _readable("criterion", cid, cr.id, cr.text, cr.location, sev)
+
     return (
+        Rule(RuleId("S107"), Text("statements are short and say one thing"), readability),
         Rule(RuleId("S101"), Text("needs name outcomes, not solutions"), solution_in_needs),
         Rule(RuleId("S102"), Text("criteria are measurable"), vague_criteria),
         Rule(RuleId("S103"), Text("criteria are in EARS form"), non_ears),
         Rule(RuleId("S104"), Text("one function per requirement"), compound_requirements),
     )
+
+
+# Word limits per kind of statement; criteria may be longer because EARS adds a trigger clause.
+WORD_LIMITS: dict[str, int] = {"need": 30, "realizes": 20, "solution": 25, "hides": 12, "criterion": 40}
+
+
+def _readable(kind: str, subject: str, key: str, text: str, location, severity: Severity) -> Iterator[Finding]:
+    words = len(text.split())
+    limit = WORD_LIMITS[kind]
+    what = {"realizes": "what it must do", "criterion": key.partition("#")[2] or key}.get(kind, kind)
+    if words > limit:
+        yield _finding("S107", subject, f"long:{key}:{kind}", severity,
+                       f"{what} has {words} words (limit {limit})", "say one thing, in plain words; move detail into criteria",
+                       location)
+    if ";" in text:
+        yield _finding("S108", subject, f"semicolon:{key}:{kind}", severity, f"{what} joins statements with a semicolon",
+                       "write one statement; split the rest out", location)
+    if "(" in text and kind != "criterion":
+        yield _finding("S108", subject, f"parenthesis:{key}:{kind}", severity, f"{what} has a parenthetical",
+                       "say it plainly, or leave it out", location)
+    sentences = [s for s in text.replace("e.g.", "eg").split(". ") if s.strip()]
+    if len(sentences) > 1 and kind in ("realizes", "solution", "hides"):
+        yield _finding("S108", subject, f"sentences:{key}:{kind}", severity, f"{what} has {len(sentences)} sentences",
+                       "one statement only; put the rest in the rationale", location)
 
 
 RULES: tuple[Rule, ...] = rules()

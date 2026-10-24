@@ -278,27 +278,34 @@ class Policy:
         )
 
     def describe(self) -> Text:
-        """The policy in plain words, one rule per line, for people reviewing a change to it."""
+        """The policy in plain words, one short sentence per line, for people reviewing a change to it."""
         names = lambda xs: ", ".join(sorted(str(x.value if isinstance(x, enum.Enum) else x) for x in xs))  # noqa: E731
         lines = []
         if self.effects.forbid:
-            lines.append(f"forbids effects: {names(self.effects.forbid)}"
-                         + (f" (except in {names(self.effects.exempt)})" if self.effects.exempt else ""))
+            lines.append(f"Code must not use these effects: {names(self.effects.forbid)}.")
+            if self.effects.exempt:
+                lines.append(f"This does not apply in {names(self.effects.exempt)}.")
         if self.effects.allow is not None:
-            lines.append(f"allows only effects: {names(self.effects.allow) or 'none'}")
+            lines.append(f"Code may use only these effects: {names(self.effects.allow)}." if self.effects.allow
+                         else "Code must have no effects.")
         if self.direct_effects is not None:
-            grants = "; ".join(f"{c}: {names(k)}" for c, k in sorted(self.direct_effects.grants.items()))
-            lines.append(f"effects done directly only by: {grants or 'nobody'}")
+            if self.direct_effects.grants:
+                lines.append("Only these parts may cause effects themselves:")
+                lines += [f"- {c} may cause {names(k)}." for c, k in sorted(self.direct_effects.grants.items())]
+            else:
+                lines.append("No part may cause effects itself.")
         if self.imports is not None:
-            per = "; ".join(f"{c}: {names(p)}" for c, p in sorted(self.imports.allowed_in.items()))
-            lines.append(f"third-party imports allowed: {names(self.imports.allowed) or 'none'}" + (f"; and in {per}" if per else ""))
+            lines.append(f"Code may import only these outside packages: {names(self.imports.allowed)}." if self.imports.allowed
+                         else "Code must not import outside packages.")
+            lines += [f"- {c} may also import {names(p)}." for c, p in sorted(self.imports.allowed_in.items())]
         if self.port_types.forbid:
-            lines.append(f"ports may not expose: {names(self.port_types.forbid)}"
-                         + (f" (allowed as returns: {names(self.port_types.allow_in_returns)})" if self.port_types.allow_in_returns else "")
-                         + (f" (except in {names(self.port_types.exempt)})" if self.port_types.exempt else ""))
-        if self.budget.limits:
-            lines.append("budgets: " + ", ".join(f"{k} ≤ {v:g}" for k, v in sorted(self.budget.limits.items())))
-        return Text("\n".join(lines) or "no machine-checked rules")
+            lines.append(f"Public functions must not take or return these bare types: {names(self.port_types.forbid)}.")
+            if self.port_types.allow_in_returns:
+                lines.append(f"They may return {names(self.port_types.allow_in_returns)}.")
+            if self.port_types.exempt:
+                lines.append(f"This does not apply in {names(self.port_types.exempt)}.")
+        lines += [f"{k} must be at most {v:g}." for k, v in sorted(self.budget.limits.items())]
+        return Text("\n".join(lines) or "No rule here is checked by machine.")
 
     def for_component(self, cid: ComponentId) -> Policy:
         """This policy with exemptions resolved for `cid`."""

@@ -9,10 +9,12 @@ exports: [facts, history, mapping]
 status: specified
 ---
 ## Acceptance criteria
-- AC1: Extraction shall be a pure function of (snapshot, config); the same snapshot shall yield identical facts.
-- AC2: No component outside realize shall depend on a language adapter. realize selects among its built-in adapters by file pattern; a caller may add adapters implementing the protocol in `realize.facts`, and added adapters take precedence, as does a language-specific adapter over the structural one.
+- AC1: Extraction shall be a pure function of the snapshot and the configuration.
+- AC2: No component outside realize shall depend on a language adapter.
 - AC3: Facts for an unchanged file shall be reusable, keyed by the file's content hash.
 - AC4: After extraction, effects shall be propagated across the project: a symbol has every effect of the project symbols it calls, computed to a fixed point, and each added effect records the call it came through.
+- AC5: The same snapshot shall always yield the same facts.
+- AC6: Realize shall choose an adapter by file pattern, preferring adapters the caller adds, then language-specific ones.
 
 ## Rationale
 Keeping languages behind a fact schema is what makes the core general. A second adapter (TypeScript)

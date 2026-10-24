@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Judge how risky each changed file is and what evidence each touched criterion has
-solution: A documented risk score per changed file (port changes, new dependencies between components, new findings, evidence, hotspots, size) and a verdict per added or reworded criterion
+solution: A documented risk score for each changed file, and the evidence for each criterion the change touches
 hides: The risk weights
 uses: [change.diff, check.engine, model.graph, model.ids, model.schema, realize.facts, realize.history, realize.mapping]
 status: specified

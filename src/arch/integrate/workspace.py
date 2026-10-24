@@ -23,6 +23,7 @@ from arch.model.ids import DesignPath, Text
 from arch.model.schema import Design
 from arch.realize.facts import FileChange, FileDiff, Facts, LineNo, Roots, Snapshot, SourcePath, SourceText, VcsLog
 from arch.realize.history import CommitWindow, NumStat, UnifiedDiff, added_file, parse_diff, parse_numstat
+from arch.review.page import Editor
 from arch.review.session import Reviewer, Session, SessionText
 
 Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
@@ -74,6 +75,7 @@ class ProjectConfig:
     history_commits: CommitWindow = CommitWindow(500)
     solution_terms: tuple[Term, ...] = ()  # added to arch.check.statements' lexicons
     vague_terms: tuple[Term, ...] = ()
+    editor: Editor = Editor.VSCODE  # where review links open files
 
     @staticmethod
     def read(path: Path) -> ProjectConfig:
@@ -90,11 +92,18 @@ class ProjectConfig:
         if not isinstance(commits, int) or isinstance(commits, bool) or commits < 0:
             raise BadConfig(f"{path.name}: history.commits must be a non-negative integer")
         statements = raw.get("statements", {})
+        review = raw.get("review", {})
+        editor_name = review.get("editor", "vscode") if isinstance(review, dict) else "vscode"
+        try:
+            editor = Editor(editor_name)
+        except ValueError:
+            raise BadConfig(f"{path.name}: review.editor must be one of {', '.join(e.value for e in Editor)}") from None
         return ProjectConfig(
             _paths(roots, "source", path), _paths(roots, "tests", path),
             _paths(evidence, "junit", path) or ProjectConfig.junit, CommitWindow(commits),
             tuple(Term(t) for t in _paths(statements, "solution_terms", path) or ()),
             tuple(Term(t) for t in _paths(statements, "vague_terms", path) or ()),
+            editor,
         )
 
     def lexicon(self) -> Lexicon:

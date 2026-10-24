@@ -1,14 +1,14 @@
 ---
 kind: component
 realizes: Detect where the realization departs from the design
-solution: Rules comparing mapped facts with the design for undeclared or invisible imports, effects outside the effective allowance, unmapped units, missing code, acceptance criteria without evidence, failing or stale evidence, budget breaches and dependencies outside the allowlist
+solution: Rules that compare facts about the code with the design and report each departure
 hides: Comparison rules
 uses: [engine, model.graph, model.ids, model.policy, model.schema, realize.facts, realize.mapping]
 status: specified
 ---
 ## Acceptance criteria
 - AC1: An import from a unit in component a to a unit in component b shall be a finding unless a and b are the same component, b is inside a, or may_use(a, b) holds.
-- AC2: An effect fact outside the component's effective allowance shall be an error; an `unknown` effect in a component under any effect constraint shall be a warning.
+- AC2: When an effect falls outside a component's allowance, conformance shall report an error.
 - AC9: A criterion whose linked test failed or errored in a test report shall be an error naming the test and the report.
 - AC8: A direct effect shall be an error when a `direct_effects` rule applies and does not grant that effect to the component or one of its ancestors.
 - AC3: An acceptance criterion without a linked contract or test shall be info below status contracted and an error at or above it.
@@ -19,3 +19,4 @@ status: specified
 - AC10: When a public port of a component under a port_types rule exposes a forbidden built-in at a leaf position, conformance shall report an error (bool returns aside where allowed), and an unannotated port parameter as a warning.
 - AC11: When a function declares its side effects with deal (has or pure), conformance shall report each inferred effect that no declared marker covers as an error, and dynamic code as a warning.
 - AC12: When a component's code has surviving mutants, conformance shall report how many survived and in which functions: an error at status verified, a warning at contracted, info below.
+- AC13: When an effect cannot be known in a component under an effect constraint, conformance shall report a warning.

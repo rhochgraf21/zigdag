@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from arch import realize
@@ -59,7 +59,7 @@ from arch.view.report import (
 )
 from arch.review import items as review_items
 from arch.review.assess import ReviewInput
-from arch.review.page import Board
+from arch.review.page import Board, ProjectRoot
 from arch.review.session import Anchor, Category, Decision, Feedback, Record, Verdict, Weight
 from arch.review.summary import review as make_review
 from arch.view.render import Count
@@ -233,8 +233,11 @@ def review(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
 def review_board(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
     """The change as review items, with the verdicts given so far: what the review page shows."""
     branch = ws.branch()
-    items = review_items.build(_review_input(ws, base))
-    return Result(Board(items, ws.session(branch), Text(f"Review {branch} against {base}")))
+    inp = _review_input(ws, base)
+    items = review_items.build(inp)
+    glossary = review_items.Glossary.of(inp.after, items, Text(workspace.DESIGN_DIR))
+    return Result(Board(items, ws.session(branch), Text(f"Review of {branch} against {base}"), glossary,
+                        ProjectRoot(str(ws.root)), ws.config().editor))
 
 
 class ReviewRejected(Exception):
@@ -258,14 +261,14 @@ def review_decide(ws: Workspace, board: Board, verdict: VerdictInput) -> Result:
     """Record a reviewer's verdict on one item. People only: agents are never offered this."""
     item = next((i for i in board.items if i.id == verdict.item), None)
     if item is None:
-        raise ReviewRejected(f"no review item '{verdict.item}'")
+        raise ReviewRejected(f"no review page '{verdict.item}'")
     if item.digest != verdict.digest:
-        raise ReviewRejected("this item changed since the page was loaded; refresh to see the current version")
+        raise ReviewRejected("This page changed since you loaded it. Press Shift+R to load the current version.")
     session = ws.session(board.session.name).decide(Verdict(
         item.id, verdict.decision, item.digest, ws.reviewer(), verdict.comment, verdict.category, verdict.weight,
         verdict.anchor))
     ws.save_session(session)
-    return Result(Board(board.items, session, board.title))
+    return Result(replace(board, session=session))
 
 
 def review_feedback(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
@@ -281,7 +284,7 @@ def review_note(ws: Workspace, item: review_items.ItemId, text: Text, base: Revi
         raise ReviewRejected(f"no review item '{item}' (see `arch review --feedback --json` for ids)")
     session = ws.session(board.session.name).note(item, text)
     ws.save_session(session)
-    return Result(Board(board.items, session, board.title))
+    return Result(replace(board, session=session))
 
 
 def review_record(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
