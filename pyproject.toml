@@ -1,0 +1,23 @@
+[project]
+name = "arch-design"  # working name; `arch` is taken on PyPI (see DESIGN.md §13)
+version = "0.0.1"
+description = "Design-as-code and architecture-as-code for humans and coding agents"
+readme = "DESIGN.md"
+requires-python = ">=3.11"
+dependencies = ["ruamel.yaml>=0.18", "deal>=4.24"]
+
+[project.scripts]
+arch = "arch.integrate.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "hypothesis>=6"]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "arch"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

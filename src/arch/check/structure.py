@@ -1,0 +1,146 @@
+"""Structural defects in the design.
+
+Realizes arch.check.structure. Each rule is a pure function of the design graph.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
+from arch.model.graph import is_within, parent_of
+from arch.model.matrix import matrix_of
+from arch.model.schema import DecisionVariant, Text
+
+MAX_SPAN = 9
+
+
+def _finding(rule: str, subject: str, key: str, severity: Severity, message: str, hint: str, location=None) -> Finding:
+    return Finding(Subject(subject), RuleId(rule), FindingKey(key), severity, Text(message), Text(hint), location)
+
+
+def invalid_nodes(ctx: Context) -> Iterator[Finding]:
+    for issue in ctx.graph.design.issues:
+        yield _finding(
+            "S000", issue.location.path, f"{issue.field}:{issue.message}", Severity.ERROR,
+            issue.message, "fix the frontmatter so the node parses", issue.location,
+        )
+
+
+def dangling_references(ctx: Context) -> Iterator[Finding]:
+    g, design = ctx.graph, ctx.graph.design
+    for cid in g.ids():
+        c = g[cid]
+        for ref in c.uses:
+            if g.resolve(cid, ref) is None:
+                yield _finding("S001", cid, f"uses:{ref}", Severity.ERROR, f"uses '{ref}', which resolves to no component",
+                               "name a sibling, or a path from a sibling or an ancestor's sibling", c.location)
+        for ref in c.exports:
+            if f"{cid}.{ref}" not in g:
+                yield _finding("S001", cid, f"exports:{ref}", Severity.ERROR, f"exports '{ref}', which is not one of its children",
+                               "exports may only name direct children", c.location)
+        for need in c.serves:
+            if need not in design.needs:
+                yield _finding("S001", cid, f"serves:{need}", Severity.ERROR, f"serves unknown need '{need}'",
+                               "add the need under design/needs/ or fix the name", c.location)
+    for k, con in sorted(design.constraints.items()):
+        for ref in con.applies_to:
+            if ref not in g:
+                yield _finding("S001", k, f"applies_to:{ref}", Severity.ERROR, f"applies to unknown component '{ref}'",
+                               "use the component's full dotted id", con.location)
+    for k, dec in sorted(design.decisions.items()):
+        for ref in dec.affects:
+            if ref not in g:
+                yield _finding("S001", k, f"affects:{ref}", Severity.ERROR, f"affects unknown component '{ref}'",
+                               "use the component's full dotted id", dec.location)
+
+
+def untraced(ctx: Context) -> Iterator[Finding]:
+    g, design = ctx.graph, ctx.graph.design
+    for root in g.roots:
+        for cid in g.children(root):
+            if not g[cid].serves:
+                yield _finding("S002", cid, "serves", Severity.ERROR, "top-level component declares no needs it serves",
+                               "add `serves: [...]` naming the needs this part exists for", g[cid].location)
+    served_below_root = {n for cid in g.ids() if parent_of(cid) is not None for n in g[cid].serves}
+    for nid, need in sorted(design.needs.items()):
+        if nid not in served_below_root:
+            yield _finding("S003", nid, "unserved", Severity.ERROR, "no component below the root serves this need",
+                           "serve it from a top-level component, or remove the need", need.location)
+
+
+def span(ctx: Context) -> Iterator[Finding]:
+    g = ctx.graph
+    for cid in g.ids():
+        if (n := len(g.children(cid))) > MAX_SPAN:
+            yield _finding("S004", cid, "span", Severity.WARNING, f"has {n} children (more than {MAX_SPAN})",
+                           "group children into intermediate components", g[cid].location)
+
+
+def coupling(ctx: Context) -> Iterator[Finding]:
+    g, design = ctx.graph, ctx.graph.design
+    recorded = [
+        set(d.affects) for d in design.decisions.values() if d.variant is DecisionVariant.CONTRADICTION
+    ]
+    for cid in g.ids():
+        if not g.children(cid):
+            continue
+        for coupled in matrix_of(g, cid).layering.coupled:
+            names = ", ".join(c.rsplit(".", 1)[1] for c in coupled)
+            known = any(set(coupled) <= r for r in recorded)
+            yield _finding(
+                "S005", cid, f"coupled:{'|'.join(coupled)}", Severity.WARNING if known else Severity.ERROR,
+                f"children are coupled (cyclic uses): {names}",
+                "remove a use, move the shared part down a level, or record a contradiction naming all of them",
+                g[cid].location,
+            )
+
+
+def missing_secret(ctx: Context) -> Iterator[Finding]:
+    g = ctx.graph
+    for cid in g.ids():
+        c = g[cid]
+        if parent_of(cid) is not None and c.hides is None:
+            sev = by_maturity(c.status, draft=Severity.INFO, specified=Severity.WARNING, contracted=Severity.ERROR)
+            yield _finding("S006", cid, "hides", sev, "states no secret (`hides`)",
+                           "name the design decision this component encapsulates", c.location)
+
+
+def missing_criteria(ctx: Context) -> Iterator[Finding]:
+    g = ctx.graph
+    for cid in g.ids():
+        c = g[cid]
+        if not c.criteria:
+            sev = by_maturity(c.status, draft=Severity.INFO, specified=Severity.WARNING, contracted=Severity.ERROR)
+            yield _finding("S009", cid, "criteria", sev, "has no acceptance criteria",
+                           "add `- AC1: When ..., ... shall ...` lines to the body", c.location)
+
+
+def illegal_uses(ctx: Context) -> Iterator[Finding]:
+    g = ctx.graph
+    for cid in g.ids():
+        parent = parent_of(cid)
+        for target in g.uses(cid):
+            if not g.visible(cid, target):
+                yield _finding("S008", cid, f"invisible:{target}", Severity.ERROR,
+                               f"uses {target}, which its parent does not export",
+                               f"export it from {parent_of(target)}, or use that parent instead", g[cid].location)
+            sibling = parent is not None and parent_of(target) == parent
+            if parent is not None and not sibling and not any(is_within(target, u) for u in g.uses(parent)):
+                yield _finding("S007", cid, f"outside:{target}", Severity.ERROR,
+                               f"uses {target}, which its parent {parent} may not use",
+                               f"add it to the uses of {parent}, or remove this use", g[cid].location)
+
+
+RULES: tuple[Rule, ...] = (
+    Rule(RuleId("S000"), Text("node files parse and match their schema"), invalid_nodes),
+    Rule(RuleId("S001"), Text("references resolve"), dangling_references),
+    Rule(RuleId("S002"), Text("top-level components and needs trace to each other"), untraced),
+    Rule(RuleId("S004"), Text("at most nine children"), span),
+    Rule(RuleId("S005"), Text("children are not coupled"), coupling),
+    Rule(RuleId("S006"), Text("components state their secret"), missing_secret),
+    Rule(RuleId("S007"), Text("uses stay within what the parent may use, and are visible"), illegal_uses),
+    Rule(RuleId("S009"), Text("components have acceptance criteria"), missing_criteria),
+)
+
+__all__ = ["RULES"]
