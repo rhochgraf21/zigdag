@@ -13,4 +13,4 @@ status: specified
 - AC2: Method documents shall refer to abstract operations in model terms ("the context of a component"), never to commands.
 
 ## Rationale
-AC2 is what keeps guide independent of integrate (D10).
+AC2 is what keeps guide independent of integrate (see guide.method's decisions).

@@ -8,16 +8,18 @@ from arch.model.schema import DesignPath
 
 
 def component(uses: str = "", exports: str = "", serves: str = "", status: str = "specified",
-              hides: str | None = "a secret", criteria: int = 1) -> str:
+              hides: str | None = "a secret", criteria: int = 1, accepts: str = "", body: str = "") -> str:
     lines = ["---", "kind: component", "realizes: Do the thing", "solution: The thing-doer"]
     if hides:
         lines.append(f"hides: {hides}")
     for key, value in (("uses", uses), ("exports", exports), ("serves", serves)):
         if value:
             lines.append(f"{key}: [{value}]")
+    if accepts:
+        lines.append(f"accepts_coupling: [[{accepts}]]")
     lines += [f"status: {status}", "---", "## Acceptance criteria"]
     lines += [f"- AC{i}: When asked, it shall do the thing." for i in range(1, criteria + 1)]
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + body
 
 
 NEED = "---\nkind: need\n---\nSomeone can get something done.\n"

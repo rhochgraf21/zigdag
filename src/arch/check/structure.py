@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
 from arch.model.graph import is_within, parent_of
 from arch.model.matrix import matrix_of
-from arch.model.schema import DecisionVariant, Text
+from arch.model.schema import DecisionLabel, Text
 
 MAX_SPAN = 9
 
@@ -39,6 +39,12 @@ def dangling_references(ctx: Context) -> Iterator[Finding]:
             if f"{cid}.{ref}" not in g:
                 yield _finding("S001", cid, f"exports:{ref}", Severity.ERROR, f"exports '{ref}', which is not one of its children",
                                "exports may only name direct children", c.location)
+        for group in c.accepts_coupling:
+            for ref in group:
+                if f"{cid}.{ref}" not in g:
+                    yield _finding("S001", cid, f"accepts_coupling:{ref}", Severity.ERROR,
+                                   f"accepts coupling of '{ref}', which is not one of its children",
+                                   "accepts_coupling names sets of direct children", c.location)
         for need in c.serves:
             if need not in design.needs:
                 yield _finding("S001", cid, f"serves:{need}", Severity.ERROR, f"serves unknown need '{need}'",
@@ -48,11 +54,6 @@ def dangling_references(ctx: Context) -> Iterator[Finding]:
             if ref not in g:
                 yield _finding("S001", k, f"applies_to:{ref}", Severity.ERROR, f"applies to unknown component '{ref}'",
                                "use the component's full dotted id", con.location)
-    for k, dec in sorted(design.decisions.items()):
-        for ref in dec.affects:
-            if ref not in g:
-                yield _finding("S001", k, f"affects:{ref}", Severity.ERROR, f"affects unknown component '{ref}'",
-                               "use the component's full dotted id", dec.location)
 
 
 def untraced(ctx: Context) -> Iterator[Finding]:
@@ -78,22 +79,45 @@ def span(ctx: Context) -> Iterator[Finding]:
 
 
 def coupling(ctx: Context) -> Iterator[Finding]:
-    g, design = ctx.graph, ctx.graph.design
-    recorded = [
-        set(d.affects) for d in design.decisions.values() if d.variant is DecisionVariant.CONTRADICTION
-    ]
+    """Coupled children are an error, or a warning when the parent accepts that coupling explicitly."""
+    g = ctx.graph
     for cid in g.ids():
         if not g.children(cid):
             continue
-        for coupled in matrix_of(g, cid).layering.coupled:
-            names = ", ".join(c.rsplit(".", 1)[1] for c in coupled)
-            known = any(set(coupled) <= r for r in recorded)
+        c = g[cid]
+        accepted = [{f"{cid}.{r}" for r in group} for group in c.accepts_coupling]
+        coupled_sets = matrix_of(g, cid).layering.coupled
+        for coupled in coupled_sets:
+            names = ", ".join(x.rsplit(".", 1)[1] for x in coupled)
+            known = any(set(coupled) <= a for a in accepted)
             yield _finding(
                 "S005", cid, f"coupled:{'|'.join(coupled)}", Severity.WARNING if known else Severity.ERROR,
                 f"children are coupled (cyclic uses): {names}",
-                "remove a use, move the shared part down a level, or record a contradiction naming all of them",
-                g[cid].location,
+                "remove a use, move the shared part down a level, or accept it with `accepts_coupling` "
+                "and a decision entry explaining the resolution", c.location,
             )
+        for group, members in zip(c.accepts_coupling, accepted):
+            if not any(set(s) <= members for s in coupled_sets):
+                yield _finding(
+                    "S005", cid, f"stale:{'|'.join(group)}", Severity.WARNING,
+                    f"accepts coupling of {', '.join(group)}, but they are no longer coupled",
+                    "remove this accepts_coupling entry", c.location,
+                )
+
+
+def decision_entries(ctx: Context) -> Iterator[Finding]:
+    """Each decision entry states what was chosen and why (DP selection, in prose)."""
+    g = ctx.graph
+    for cid in g.ids():
+        for entry in g[cid].decisions:
+            missing = [l.value for l in (DecisionLabel.CHOSE, DecisionLabel.BECAUSE) if l not in entry.labels]
+            if missing:
+                yield _finding(
+                    "S010", cid, f"decision:{entry.title}", Severity.WARNING,
+                    f"decision '{entry.title}' has no {' or '.join(missing)} line",
+                    "write `- Chose: ...` and `- Because: ...` (optionally Over, Consequences, Previously, Backed by)",
+                    entry.location,
+                )
 
 
 def missing_secret(ctx: Context) -> Iterator[Finding]:
@@ -141,6 +165,7 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("S006"), Text("components state their secret"), missing_secret),
     Rule(RuleId("S007"), Text("uses stay within what the parent may use, and are visible"), illegal_uses),
     Rule(RuleId("S009"), Text("components have acceptance criteria"), missing_criteria),
+    Rule(RuleId("S010"), Text("decision entries say what was chosen and why"), decision_entries),
 )
 
 __all__ = ["RULES"]

@@ -67,7 +67,7 @@ class Report:
 
 
 def by_maturity(status: Status, *, draft: Severity, specified: Severity, contracted: Severity) -> Severity:
-    """Severity that tightens as a component matures (X01, X03)."""
+    """Severity that tightens as a component matures (see arch and arch.check decisions)."""
     if status is Status.DRAFT:
         return draft
     return specified if status is Status.SPECIFIED else contracted

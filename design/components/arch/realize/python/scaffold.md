@@ -11,4 +11,4 @@ status: specified
 - AC2: A freshly scaffolded component shall pass the type checker and produce no blocking `arch check` findings.
 
 ## Rationale
-Scaffold once, then the code owns it (D03). arch never regenerates code a person or agent has edited.
+Scaffold once, then the code owns it (the root's decision: interfaces live in code). arch never regenerates code a person or agent has edited.

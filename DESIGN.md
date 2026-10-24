@@ -1,7 +1,7 @@
 # arch: ideas, principles and the bet
 
 This file keeps the thinking behind arch: why it exists, the ideas it borrows, what we decided against
-and why, and where it might go. The formal design (needs, components, matrices, decisions) lives in
+and why, and where it might go. The formal design (needs, components, constraints, matrices and decisions) lives in
 [`design/`](design/README.md). If the two disagree, `design/` wins and this file gets updated.
 
 Status: proving out the method. Nothing here is settled because it sounds good; it is settled when it
@@ -49,15 +49,23 @@ Every feature must serve one of these two. Anything that serves neither is cerem
 
 ## 3. Core model
 
-Four node kinds, plain text in the repo:
+Three node kinds, plain text in the repo, matching axiomatic design's domains:
 
 - **Need**: solution-neutral customer need with stakeholder and signal ("how we'd know").
 - **Component**: one node per FR/DP pair: `realizes` (FR), `solution` (DP), `hides` (secret),
-  `uses`, `exports`, `serves`, `status`, plus acceptance criteria in the body. Recursive at every scale.
+  `uses`, `exports`, `serves`, `status`, plus acceptance criteria and **decisions** in the body.
+  Recursive at every scale.
 - **Constraint**: inherited policy (effects, imports, budgets, port typing). A constraint lists its own
   scope (`applies_to`); descendants may tighten it, never loosen it. Cross-cutting concerns (auth,
   audit, logging) are constraints, not FRs, which removes most false coupling.
-- **Decision**: rationale and alternatives; *contradictions* are decisions that record a TRIZ resolution.
+
+**Decisions are not a separate kind.** In axiomatic design a decision *is* the choice of a DP, and the
+information axiom is how you choose among candidates. So each decision lives on the component whose DP
+embodies it, as a `### title` entry under `## Decisions` with `Chose:` / `Over:` / `Because:` lines
+(plus `Consequences:`, `Previously:` for reversals, and `Backed by:` naming the constraints that make
+it checkable). System-wide decisions live on the root. A coupling kept on purpose is `accepts_coupling`
+on the parent, with the TRIZ resolution as one of its decisions. The chronological decision log is a
+view generated from git history, not a folder people maintain.
 
 Key mechanics:
 
@@ -204,15 +212,16 @@ the adapter lacks reports "not analyzed"; it never passes silently (no false "pu
 
 | Idea | Why not |
 |---|---|
-| Interfaces and contracts in YAML | Code without tools, duplicated, drifts. Code owns them (D03). |
-| Separate FR and DP nodes | Doubles nodes for a 1:1 pairing. One Component node (D02). |
-| Six or more node kinds | Too much vocabulary for daily use. Four kinds. |
+| Interfaces and contracts in YAML | Code without tools, duplicated, drifts. Code owns them. |
+| Separate FR and DP nodes | Doubles nodes for a 1:1 pairing. One Component node. |
+| Decisions as a separate node kind (ADR folder) | Not from axiomatic design; duplicated component rationale (8 of our first 14 records); hand-kept `affects:` links nothing could check were complete. Decisions live on their component. |
+| Six or more node kinds | Too much vocabulary for daily use. Three kinds. |
 | Constraints listed on components *and* scoped on constraints | Two sources of truth; a constraint owns its scope (`applies_to`). |
 | C4 levels = decomposition levels | Recursion is arbitrary depth; C4 levels are views. |
 | `arch sync` rewriting design from code | Removes the review gate. Detect drift, propose changes. |
-| Propose/apply proposal store | Git already does staging, review and undo (D07). |
-| arch runs tests and benchmarks | Slow, non-deterministic in the edit loop. arch reads reports (D06). |
-| LLM calls inside arch | Offline, deterministic, agent-neutral instead. Judgement in methods (D01). |
+| Propose/apply proposal store | Git already does staging, review and undo. |
+| arch runs tests and benchmarks | Slow, non-deterministic in the edit loop. arch reads reports. |
+| LLM calls inside arch | Offline, deterministic, agent-neutral instead. Judgement in methods. |
 | Generating Terraform wholesale | A worse Terraform. Check it; generate narrow artifacts. |
 | Delegating boundary checks to import-linter | arch needs the import graph anyway for views and DSM. |
 | A web app as the primary review surface | Reviewers live in PRs. PR summary first, site last. |
@@ -221,8 +230,8 @@ the adapter lacks reports "not analyzed"; it never passes silently (no false "pu
 
 Hypotheses to test on arch itself, then on a brownfield project:
 
-1. The matrix catches real design problems early. *(So far, two couplings caught in arch's own design:
-   D09, D10.)*
+1. The matrix catches real design problems early. *(So far, two couplings caught in arch's own design: see the
+   `Previously:` lines on `guide.infer` and `guide.method`.)*
 2. Context cards cut agents' wrong guesses and wasted context, compared with reading the code.
 3. Layered review cuts review time without missing defects.
 4. Keeping the design current costs less than it saves when the agent does the writing.

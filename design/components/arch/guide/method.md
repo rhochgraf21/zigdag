@@ -14,3 +14,11 @@ status: specified
 ## Rationale
 This is where "structured thinking makes agents act like experts" lives. The deterministic rules are
 the method's exit gate, so the judgement step cannot quietly skip the discipline.
+
+## Decisions
+### Method content separate from skill packaging
+- Chose: methods written against abstract operations here; `integrate.agent` renders them into product-specific skills with real commands from the catalog.
+- Over: skills with concrete commands kept in `guide`.
+- Because: skills name commands, so any rename in `integrate.catalog` would break them; guide's requirement would depend on a later design parameter (TRIZ: separation by system level).
+- Consequences: methods can be tested by worked examples without any agent product.
+- Previously: skills lived in `guide`; split when the matrix showed the backward dependency.

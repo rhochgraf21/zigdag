@@ -13,4 +13,4 @@ status: specified
 
 ## Rationale
 Deterministic rules catch the common failures cheaply on every run. Nuanced critique ("is this a need
-or a disguised solution?") is a method in `guide.method`, run by the user's agent when it is worth it (D01).
+or a disguised solution?") is a method in `guide.method`, run by the user's agent when it is worth it (the root's decision: no language model inside arch).

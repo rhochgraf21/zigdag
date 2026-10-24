@@ -14,5 +14,9 @@ status: specified
 - AC3: Applying operations shall produce file edits as data; writing them belongs to the workspace.
 - AC4: The diff between two design states shall be computable from their files alone, for example HEAD and the working tree.
 
-## Rationale
-There is no proposal store: git already provides staging, review and undo (D07).
+## Decisions
+### Git is the transaction log
+- Chose: operations apply directly to the working tree (atomic, validated, with `--dry-run`); the design diff is computed against any revision.
+- Over: propose, apply and reject commands backed by a proposal store.
+- Because: git already provides staging, review, history and undo, so this is one less concept with no state outside version control.
+- Consequences: design changes ride in the same commit as the code that realizes them.

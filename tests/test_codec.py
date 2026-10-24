@@ -26,6 +26,20 @@ def test_criteria_parsed_with_ids_and_lines():
     assert [c.location.line for c in node.criteria] == [9, 10]  # after 7 frontmatter lines and a heading
 
 
+@realizes("arch.model.schema#AC5")
+def test_decision_entries_parsed_from_their_section():
+    body = (
+        "## Decisions\n### Use X\n- Chose: X\n- Over: Y\n- Because: simpler\n"
+        "### Keep Z\nJust prose.\n## Rationale\n### Not a decision\n"
+    )
+    node, issues = codec.parse(DesignPath("components/a.md"), component(body=body))
+    assert not issues and isinstance(node, Component)
+    assert [d.title for d in node.decisions] == ["Use X", "Keep Z"]
+    assert {l.value for l in node.decisions[0].labels} == {"Chose", "Over", "Because"}
+    assert node.decisions[1].labels == frozenset()
+    assert node.decisions[0].location.line == 11  # 9 fixture lines, then "## Decisions"
+
+
 @realizes("arch.model.schema#AC2")
 def test_bad_fields_become_issues():
     text = component().replace("status: specified", "status: done\ncolour: blue")

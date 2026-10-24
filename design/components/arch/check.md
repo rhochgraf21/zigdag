@@ -14,3 +14,9 @@ status: specified
 - AC3: Findings recorded in the baseline shall never signal failure.
 - AC4: Results shall not depend on the order in which rules run.
 - AC5: Strictness shall scale with maturity: a rule may set a lower severity for components at status draft or specified.
+
+## Decisions
+### Strict checks that don't block adoption
+- Chose: a baseline ratchet (existing findings never block, new ones do, fixed ones cannot return) and severity that scales with maturity, with `guide.infer` starting existing code green.
+- Over: one strictness for every component from day one.
+- Because: stricter checks catch more departures but make adoption on existing code a wall of red (TRIZ: separation in time, and by condition).

@@ -11,6 +11,9 @@ status: specified
 - AC2: A missing report shall yield "no evidence", never "failed".
 - AC3: Evidence shall record the revision it was produced from when the report provides it, otherwise freshness `unknown`.
 
-## Rationale
-arch observes evidence; CI produces it (D06). That keeps arch fast, deterministic and out of the
-business of running test suites.
+## Decisions
+### Read reports; don't run the tools
+- Chose: read the reports that test, coverage, benchmark and mutation tools produce, and link them to acceptance criteria; CI runs the tools.
+- Over: arch running test suites and benchmarks itself.
+- Because: arch stays fast enough for edit loops, and deterministic.
+- Consequences: evidence can be stale, so freshness is tracked; benchmark noise stays with the benchmark setup.

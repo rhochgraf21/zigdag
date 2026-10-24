@@ -15,4 +15,11 @@ status: specified
 
 ## Rationale
 Keeping languages behind a fact schema is what makes the core general. A second adapter (TypeScript)
-is the test of that claim. Adapters come in fidelity tiers (D11).
+is the test of that claim.
+
+## Decisions
+### Two adapter tiers behind one fact schema
+- Chose: structural adapters (a tree-sitter grammar plus a query file: units, imports, public symbols, links) and semantic adapters per language (adding ports, contracts, effects); every unit records what was analyzed, and checks that need something missing report "not analyzed".
+- Over: a hand-built semantic adapter for every language, or one generic adapter for all of them.
+- Because: breadth stays cheap and honest; arch never claims a module is pure when it could not look.
+- Consequences: effect constraints are enforced only where a semantic adapter exists, and reports say so. Python's semantic adapter uses stdlib `ast`, which is exact and needs no dependency.

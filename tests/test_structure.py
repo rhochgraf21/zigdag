@@ -6,18 +6,40 @@ from arch.check.engine import Severity
 from tests.conftest import NEED, component, graph
 
 BASE = {"needs/n.md": NEED, "components/s.md": component(serves="n")}
-CONTRADICTION = "---\nkind: contradiction\nstatus: accepted\naffects: [s.a, s.b]\n---\nWe accept it.\n"
 
 
 def findings(files):
     return {(f.rule, f.subject, f.severity) for f in check(graph({**BASE, **files})).findings}
 
 
+COUPLED = {"components/s/a.md": component(uses="b", serves="n"), "components/s/b.md": component(uses="a", serves="n")}
+
+
 @realizes("arch.check.structure#AC1")
-def test_coupling_is_an_error_unless_recorded():
-    coupled = {"components/s/a.md": component(uses="b", serves="n"), "components/s/b.md": component(uses="a", serves="n")}
-    assert ("S005", "s", Severity.ERROR) in findings(coupled)
-    assert ("S005", "s", Severity.WARNING) in findings({**coupled, "decisions/X01.md": CONTRADICTION})
+def test_coupling_is_an_error_unless_the_parent_accepts_it():
+    assert ("S005", "s", Severity.ERROR) in findings(COUPLED)
+    accepted = findings({**COUPLED, "components/s.md": component(serves="n", accepts="a, b")})
+    assert ("S005", "s", Severity.WARNING) in accepted
+    assert ("S005", "s", Severity.ERROR) not in accepted
+
+
+@realizes("arch.check.structure#AC5")
+def test_stale_acceptance_is_reported():
+    files = {
+        "components/s.md": component(serves="n", accepts="a, b"),
+        "components/s/a.md": component(serves="n"),
+        "components/s/b.md": component(serves="n"),
+    }
+    stale = [f for f in check(graph({**BASE, **files})).findings if f.key.startswith("stale:")]
+    assert [f.severity for f in stale] == [Severity.WARNING]
+
+
+@realizes("arch.check.structure#AC6")
+def test_decision_entries_need_chose_and_because():
+    good = "## Decisions\n### Use X\n- Chose: X\n- Because: it is simplest\n"
+    bad = "## Decisions\n### Use Y\nWe like Y.\n"
+    assert not any(r == "S010" for r, _, _ in findings({"components/s/a.md": component(serves="n", body=good)}))
+    assert ("S010", "s.a", Severity.WARNING) in findings({"components/s/a.md": component(serves="n", body=bad)})
 
 
 @realizes("arch.check.structure#AC4")

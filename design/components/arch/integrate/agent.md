@@ -12,5 +12,5 @@ status: specified
 - AC3: Every product-specific adapter shall be optional; the generic fallback shall work with any agent.
 
 ## Rationale
-The difference between a tool you have to remember and a tool that is just there. See D10 for why
-packaging lives here and method content lives in guide.
+The difference between a tool you have to remember and a tool that is just there. Why packaging lives
+here and method content lives in guide is recorded on guide.method.

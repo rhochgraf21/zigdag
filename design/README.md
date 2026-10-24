@@ -8,9 +8,13 @@ hand-maintained until `arch` exists. After that, the outline, matrices and plan 
 design/
   needs/          9 customer needs. Solution-neutral: what must be true for people, not how
   constraints/    9 constraints, inherited down the tree, mostly machine-checkable
-  components/     43 components (34 leaves). The FR/DP hierarchy; directories = decomposition
-  decisions/      11 decisions (Dxx) and 3 resolved contradictions (Xxx)
+  components/     43 components (34 leaves). The FR/DP hierarchy; directories = decomposition;
+                  each component carries the decisions behind its design parameter
 ```
+
+Three node kinds, matching axiomatic design's domains: needs (customer domain), components (an FR and
+the DP chosen for it), constraints. Decisions are not a separate kind: in axiomatic design a decision
+is the choice of a DP, so it lives on that component.
 
 ## How to read a component
 
@@ -20,15 +24,18 @@ solution: <design parameter: how, at this level>         # the DP
 hides:    <the decision it encapsulates (Parnas secret)>
 uses:     [<siblings or exported parts it may depend on>] # = design-matrix row = allowed imports
 exports:  [<children visible outside it>]                 # default: none
+accepts_coupling: [[<child>, <child>]]                     # couplings kept on purpose (explained in Decisions)
 serves:   [<needs>]                                       # top level; children inherit
 status:   draft | specified | contracted | verified       # strictness of checks scales with this
 ```
 
-The body holds acceptance criteria (`- ACn:` lines, EARS-style "When …, … shall …"), with optional
-Rationale and Alternatives. Constraints name their own scope (`applies_to`) and are inherited down the
+The body holds acceptance criteria (`- ACn:` lines, EARS-style "When …, … shall …"), optional
+Rationale, and a `## Decisions` section: one `### title` per choice, with `- Chose:` and `- Because:`
+lines (plus optional `Over:`, `Consequences:`, `Previously:`, `Backed by:`). A decision lives on the
+component whose DP embodies it; system-wide decisions live on the root. Constraints name their own scope (`applies_to`) and are inherited down the
 tree. Ids come from paths (`components/arch/check/baseline.md` is
 `arch.check.baseline`). References are written short and resolve by lexical scope. Interfaces and
-contracts are **not** here: they live in code and link back by id (D03).
+contracts are **not** here: they live in code and link back by id (a root decision).
 
 ## Customer needs
 
@@ -77,7 +84,8 @@ integrate     X     X      X     X      X     X      X
 **Decoupled** (lower-triangular), so there is a valid realization order and no FR depends on a later
 DP. `guide` and `view` are independent of each other and can be built in parallel. Every child
 matrix is decoupled or uncoupled. Two couplings were found and removed while making this design:
-inference first lived in `realize` (D09), and skills first lived in `guide` (D10).
+inference first lived in `realize`, and skills first lived in `guide` (see the `Previously:` lines on
+`guide.infer` and `guide.method`).
 
 ## Full outline (realization order within each level)
 
@@ -161,24 +169,26 @@ The design rules that must settle first, since the most depends on them: `model.
 | pure-core | model, realize, check, change, view, guide | no effects at all |
 | shell-io | integrate | fs/subprocess(git)/stdio, *directly* only in workspace, cli, mcp |
 
-## Decisions and contradictions
+## Where the decisions live
 
-| | Decision |
+| Component | Decision |
 |---|---|
-| D01 | No LLM calls in arch: deterministic rules in `check`, judgement in methods run by the user's agent |
-| D02 | One Component node = FR + DP + secret; four node kinds total |
-| D03 | Interfaces and contracts live in code; the design links by id; scaffold once |
-| D04 | Declared `uses` *is* the design matrix *and* the allowed-import set |
-| D05 | Functional core, imperative shell; effects tracked as direct vs. transitive |
-| D06 | arch reads evidence reports; CI runs the tools |
-| D07 | Git is the transaction log: no proposal store |
-| D08 | Ids are paths; the directory tree is the decomposition |
-| D09 | Inference belongs to `guide` (removed a coupling) |
-| D10 | Method content (`guide`) separate from skill packaging (`integrate`) (removed a coupling) |
-| D11 | Adapter fidelity tiers: structural (tree-sitter) and semantic (per language); "not analyzed" never passes |
-| X01 | Rigor vs. ceremony → maturity levels (time); the agent authors (closed world) |
-| X02 | Context completeness vs. size → neighbours by external spec only (information hiding) |
-| X03 | Strictness vs. adoption → baseline ratchet (time); maturity-scaled severity (condition) |
+| arch | No language model inside arch (backed by `no-network`, `agent-neutral`) |
+| arch | Interfaces and contracts live in code; scaffold once |
+| arch | Functional core, imperative shell (backed by `pure-core`, `shell-io`) |
+| arch | Rigor without ceremony: maturity levels; the agent authors (TRIZ time; ASIT closed world) |
+| arch.model | Ids are paths; the directory tree is the decomposition |
+| arch.model.schema | One component node per FR/DP pair |
+| arch.model.schema | Decisions live on components, not as nodes |
+| arch.model.schema | Frozen dataclasses for nodes |
+| arch.model.matrix | Declared `uses` is the design matrix and the allowed-import set |
+| arch.realize | Two adapter tiers behind one fact schema; "not analyzed" never passes |
+| arch.realize.evidence | Read reports; don't run the tools |
+| arch.check | Strict checks that don't block adoption: ratchet and maturity-scaled severity |
+| arch.change | Git is the transaction log: no proposal store |
+| arch.guide.infer | Inference belongs to guide (removed a coupling) |
+| arch.guide.method | Method content separate from skill packaging (removed a coupling) |
+| arch.view.context | Neighbours by external spec only (information hiding) |
 
 ## Traceability: needs → components
 
@@ -209,7 +219,7 @@ own code is developed through `arch context` / `arch check`.
 1. **Acceptance criteria as lines or nodes?** Lines in the component body (current) are compact;
    separate nodes would allow richer links (one criterion to many tests) at the cost of many more files.
 2. **Non-code coupling.** `uses` covers code dependencies only. Shared databases, timing and ordering
-   couple components too. Is that a field, or always a contradiction record?
+   couple components too. A field of its own, or always an `accepts_coupling` entry with a decision?
 3. **Budget composition.** Child budgets ≤ parent is checked; latency along call chains is not yet
    specified.
 4. **Cross-repository composition.** How a parent design references a versioned sub-design from another

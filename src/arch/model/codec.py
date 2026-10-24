@@ -1,7 +1,7 @@
 """Design files <-> nodes.
 
 Realizes arch.model.codec. Hides the on-disk format: Markdown files with YAML frontmatter, laid out as
-needs/, constraints/, decisions/ and components/ (where the directory tree is the decomposition).
+needs/, constraints/ and components/ (where the directory tree is the decomposition).
 
 Parsing only for now. Rendering and minimal-diff edits arrive with arch.change.
 """
@@ -24,10 +24,8 @@ from arch.model.schema import (
     ConstraintId,
     Criterion,
     CriterionId,
-    Decision,
-    DecisionId,
-    DecisionStatus,
-    DecisionVariant,
+    DecisionEntry,
+    DecisionLabel,
     Design,
     DesignPath,
     FieldName,
@@ -48,10 +46,12 @@ SourceText = str
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
 _CRITERION = re.compile(r"^- (AC\d+):[ \t]*(.+)$", re.M)
+_SECTION = re.compile(r"^## (.+?)[ \t]*$", re.M)
+_ENTRY = re.compile(r"^### (.+?)[ \t]*$", re.M)
+_LABEL = re.compile(r"^- (" + "|".join(label.value for label in DecisionLabel) + r"):", re.M)
 _KIND_DIRS: Mapping[str, Kind] = {
     "needs": Kind.NEED,
     "constraints": Kind.CONSTRAINT,
-    "decisions": Kind.DECISION,
     "components": Kind.COMPONENT,
 }
 
@@ -79,7 +79,6 @@ def load(files: Mapping[DesignPath, SourceText]) -> Design:
     components: dict[ComponentId, Component] = {}
     needs: dict[NeedId, Need] = {}
     constraints: dict[ConstraintId, Constraint] = {}
-    decisions: dict[DecisionId, Decision] = {}
     issues: list[Issue] = []
     for path in sorted(files):
         kind = kind_of(path)
@@ -94,12 +93,10 @@ def load(files: Mapping[DesignPath, SourceText]) -> Design:
                 needs[node.id] = node
             case Constraint():
                 constraints[node.id] = node
-            case Decision():
-                decisions[node.id] = node
-    return Design(components, needs, constraints, decisions, tuple(issues))
+    return Design(components, needs, constraints, tuple(issues))
 
 
-Node = Component | Need | Constraint | Decision
+Node = Component | Need | Constraint
 
 
 def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue, ...]]:
@@ -122,12 +119,7 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
     if not isinstance(raw, dict):
         return None, (Issue(loc, None, Text("frontmatter must be a mapping")),)
 
-    declared = raw.get("kind")
-    if declared == "contradiction" and kind is Kind.DECISION:
-        variant = DecisionVariant.CONTRADICTION
-    elif declared == kind.value:
-        variant = DecisionVariant.DECISION
-    else:
+    if raw.get("kind") != kind.value:
         return None, (Issue(loc, FieldName("kind"), Text(f"kind must be '{kind.value}' for files in this directory")),)
 
     issues = validate_fields(kind, raw, loc)
@@ -145,17 +137,18 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
         value = raw.get(name)
         return Text(value.strip()) if isinstance(value, str) and value.strip() else None
 
+    def line_at(offset_in_body: int) -> LineNo:
+        return LineNo(text.count("\n", 0, body_start + offset_in_body) + 1)
+
     match kind:
         case Kind.COMPONENT:
             cid = ComponentId(ident)
             criteria = tuple(
-                Criterion(
-                    CriterionId(f"{cid}#{c.group(1)}"),
-                    Text(c.group(2).strip()),
-                    Location(path, LineNo(text.count("\n", 0, body_start + c.start()) + 1)),
-                )
+                Criterion(CriterionId(f"{cid}#{c.group(1)}"), Text(c.group(2).strip()), Location(path, line_at(c.start())))
                 for c in _CRITERION.finditer(body)
             )
+            sets = raw.get("accepts_coupling")
+            accepted = tuple(tuple(Ref(v) for v in s) for s in sets if isinstance(s, list)) if isinstance(sets, list) else ()
             node: Node = Component(
                 id=cid,
                 realizes=Text(raw["realizes"].strip()),
@@ -164,8 +157,10 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
                 serves=tuple(NeedId(r) for r in refs("serves")),
                 uses=refs("uses"),
                 exports=refs("exports"),
+                accepts_coupling=accepted,
                 status=Status(raw["status"]),
                 criteria=criteria,
+                decisions=_decisions(body, path, line_at),
                 location=loc,
             )
         case Kind.NEED:
@@ -177,16 +172,31 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
             rule = raw.get("rule")
             policy = PolicyJson(json.dumps(rule, sort_keys=True)) if isinstance(rule, dict) else None
             node = Constraint(ConstraintId(ident), refs("applies_to"), policy, Text(body.strip()), loc)
-        case Kind.DECISION:
-            node = Decision(DecisionId(ident), variant, DecisionStatus(raw["status"]), refs("affects"), loc)
     return node, issues
+
+
+def _decisions(body: str, path: DesignPath, line_at) -> tuple[DecisionEntry, ...]:
+    """Entries under `## Decisions`: each `### title` up to the next entry or section."""
+    sections = list(_SECTION.finditer(body))
+    for i, s in enumerate(sections):
+        if s.group(1) != "Decisions":
+            continue
+        start, end = s.end(), sections[i + 1].start() if i + 1 < len(sections) else len(body)
+        heads = list(_ENTRY.finditer(body, start, end))
+        entries = []
+        for j, h in enumerate(heads):
+            stop = heads[j + 1].start() if j + 1 < len(heads) else end
+            chunk = body[h.end():stop].strip()
+            labels = frozenset(DecisionLabel(m.group(1)) for m in _LABEL.finditer(chunk))
+            entries.append(DecisionEntry(Text(h.group(1)), Text(chunk), labels, Location(path, line_at(h.start()))))
+        return tuple(entries)
+    return ()
 
 
 def _hard_fields(kind: Kind) -> frozenset[FieldName]:
     """Fields whose malformation prevents building the node at all."""
     return {
         Kind.COMPONENT: frozenset({FieldName("realizes"), FieldName("solution"), FieldName("status")}),
-        Kind.DECISION: frozenset({FieldName("status")}),
         Kind.CONSTRAINT: frozenset(),
         Kind.NEED: frozenset(),
     }[kind]

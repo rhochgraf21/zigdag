@@ -16,4 +16,4 @@ status: specified
 
 ## Rationale
 This is arch's most important internal design rule in the Baldwin and Clark sense: adapters and core
-evolve independently as long as it holds still. Changing it requires a decision record.
+evolve independently as long as it holds still. Changing it requires a decision entry here.

@@ -1,6 +1,6 @@
 """Design matrices: classify a component's children and order them for realization.
 
-Realizes arch.model.matrix. Declared sibling uses are the off-diagonal entries (D04): a cycle is a
+Realizes arch.model.matrix. Declared sibling uses are the off-diagonal entries: a cycle is a
 coupled set, an acyclic matrix is decoupled, and no entries at all is uncoupled.
 """
 
