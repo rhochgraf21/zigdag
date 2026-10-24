@@ -25,7 +25,7 @@ from arch.guide.next import ActionLimit, next_actions
 from arch.guide.plan import plan as make_plan
 from arch.model import codec
 from arch.integrate import workspace
-from arch.integrate.workspace import Revision, Workspace
+from arch.integrate.workspace import ProjectEdit, ProjectPath, Revision, Workspace
 
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text
@@ -217,5 +217,5 @@ OPERATIONS: tuple[Operation, ...] = (
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

@@ -3,7 +3,7 @@ kind: component
 realizes: Offer every operation as a shell command for humans, scripts and agents
 solution: Commands generated from the catalog, with human-readable output by default, `--json` for machines, and documented exit codes (0 ok, 1 new blocking findings, 2 usage error, 3 internal error)
 hides: Argument parsing and terminal formatting
-uses: [catalog, change.ops, model.ids, model.schema, view.report]
+uses: [agent, catalog, change.ops, model.ids, model.schema, view.report]
 status: specified
 ---
 ## Acceptance criteria

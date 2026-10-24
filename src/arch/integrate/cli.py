@@ -13,7 +13,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from arch.change import ops
-from arch.integrate import catalog
+from arch.integrate import agent, catalog
+from arch.integrate.agent.claude import BadSettings
 from arch.integrate.catalog import Command, ContextTarget, Depth, Revision, TokenBudget, Workspace
 from arch.model.ids import ComponentId, CriterionLabel, NeedId, Ref, Text
 from arch.model.schema import Kind, Status
@@ -51,6 +52,13 @@ def _parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
+    ag = sub.add_parser("agent", help="Install arch's skills and hooks for a coding agent")
+    ag.add_argument("action", choices=["install"])
+    ag.add_argument("--agent", default=agent.Product.CLAUDE_CODE.value, choices=[p.value for p in agent.Product])
+    ag.add_argument("--command", default="arch", help="how hooks should invoke arch, e.g. 'uv run arch'")
+    ag.add_argument("--dry-run", action="store_true", help="list the files that would be written")
+    hk = sub.add_parser("hook", help="Handle an agent hook event (reads the hook payload on stdin)")
+    hk.add_argument("event", choices=[e.value for e in agent.HookEvent])
     i = sub.add_parser("init", help=summary[Command.INIT])
     i.add_argument("--dry-run", action="store_true", help="show what would be drafted, write nothing")
     d = sub.add_parser("diff", help=summary[Command.DIFF])
@@ -183,8 +191,46 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
     return runners[args.cmd]()
 
 
+def _hook(args: argparse.Namespace) -> int:
+    """Hooks must never break the agent: outside an arch project, or on any failure, stay quiet."""
+    event = agent.HookEvent(args.event)
+    try:
+        ws = catalog.open_project(args.project)
+    except catalog.NoProject:
+        return 0
+    payload = sys.stdin.read() if event is agent.HookEvent.POST_EDIT else ""
+    try:
+        response = agent.handle(event, ws, payload)
+    except Exception as e:  # noqa: BLE001
+        print(f"arch hook {event.value} failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return 0
+    if response.stdout:
+        print(response.stdout)
+    if response.stderr:
+        print(response.stderr, file=sys.stderr)
+    return response.exit.value
+
+
+def _install(args: argparse.Namespace) -> int:
+    try:
+        ws = catalog.open_project(args.project)
+        plan = agent.installation(ws, agent.Product(args.agent), args.command)
+    except (*catalog.NoProject, BadSettings) as e:
+        print(f"arch: {e}", file=sys.stderr)
+        return USAGE_ERROR
+    print(json.dumps(plan.to_json(), indent=2) if args.json else
+          plan.to_markdown() + (" (dry run: nothing written)" if args.dry_run and plan.edits else ""))
+    if not args.dry_run:
+        ws.write_project(plan.edits)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.cmd == "hook":
+        return _hook(args)
+    if args.cmd == "agent":
+        return _install(args)
     try:
         if args.cmd == "init":
             mode = EditMode.DRY_RUN if args.dry_run else EditMode.WRITE

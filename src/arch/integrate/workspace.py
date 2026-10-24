@@ -38,6 +38,18 @@ class BadConfig(Exception):
     pass
 
 
+ProjectPath = NewType("ProjectPath", str)  # '/'-separated, relative to the project root
+
+
+@dataclass(frozen=True)
+class ProjectEdit:
+    """A change to any project file (agent configuration, AGENTS.md); None before means it is created."""
+
+    path: ProjectPath
+    before: str | None
+    after: str
+
+
 class StaleEdit(Exception):
     """A file changed on disk since it was read; nothing was written."""
 
@@ -192,10 +204,27 @@ class Workspace:
             raise NoRevision(out.stderr.strip() or f"git {' '.join(args)} failed")
         return out.stdout
 
+    def read_project_file(self, path: ProjectPath) -> str | None:
+        full = self.root / path
+        return full.read_text(encoding="utf-8") if full.is_file() else None
+
+    def relative(self, path: Path) -> ProjectPath | None:
+        """`path` relative to the project root, or None when it lies outside the project."""
+        try:
+            return ProjectPath(path.resolve().relative_to(self.root).as_posix())
+        except ValueError:
+            return None
+
+    def write_project(self, edits: Sequence[ProjectEdit]) -> None:
+        self._write([(self.root / e.path, e.before, e.after) for e in edits])
+
     def write(self, design_edits: Sequence[DesignEdit], source_edits: Sequence[SourceEdit]) -> None:
         """Write a batch of edits, all or nothing. Refuses if any file changed since it was read."""
         targets = [(self.design_dir / e.path, e.before, e.after) for e in design_edits]
         targets += [(self.root / e.path, e.before, e.after) for e in source_edits]
+        self._write(targets)
+
+    def _write(self, targets: Sequence[tuple[Path, str | None, str | None]]) -> None:
         for path, before, _ in targets:
             current = path.read_text(encoding="utf-8") if path.exists() else None
             if current != before:
