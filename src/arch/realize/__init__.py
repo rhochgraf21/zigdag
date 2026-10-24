@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from arch.realize import evidence, history
-from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Snapshot, Text
+from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Reach, Snapshot, Text
 from arch.realize.python import PythonAdapter
 
 BUILT_IN: tuple[Adapter, ...] = (PythonAdapter(),)
@@ -70,7 +70,7 @@ def propagate_effects(facts: Facts) -> Facts:
         for effect in sorted(effects - direct.get(k, set()), key=lambda e: e.value):
             via = next(c for c in calls[k] for t in targets(c.callee) if effect in total.get(t, ()))
             unit, symbol = unit_of[k]
-            added.append(EffectUse(unit, symbol, effect, False, via.location, Text(via.callee)))
+            added.append(EffectUse(unit, symbol, effect, Reach.TRANSITIVE, via.location, Text(via.callee)))
     return replace(facts, effects=tuple(sorted((*facts.effects, *added), key=lambda e: (e.location.path, e.location.line, repr(e)))))
 
 

@@ -5,7 +5,7 @@ solution: Pure renderers that produce Markdown, JSON and diagram models for cont
 hides: Selection, formatting and layout
 serves: [understand-system, right-context, proportional-review]
 uses: [model, realize, check, change, guide]
-exports: [context, outline, diagram, report, review]
+exports: [context, outline, diagram, render, report, review]
 status: specified
 ---
 ## Acceptance criteria

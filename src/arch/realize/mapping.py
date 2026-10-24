@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId
-from arch.realize.facts import Facts, Import, ImportForm, Role, Unit, UnitName
+from arch.realize.facts import Facts, Import, ImportForm, Role, SymbolName, Unit, UnitName
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class UnitIndex:
     """Which units exist and which names they re-export: enough to resolve imports without a design."""
 
     known_units: frozenset[UnitName] = frozenset()
-    bound_names: frozenset[tuple[UnitName, str]] = frozenset()  # (unit, name) it re-exports
+    bound_names: frozenset[tuple[UnitName, SymbolName]] = frozenset()  # (unit, name) it re-exports
 
     @staticmethod
     def of(facts: Facts) -> UnitIndex:
@@ -29,7 +29,7 @@ class UnitIndex:
     def target_of(self, imp: Import) -> UnitName | None:
         """The project unit an import reaches. `from p import n` reaches p itself when p binds n."""
         head, _, name = imp.target.rpartition(".")
-        if imp.form is ImportForm.NAME and (UnitName(head), name) in self.bound_names:
+        if imp.form is ImportForm.NAME and (UnitName(head), SymbolName(name)) in self.bound_names:
             return UnitName(head)
         return self.resolve(imp.target)
 

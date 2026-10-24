@@ -24,6 +24,7 @@ from arch.model.ids import (
     LineNo,
     Location,
     NeedId,
+    NodeId,
     Ref,
     Text,
 )
@@ -57,7 +58,7 @@ _KIND_DIRS: Mapping[str, Kind] = {
 _yaml = YAML(typ="safe", pure=True)
 
 
-def path_of(kind: Kind, ident: str) -> DesignPath:
+def path_of(kind: Kind, ident: NodeId) -> DesignPath:
     """The file a node of `kind` with id `ident` lives in; the inverse of node_id."""
     folder = next(d for d, k in _KIND_DIRS.items() if k is kind)
     if kind is Kind.COMPONENT:
@@ -65,7 +66,7 @@ def path_of(kind: Kind, ident: str) -> DesignPath:
     return DesignPath(f"{folder}/{ident}.md")
 
 
-def node_id(path: DesignPath) -> str | None:
+def node_id(path: DesignPath) -> NodeId | None:
     """`components/arch/model/schema.md` -> `arch.model.schema`; None for files that are not nodes."""
     parts = path.split("/")
     if len(parts) < 2 or parts[0] not in _KIND_DIRS or not parts[-1].endswith(".md"):
@@ -73,7 +74,7 @@ def node_id(path: DesignPath) -> str | None:
     parts[-1] = parts[-1].removesuffix(".md")
     if parts[0] != "components" and len(parts) != 2:
         return None
-    return ".".join(parts[1:])
+    return NodeId(".".join(parts[1:]))
 
 
 def kind_of(path: DesignPath) -> Kind | None:

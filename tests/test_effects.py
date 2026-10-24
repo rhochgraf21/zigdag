@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from arch import realize, realizes
-from arch.realize.facts import Effect, Role, Roots, Snapshot, SourcePath, UnitName
+from arch.realize.facts import Effect, Reach, Role, Roots, Snapshot, SourcePath, UnitName
 from arch.realize.python.extract import extract
 
 
@@ -62,7 +62,7 @@ def test_effects_propagate_through_calls_to_a_fixed_point():
         "src/p/top.py": "from p import mid\n\ndef main():\n    return mid.load('x')\n",
     }
     f = realize.extract(Snapshot({SourcePath(k): v for k, v in files.items()}, Roots(("src",), ())))
-    eff = {(e.unit, e.symbol, e.direct, e.via) for e in f.effects if e.effect is Effect.FS_READ}
+    eff = {(e.unit, e.symbol, e.reach is Reach.DIRECT, e.via) for e in f.effects if e.effect is Effect.FS_READ}
     assert ("p.io", "read", True, None) in eff
     assert ("p.mid", "load", False, "p.io.read") in eff
     assert ("p.top", "main", False, "p.mid.load") in eff

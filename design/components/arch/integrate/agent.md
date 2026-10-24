@@ -3,7 +3,7 @@ kind: component
 realizes: Put arch into coding agents' edit loops without anyone having to remember to use it
 solution: Skill packages rendered from guide.method with concrete operations from the catalog, plus hook configurations that inject the context card before an edit and run a scoped check after it; one adapter per agent product, with a generic AGENTS.md fallback
 hides: Agent-specific formats and hook mechanisms
-uses: [catalog, check, guide.method, model.graph, model.ids, realize.facts, realize.mapping, view.outline]
+uses: [catalog, check, guide.method, model.graph, model.ids, realize.facts, realize.mapping, view.outline, view.render]
 status: specified
 ---
 ## Acceptance criteria

@@ -19,6 +19,7 @@ SourceText = str
 CommitId = NewType("CommitId", str)
 VcsLog = NewType("VcsLog", str)  # raw `git log --numstat` output; arch.realize.history reads it
 LineNo = NewType("LineNo", int)
+FileSuffix = NewType("FileSuffix", str)  # e.g. ".py"
 Text = NewType("Text", str)  # display text; facts depend on nothing else in arch, so adapters need only this module
 
 
@@ -46,6 +47,16 @@ class Effect(enum.Enum):
     UNKNOWN = "unknown"
 
 
+class Reach(enum.Enum):
+    DIRECT = "direct"  # the code itself names the effectful API
+    TRANSITIVE = "transitive"  # through a call to project code that has the effect
+
+
+class UnitShape(enum.Enum):
+    MODULE = "module"
+    PACKAGE = "package"  # contains other units
+
+
 class Role(enum.Enum):
     SOURCE = "source"
     TEST = "test"  # evidence for the design; never mapped to a component
@@ -68,7 +79,7 @@ class Unit:
     role: Role
     capabilities: frozenset[Capability]
     summary: Text | None = None  # first line of the unit's leading documentation, if any
-    package: bool = False  # a unit that contains other units (a Python package)
+    shape: UnitShape = UnitShape.MODULE
 
 
 class ImportForm(enum.Enum):
@@ -95,12 +106,28 @@ class Alias:
 
 
 @dataclass(frozen=True)
+class TypeRef:
+    """A type as written, with its leaves: the names that are not containers (`list[str]` -> {"str"})."""
+
+    text: Text
+    leaves: frozenset[Text]
+
+
+@dataclass(frozen=True)
+class Parameter:
+    name: Text
+    type: TypeRef | None  # None: not annotated
+
+
+@dataclass(frozen=True)
 class PublicSymbol:
     unit: UnitName
     name: SymbolName
-    kind: Text  # display only, e.g. "function", "class", "value"
+    kind: Text  # display only, e.g. "function", "method", "class", "field", "value"
     signature: Text  # display only
     location: SourceLocation
+    parameters: tuple[Parameter, ...] = ()
+    returns: TypeRef | None = None  # for a field, its type
 
 
 @dataclass(frozen=True)
@@ -114,12 +141,12 @@ class ContractDecl:
 
 @dataclass(frozen=True)
 class EffectUse:
-    """`symbol` has `effect`: directly, or (direct=False) through a call to `via`."""
+    """`symbol` has `effect`, directly or through a call to `via`."""
 
     unit: UnitName
     symbol: SymbolName  # "<module>" for code that runs at import
     effect: Effect
-    direct: bool
+    reach: Reach
     location: SourceLocation
     via: Text | None = None
 
@@ -249,7 +276,7 @@ class Adapter(Protocol):
     """A language adapter. Built-in ones live in realize; others can be supplied by the caller."""
 
     language: Language
-    suffixes: tuple[str, ...]
+    suffixes: tuple[FileSuffix, ...]
 
     def unit_name(self, path: SourcePath, roots: Roots) -> UnitName | None: ...
 

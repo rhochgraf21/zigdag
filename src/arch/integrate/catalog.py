@@ -30,9 +30,10 @@ from arch.integrate.workspace import ProjectEdit, ProjectPath, Revision, Workspa
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
-from arch.view.context import DEFAULT_BUDGET_TOKENS, UnknownTarget
+from arch.view.context import DEFAULT_BUDGET_TOKENS, ContextTarget, TokenBudget, UnknownTarget
 from arch.view.context import context as make_context
 from arch.view.diagram import MatrixView, ObservedMatrixView, observed_matrix
+from arch.view.outline import Depth
 from arch.view.outline import outline as make_outline
 from arch.view.report import (
     BaselineReport,
@@ -46,10 +47,8 @@ from arch.view.report import (
     PlanReport,
     Rendering,
 )
+from arch.view.render import Count
 
-ContextTarget = NewType("ContextTarget", str)  # a component id, module name, or path[:line]
-Depth = NewType("Depth", int)
-TokenBudget = NewType("TokenBudget", int)
 
 
 class UnknownComponent(Exception):
@@ -126,10 +125,10 @@ def baseline(ws: Workspace) -> Result:
     report = run_checks(_graph(ws), ws.facts())
     new = Baseline.of(report.findings)
     ws.write_baseline(new)
-    return Result(BaselineReport(len(old.entries), len(new.entries), len(old.stale(report))))
+    return Result(BaselineReport(Count(len(old.entries)), Count(len(new.entries)), Count(len(old.stale(report)))))
 
 
-def context(ws: Workspace, target: ContextTarget, budget: TokenBudget = TokenBudget(DEFAULT_BUDGET_TOKENS)) -> Result:
+def context(ws: Workspace, target: ContextTarget, budget: TokenBudget = DEFAULT_BUDGET_TOKENS) -> Result:
     g, facts = _graph(ws), ws.facts()
     return Result(make_context(g, facts, run_checks(g, facts, ws.baseline(), ws.config().lexicon()), target, budget))
 
@@ -183,14 +182,15 @@ def init(ws: Workspace, mode: EditMode = EditMode.WRITE) -> Result:
     result = apply(codec.load({}), inference.operations, snapshot, facts.links)
     edit_report = EditReport(result, mode)
     if result.outcome is not ApplyOutcome.APPLIED:
-        return Result(InitReport(edit_report, 0, (), 0, inference.notes), Outcome.BLOCKING)
+        return Result(InitReport(edit_report, Count(0), (), Count(0), inference.notes), Outcome.BLOCKING)
     remaining = Baseline.of(run_checks(Graph(result.after), facts).findings)
     if mode is EditMode.WRITE:
         ws.write(result.design_edits, result.source_edits)
         if remaining.entries:
             ws.write_baseline(remaining)
     cycles = tuple(tuple(Text(c) for c in group) for group in inference.cycles)
-    return Result(InitReport(edit_report, len(inference.components), cycles, len(remaining.entries), inference.notes))
+    return Result(InitReport(edit_report, Count(len(inference.components)), cycles, Count(len(remaining.entries)),
+                             inference.notes))
 
 
 def diff(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:

@@ -8,9 +8,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from typing import NewType
 
 from arch.integrate.catalog import ProjectPath
 from arch.model.ids import Text
+
+HookPayload = NewType("HookPayload", str)  # the JSON Claude Code sends a hook on stdin
+ArchCommand = NewType("ArchCommand", str)  # how a hook invokes arch, e.g. "arch" or "uv run arch"
+SettingsText = NewType("SettingsText", str)  # the contents of .claude/settings.json
+SkillName = NewType("SkillName", str)
 
 SETTINGS = ProjectPath(".claude/settings.json")
 SKILLS_DIR = ".claude/skills"
@@ -23,11 +29,11 @@ class BadSettings(Exception):
     pass
 
 
-def skill_path(name: str) -> ProjectPath:
+def skill_path(name: SkillName) -> ProjectPath:
     return ProjectPath(f"{SKILLS_DIR}/{name}/SKILL.md")
 
 
-def merged_settings(current: str | None, command: str) -> str:
+def merged_settings(current: SettingsText | None, command: ArchCommand) -> SettingsText:
     """Settings with arch's hooks registered once, everything else left as it was."""
     try:
         settings = json.loads(current) if current else {}
@@ -43,7 +49,7 @@ def merged_settings(current: str | None, command: str) -> str:
     for event, group in ours.items():
         groups = [g for g in hooks.get(event, []) if not _is_ours(g, command)]
         hooks[event] = [*groups, group]
-    return json.dumps(settings, indent=2) + "\n"
+    return SettingsText(json.dumps(settings, indent=2) + "\n")
 
 
 def _handler(command: str, event: str, timeout: int) -> Mapping[str, object]:
@@ -55,7 +61,7 @@ def _is_ours(group: object, command: str) -> bool:
     return any(isinstance(h, dict) and str(h.get("command", "")).startswith(f"{command} hook ") for h in handlers)
 
 
-def edited_path(payload: str) -> Text | None:
+def edited_path(payload: HookPayload) -> Text | None:
     """The absolute file path a PostToolUse payload for Edit/Write names, if any."""
     try:
         data = json.loads(payload)

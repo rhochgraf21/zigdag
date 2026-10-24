@@ -17,11 +17,13 @@ from arch.realize.facts import (
     DesignLink,
     Effect,
     EffectUse,
+    Reach,
     Facts,
     Import,
     ImportForm,
     Language,
     LineNo,
+    Parameter,
     ParseError,
     PublicSymbol,
     Role,
@@ -30,8 +32,10 @@ from arch.realize.facts import (
     SourceText,
     SymbolName,
     Text,
+    TypeRef,
     Unit,
     UnitName,
+    UnitShape,
 )
 
 LANGUAGE = Language("python")
@@ -65,8 +69,15 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
         name = qual.rsplit(".", 1)[-1]
         top = "." not in qual
         public = (name in exported) if (exported is not None and top) else not name.startswith("_")
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) and public:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and public:
+            kind, signature = _signature(node, qual)
+            params, returns = _parameters(node), _type_ref(node.returns)
+            symbols.append(PublicSymbol(unit, SymbolName(qual), kind, signature, at(node), params, returns))
+        elif isinstance(node, ast.ClassDef) and public:
             symbols.append(PublicSymbol(unit, SymbolName(qual), *_signature(node, qual), at(node)))
+        elif isinstance(node, ast.AnnAssign) and public and not top:
+            symbols.append(PublicSymbol(unit, SymbolName(qual), Text("field"), Text(f"{qual}: {ast.unparse(node.annotation)}"),
+                                        at(node), (), _type_ref(node.annotation)))
         elif isinstance(node, ast.Assign | ast.AnnAssign) and public and top and name != "__all__":
             symbols.append(PublicSymbol(unit, SymbolName(qual), Text("value"), Text(name), at(node)))
         for dec in getattr(node, "decorator_list", ()):
@@ -79,9 +90,9 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
     effects, calls = _effects_and_calls(tree, unit, package, at)
     doc = ast.get_docstring(tree)
     summary = Text(next((line.strip() for line in doc.splitlines() if line.strip()), "")) if doc else None
-    is_package = path.endswith("__init__.py")
+    shape = UnitShape.PACKAGE if path.endswith("__init__.py") else UnitShape.MODULE
     return Facts(
-        units=(Unit(unit, path, LANGUAGE, role, CAPABILITIES, summary or None, is_package),),
+        units=(Unit(unit, path, LANGUAGE, role, CAPABILITIES, summary or None, shape),),
         imports=imports,
         symbols=tuple(symbols),
         contracts=tuple(contracts),
@@ -126,6 +137,8 @@ def _definitions(tree: ast.Module):
             elif isinstance(node, ast.ClassDef):
                 yield node, prefix + node.name
                 yield from walk(node.body, prefix + node.name + ".")
+            elif isinstance(node, ast.AnnAssign) and prefix and isinstance(node.target, ast.Name):
+                yield node, prefix + node.target.id  # a class-level field
             elif isinstance(node, ast.Assign) and not prefix:
                 for t in node.targets:
                     if isinstance(t, ast.Name):
@@ -272,7 +285,7 @@ def _effects_and_calls(tree: ast.Module, unit: UnitName, package: UnitName, at):
                     return None
 
         def effect(kind: Effect, node: ast.AST) -> None:
-            effects.setdefault((symbol, kind), EffectUse(unit, symbol, kind, True, at(node)))
+            effects.setdefault((symbol, kind), EffectUse(unit, symbol, kind, Reach.DIRECT, at(node)))
 
         def call(name: str, node: ast.AST) -> None:
             calls.setdefault((symbol, name), Call(unit, symbol, Text(name), at(node)))
@@ -378,3 +391,50 @@ def _aliases(tree: ast.Module, unit: UnitName, package: UnitName, at):
                 if a.name != "*":
                     local = a.asname or a.name
                     yield Alias(unit, SymbolName(local), Text(names[local]), at(node))
+
+
+def _parameters(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[Parameter, ...]:
+    args = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+    args += [a for a in (fn.args.vararg, fn.args.kwarg) if a is not None]
+    if args and args[0].arg in ("self", "cls"):
+        args = args[1:]
+    return tuple(Parameter(Text(a.arg), _type_ref(a.annotation)) for a in args)
+
+
+def _type_ref(annotation: ast.expr | None) -> TypeRef | None:
+    if annotation is None:
+        return None
+    return TypeRef(Text(ast.unparse(annotation)), frozenset(Text(n) for n in _leaves(annotation)))
+
+
+_TYPING_PREFIXES = ("typing.", "builtins.", "collections.abc.", "typing_extensions.")
+
+
+def _leaves(node: ast.expr) -> set[str]:
+    """Type names in leaf position; container names (the part before `[`) are not leaves."""
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Attribute):
+        name = ast.unparse(node)
+        for prefix in _TYPING_PREFIXES:
+            name = name.removeprefix(prefix)
+        return {name}
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return {"None"}
+        if isinstance(node.value, str):  # a string annotation
+            try:
+                return _leaves(ast.parse(node.value, mode="eval").body)
+            except SyntaxError:
+                return {node.value}
+        return set()  # Ellipsis and literals
+    if isinstance(node, ast.Subscript):
+        container = ast.unparse(node.value)
+        if container.split(".")[-1] in ("Literal", "Annotated"):
+            return _leaves(node.slice.elts[0]) if container.endswith("Annotated") and isinstance(node.slice, ast.Tuple) else set()
+        return _leaves(node.slice)
+    if isinstance(node, ast.Tuple | ast.List):
+        return set().union(*(_leaves(e) for e in node.elts)) if node.elts else set()
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _leaves(node.left) | _leaves(node.right)
+    return {ast.unparse(node)}

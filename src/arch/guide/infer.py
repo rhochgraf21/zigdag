@@ -25,7 +25,7 @@ from arch.model.ids import (
 )
 from arch.model.matrix import layer
 from arch.model.schema import Status
-from arch.realize.facts import Facts, Role, UnitName
+from arch.realize.facts import Facts, Role, UnitName, UnitShape
 from arch.realize.mapping import UnitIndex
 
 
@@ -79,7 +79,7 @@ def infer(facts: Facts) -> Inference:
     ops: list[Operation] = []
     for cid in sorted(ids, key=lambda c: (c.count("."), c)):
         unit = units.get(UnitName(cid))
-        kind = "package" if unit is None or unit.package else "module"
+        kind = UnitShape.PACKAGE.value if unit is None else unit.shape.value
         refs = tuple(sorted(r for t in uses[cid] if (r := reference_in(ids, cid, t)) is not None))
         ops.append(AddComponent(
             id=cid,

@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
+from typing import TypeAlias
+
 from arch.model.ids import CriterionId
 
 F = TypeVar("F", bound=Callable[..., object])
+CriterionRef: TypeAlias = str  # "component#ACn" (or just "component") as written in the decorator
 
 
-def realizes(*criteria: CriterionId | str) -> Callable[[F], F]:
+def realizes(*criteria: CriterionRef) -> Callable[[F], F]:
     """Link code (a port, contract or test) to the acceptance criteria it realizes, e.g. "x.y#AC2".
 
     Read statically by arch's adapters; at runtime it only records the links on the object.

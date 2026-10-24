@@ -71,7 +71,7 @@ class Settable(enum.Enum):
         self.kind = kind
 
     @staticmethod
-    def named(name: str) -> Settable:
+    def named(name: Text) -> Settable:
         for s in Settable:
             if s.key == name:
                 return s
@@ -472,7 +472,7 @@ def from_json(raw: JsonObject) -> Operation:
         if key == "op":
             continue
         if key == "field":
-            args[key] = Settable.named(str(value))
+            args[key] = Settable.named(Text(str(value)))
         elif key in _ENUM_FIELDS:
             try:
                 args[key] = _ENUM_FIELDS[key](value)

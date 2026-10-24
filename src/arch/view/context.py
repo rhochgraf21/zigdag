@@ -7,16 +7,23 @@ compacted and then dropped in a fixed priority order, and the card says what it 
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass
+from typing import NewType
 
 from arch.check.engine import Report, Severity
 from arch.model.graph import Graph, is_within
+from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
-from arch.model.ids import ComponentId
 from arch.realize.facts import Facts, UnitName
 from arch.realize.mapping import UnitMap, map_units
+from arch.view.render import JsonValue, Markdown
 
-DEFAULT_BUDGET_TOKENS = 4000
+ContextTarget = NewType("ContextTarget", str)  # a component id, module name, or path[:line]
+TokenBudget = NewType("TokenBudget", int)
+TokenCount = NewType("TokenCount", int)
+
+DEFAULT_BUDGET_TOKENS = TokenBudget(4000)
 CHARS_PER_TOKEN = 4  # estimate; arch has no tokenizer
 
 
@@ -24,24 +31,35 @@ class UnknownTarget(Exception):
     pass
 
 
+class Priority(enum.IntEnum):
+    """How long a section survives trimming: ESSENTIAL never goes; LOWEST goes first."""
+
+    ESSENTIAL = 0
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
+    LOWER = 4
+    LOWEST = 5
+
+
 @dataclass(frozen=True)
 class Section:
-    title: str
-    lines: tuple[str, ...]
-    priority: int  # 0 is never dropped; higher numbers go first
-    compact: tuple[str, ...] | None = None  # a shorter form tried before dropping
+    title: Text
+    lines: tuple[Markdown, ...]
+    priority: Priority
+    compact: tuple[Markdown, ...] | None = None  # a shorter form tried before dropping
 
 
 @dataclass(frozen=True)
 class Card:
     component: ComponentId
-    focus: str | None
+    focus: Text | None
     sections: tuple[Section, ...]
-    omitted: tuple[str, ...] = ()
-    compacted: tuple[str, ...] = ()
-    budget_tokens: int = DEFAULT_BUDGET_TOKENS
+    omitted: tuple[Text, ...] = ()
+    compacted: tuple[Text, ...] = ()
+    budget_tokens: TokenBudget = DEFAULT_BUDGET_TOKENS
 
-    def to_markdown(self) -> str:
+    def to_markdown(self) -> Markdown:
         out = [f"# Context: {self.component}"]
         if self.focus:
             out.append(f"Focus: {self.focus}")
@@ -54,9 +72,9 @@ class Card:
             notes.append(f"omitted: {', '.join(self.omitted)}")
         if notes:
             out += ["", f"_({'; '.join(notes)}, to fit ~{self.budget_tokens} tokens)_"]
-        return "\n".join(out)
+        return Markdown("\n".join(out))
 
-    def to_json(self) -> dict[str, object]:
+    def to_json(self) -> JsonValue:
         return {
             "component": self.component,
             "focus": self.focus,
@@ -67,18 +85,19 @@ class Card:
         }
 
     @property
-    def tokens(self) -> int:
-        return len(self.to_markdown()) // CHARS_PER_TOKEN
+    def tokens(self) -> TokenCount:
+        return TokenCount(len(self.to_markdown()) // CHARS_PER_TOKEN)
 
 
-def context(graph: Graph, facts: Facts, report: Report, target: str, budget: int = DEFAULT_BUDGET_TOKENS) -> Card:
+def context(graph: Graph, facts: Facts, report: Report, target: ContextTarget,
+            budget: TokenBudget = DEFAULT_BUDGET_TOKENS) -> Card:
     m = map_units(graph, facts)
     cid, focus = _resolve(graph, facts, m, target)
     sections = _sections(graph, facts, m, report, cid)
     return _fit(Card(cid, focus, sections, budget_tokens=budget))
 
 
-def _resolve(graph: Graph, facts: Facts, m: UnitMap, target: str) -> tuple[ComponentId, str | None]:
+def _resolve(graph: Graph, facts: Facts, m: UnitMap, target: ContextTarget) -> tuple[ComponentId, Text | None]:
     if target in graph:
         return ComponentId(target), None
     path, _, line_text = target.partition(":")
@@ -89,12 +108,12 @@ def _resolve(graph: Graph, facts: Facts, m: UnitMap, target: str) -> tuple[Compo
     cid = m.component_of.get(unit.name)
     if cid is None:
         raise UnknownTarget(f"{unit.path} belongs to no component" + (" (it is a test)" if unit.role.value == "test" else ""))
-    focus = f"{unit.path} (module {unit.name})"
+    focus = Text(f"{unit.path} (module {unit.name})")
     if line is not None:
         above = [s for s in facts.symbols if s.unit == unit.name and s.location.line <= line]
         if above:
             nearest = max(above, key=lambda s: s.location.line)
-            focus = f"{unit.path}:{line}, in `{nearest.name}` (nearest public definition above)"
+            focus = Text(f"{unit.path}:{line}, in `{nearest.name}` (nearest public definition above)")
     return cid, focus
 
 
@@ -153,16 +172,16 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
     used_by = [f"- `{o}`: {graph[o].realizes}" for o in graph.ids() if o != cid and any(is_within(cid, u) for u in graph.uses(o))]
 
     candidates = [
-        Section("Component", tuple(head), 0),
-        Section("Why it exists", tuple(why), 1),
-        Section("Acceptance criteria", tuple(criteria) or ("(none)",), 1),
-        Section("Port", tuple(port) or ("(no public symbols yet)",), 1),
-        Section("Decisions", tuple(decisions), 2),
-        Section("Constraints in force", tuple(constraints), 2),
-        Section("Open findings", tuple(findings), 2),
-        Section("May use", tuple(uses_full), 3, compact=tuple(uses_short)),
-        Section("Children (realization order)", tuple(children), 4),
-        Section("Used by", tuple(used_by), 5),
+        Section(Text("Component"), tuple(head), Priority.ESSENTIAL),
+        Section(Text("Why it exists"), tuple(why), Priority.HIGH),
+        Section(Text("Acceptance criteria"), tuple(criteria) or (Markdown("(none)"),), Priority.HIGH),
+        Section(Text("Port"), tuple(port) or (Markdown("(no public symbols yet)"),), Priority.HIGH),
+        Section(Text("Decisions"), tuple(decisions), Priority.MEDIUM),
+        Section(Text("Constraints in force"), tuple(constraints), Priority.MEDIUM),
+        Section(Text("Open findings"), tuple(findings), Priority.MEDIUM),
+        Section(Text("May use"), tuple(uses_full), Priority.LOW, compact=tuple(uses_short)),
+        Section(Text("Children (realization order)"), tuple(children), Priority.LOWER),
+        Section(Text("Used by"), tuple(used_by), Priority.LOWEST),
     ]
     return tuple(s for s in candidates if s.lines)
 
@@ -193,13 +212,13 @@ def _first_sentence(text: str) -> str:
 def _fit(card: Card) -> Card:
     """Compact, then drop, the lowest-priority sections until the card fits its budget."""
     sections = list(card.sections)
-    omitted: list[str] = []
-    compacted: list[str] = []
+    omitted: list[Text] = []
+    compacted: list[Text] = []
 
     def current() -> Card:
         return Card(card.component, card.focus, tuple(sections), tuple(omitted), tuple(compacted), card.budget_tokens)
 
-    for s in sorted((s for s in card.sections if s.priority > 0), key=lambda s: -s.priority):
+    for s in sorted((s for s in card.sections if s.priority is not Priority.ESSENTIAL), key=lambda s: -s.priority):
         if current().tokens <= card.budget_tokens:
             break
         i = sections.index(s)
@@ -215,4 +234,4 @@ def _fit(card: Card) -> Card:
     return current()
 
 
-__all__ = ["Card", "UnknownTarget", "context"]
+__all__ = ["Card", "ContextTarget", "Priority", "TokenBudget", "UnknownTarget", "context"]

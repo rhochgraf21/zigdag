@@ -8,6 +8,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from arch.model.ids import (
     ComponentId,
@@ -24,6 +25,7 @@ from arch.model.ids import (
 from arch.model.policy import Policy
 
 SourceText = str  # the raw contents of a design file
+RawFrontmatter: TypeAlias = Mapping[str, object]  # a node's frontmatter as read from YAML, before validation
 
 
 class Kind(enum.Enum):
@@ -39,10 +41,6 @@ class Status(enum.Enum):
     SPECIFIED = "specified"
     CONTRACTED = "contracted"
     VERIFIED = "verified"
-
-    @property
-    def rank(self) -> int:
-        return list(Status).index(self)
 
 
 @dataclass(frozen=True)
@@ -134,28 +132,33 @@ class FieldType(enum.Enum):
     MAPPING = "mapping"
 
 
+class Presence(enum.Enum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+
+
 @dataclass(frozen=True)
 class FieldSpec:
     type: FieldType
-    required: bool = False
-    choices: tuple[str, ...] = ()
+    presence: Presence = Presence.OPTIONAL
+    choices: tuple[Text, ...] = ()
 
 
-def _enum(cls: type[enum.Enum], required: bool = False) -> FieldSpec:
-    return FieldSpec(FieldType.ENUM, required, tuple(m.value for m in cls))
+def _enum(cls: type[enum.Enum], presence: Presence = Presence.OPTIONAL) -> FieldSpec:
+    return FieldSpec(FieldType.ENUM, presence, tuple(Text(m.value) for m in cls))
 
 
 # Frontmatter fields per kind. `kind` itself is checked by the codec; ids come from paths.
 FIELDS: Mapping[Kind, Mapping[str, FieldSpec]] = {
     Kind.COMPONENT: {
-        "realizes": FieldSpec(FieldType.TEXT, required=True),
-        "solution": FieldSpec(FieldType.TEXT, required=True),
+        "realizes": FieldSpec(FieldType.TEXT, Presence.REQUIRED),
+        "solution": FieldSpec(FieldType.TEXT, Presence.REQUIRED),
         "hides": FieldSpec(FieldType.TEXT),
         "serves": FieldSpec(FieldType.REFS),
         "uses": FieldSpec(FieldType.REFS),
         "exports": FieldSpec(FieldType.REFS),
         "accepts_coupling": FieldSpec(FieldType.REF_SETS),
-        "status": _enum(Status, required=True),
+        "status": _enum(Status, Presence.REQUIRED),
         "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.NEED: {
@@ -164,13 +167,13 @@ FIELDS: Mapping[Kind, Mapping[str, FieldSpec]] = {
         "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.CONSTRAINT: {
-        "applies_to": FieldSpec(FieldType.REFS, required=True),
+        "applies_to": FieldSpec(FieldType.REFS, Presence.REQUIRED),
         "rule": FieldSpec(FieldType.MAPPING),
     },
 }
 
 
-def validate_fields(kind: Kind, raw: Mapping[str, object], location: Location) -> tuple[Issue, ...]:
+def validate_fields(kind: Kind, raw: RawFrontmatter, location: Location) -> tuple[Issue, ...]:
     """Check a node's raw frontmatter against its kind's field specs. Never raises."""
     specs = FIELDS[kind]
     issues: list[Issue] = []
@@ -178,7 +181,7 @@ def validate_fields(kind: Kind, raw: Mapping[str, object], location: Location) -
         issues.append(Issue(location, FieldName(name), Text(f"unknown field '{name}' for a {kind.value}")))
     for name, spec in specs.items():
         if name not in raw or raw[name] is None:
-            if spec.required:
+            if spec.presence is Presence.REQUIRED:
                 issues.append(Issue(location, FieldName(name), Text(f"missing required field '{name}'")))
             continue
         value = raw[name]

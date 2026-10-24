@@ -13,6 +13,7 @@ status: specified
 - AC4: Relative imports shall resolve to absolute module paths.
 - AC5: `@deal.has(...)` and `@deal.pre/post/ensure/inv` on public symbols shall become ContractDecl facts.
 - AC6: Every resolvable call shall become a Call fact naming the callee's dotted name, resolving `self.method()`, imported names, and methods on parameters or locals whose class is known from an annotation or a constructor call.
+- AC7: The extractor shall record the parameter, return and class-field types of public symbols, each with its leaf type names, excluding containers and literals.
 
 ## Rationale
 Static inference over-approximates in places and misses dynamic dispatch. Reporting `unknown` keeps

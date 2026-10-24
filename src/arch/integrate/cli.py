@@ -33,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--project", type=Path, default=Path.cwd(), help="where to start looking for design/")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     sub = p.add_subparsers(dest="cmd", required=True, metavar="command")
+    common = argparse.ArgumentParser(add_help=False)  # global flags also accepted after the command
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="machine-readable output")
+    common.add_argument("--project", type=Path, default=argparse.SUPPRESS, help="where to start looking for design/")
+    _add_parser = sub.add_parser
+    sub.add_parser = lambda *a, **k: _add_parser(*a, **{**k, "parents": [common, *k.get("parents", [])]})
     summary = {op.command: op.summary for op in catalog.OPERATIONS}
 
     c = sub.add_parser("check", help=summary[Command.CHECK])
@@ -146,7 +151,7 @@ def _operations(args: argparse.Namespace, ws: Workspace) -> list[ops.Operation]:
         case "set", _:
             if args.clear == (args.value is not None):
                 raise ops.Rejected("give a value, or --clear")
-            return [ops.SetField(Text(args.node), ops.Settable.named(args.field), None if args.clear else Text(args.value))]
+            return [ops.SetField(Text(args.node), ops.Settable.named(Text(args.field)), None if args.clear else Text(args.value))]
         case ("link" | "unlink") as verb, _:
             cls = ops.Link if verb == "link" else ops.Unlink
             return [cls(ComponentId(args.component), ops.Relation(args.relation), Ref(args.target))]
@@ -199,7 +204,7 @@ def _hook(args: argparse.Namespace) -> int:
         ws = catalog.open_project(args.project)
     except catalog.NoProject:
         return 0
-    payload = sys.stdin.read() if event is agent.HookEvent.POST_EDIT else ""
+    payload = agent.HookPayload(sys.stdin.read() if event is agent.HookEvent.POST_EDIT else "")
     try:
         response = agent.handle(event, ws, payload)
     except Exception as e:  # noqa: BLE001
@@ -215,7 +220,7 @@ def _hook(args: argparse.Namespace) -> int:
 def _install(args: argparse.Namespace) -> int:
     try:
         ws = catalog.open_project(args.project)
-        plan = agent.installation(ws, agent.Product(args.agent), args.command)
+        plan = agent.installation(ws, agent.Product(args.agent), agent.ArchCommand(args.command))
     except (*catalog.NoProject, BadSettings) as e:
         print(f"arch: {e}", file=sys.stderr)
         return USAGE_ERROR

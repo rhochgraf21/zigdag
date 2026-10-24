@@ -14,7 +14,7 @@ from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severi
 from arch.model.graph import is_within, parent_of
 from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
-from arch.realize.facts import Capability, Effect, Facts, Role, UnitName
+from arch.realize.facts import Capability, Effect, Facts, Reach, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
 
 _maps: WeakKeyDictionary[Context, UnitMap] = WeakKeyDictionary()
@@ -121,6 +121,36 @@ def failing_evidence(ctx: Context) -> Iterator[Finding]:
                            "fix the code or the test; the criterion counts as unmet until it passes", link.location)
 
 
+def port_types(ctx: Context) -> Iterator[Finding]:
+    """Public ports use domain types: no forbidden built-ins at leaf positions (bool is fine as a return)."""
+    g, m = ctx.graph, _mapping(ctx)
+    source = _source_units(ctx)
+    for sym in ctx.facts.symbols if ctx.facts else ():
+        cid = m.component_of.get(sym.unit)
+        if cid is None or sym.unit not in source or sym.name.rsplit(".", 1)[-1].startswith("__"):
+            continue
+        rule = g.effective_policy(cid).port_types
+        if not rule.applies_to(cid):
+            continue
+        where = f"{sym.unit}.{sym.name}"
+        slots = [(p.name, p.type, rule.forbid) for p in sym.parameters]
+        if sym.returns is not None:
+            field = sym.kind == "field"
+            slots.append((Text("type" if field else "return"), sym.returns,
+                          rule.forbid if field else rule.forbid - rule.allow_in_returns))
+        for slot, ref, forbidden in slots:
+            if ref is None:
+                yield _finding("C011", cid, f"untyped:{where}:{slot}", Severity.WARNING,
+                               f"{where} has no type for `{slot}`", "annotate it with a domain type", sym.location)
+                continue
+            bare = sorted(leaf for leaf in ref.leaves if leaf in forbidden)
+            if bare:
+                yield _finding("C011", cid, f"bare:{where}:{slot}", Severity.ERROR,
+                               f"{where} exposes `{slot}: {ref.text}`, which uses bare {', '.join(bare)}",
+                               "use a domain type (NewType, enum, value object) or an alias that names the concept",
+                               sym.location)
+
+
 def third_party(ctx: Context) -> Iterator[Finding]:
     """Imports outside the project and the standard library must be allowed by an imports constraint."""
     g, m = ctx.graph, _mapping(ctx)
@@ -152,7 +182,7 @@ def effect_violations(ctx: Context) -> Iterator[Finding]:
         if cid is None or e.unit not in source:
             continue
         policy = policies.setdefault(cid, g.effective_policy(cid))
-        how = "directly" if e.direct else f"via {e.via}"
+        how = "directly" if e.reach is Reach.DIRECT else f"via {e.via}"
         if e.effect is Effect.UNKNOWN:
             if policy.restricts_effects and (cid, "unknown", e.symbol) not in seen:
                 seen.add((cid, "unknown", e.symbol))
@@ -160,7 +190,7 @@ def effect_violations(ctx: Context) -> Iterator[Finding]:
                                f"{e.unit}.{e.symbol} uses dynamic code ({how}), so its effects cannot be checked",
                                "avoid eval/exec/dynamic imports here, or move them to a shell component", e.location)
             continue
-        problem = _effect_problem(policy, cid, EffectKind(e.effect.value), e.direct)
+        problem = _effect_problem(policy, cid, EffectKind(e.effect.value), e.reach)
         if problem and (cid, e.effect.value, problem) not in seen:
             seen.add((cid, e.effect.value, problem))
             yield _finding("C008", cid, f"effect:{e.effect.value}", Severity.ERROR,
@@ -169,14 +199,14 @@ def effect_violations(ctx: Context) -> Iterator[Finding]:
                            "(with a decision entry)", e.location)
 
 
-def _effect_problem(policy: Policy, cid: ComponentId, effect: EffectKind, direct: bool) -> str | None:
+def _effect_problem(policy: Policy, cid: ComponentId, effect: EffectKind, reach: Reach) -> str | None:
     verdict = policy.effects.verdict(effect)
     if verdict is EffectVerdict.FORBIDDEN:
         return verdict.value
     if verdict is EffectVerdict.NOT_ALLOWED:
         allowed = ", ".join(sorted(k.value for k in policy.effects.allow or ())) or "none"
         return f"{verdict.value} (allowed: {allowed})"
-    if direct and policy.direct_effects is not None and not policy.direct_effects.permits(cid, effect):
+    if reach is Reach.DIRECT and policy.direct_effects is not None and not policy.direct_effects.permits(cid, effect):
         holders = ", ".join(policy.direct_effects.holders(effect)) or "no component"
         return f"may be done directly only in {holders}"
     return None
@@ -204,4 +234,5 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C007"), Text("effect constraints are analyzable"), effects_unanalyzed),
     Rule(RuleId("C008"), Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
     Rule(RuleId("C010"), Text("linked tests pass"), failing_evidence),
+    Rule(RuleId("C011"), Text("public ports use domain types"), port_types),
 )

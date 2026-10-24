@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import NewType
+from typing import NewType, TypeAlias
 
 from arch.model.ids import ComponentId, Text, is_within
 
@@ -17,6 +17,7 @@ PackageName = NewType("PackageName", str)  # a dotted import name, e.g. "ruamel.
 TypeName = NewType("TypeName", str)  # a type as named in code, e.g. "str"
 MetricName = NewType("MetricName", str)
 Quantity = NewType("Quantity", float)
+RawRule: TypeAlias = Mapping[str, object]  # a rule as read from YAML, before parsing
 
 
 class EffectKind(enum.Enum):
@@ -38,33 +39,33 @@ class Problems:
     def __init__(self) -> None:
         self.messages: list[Text] = []
 
-    def add(self, message: str) -> None:
-        self.messages.append(Text(message))
+    def add(self, message: Text) -> None:
+        self.messages.append(message)
 
-    def names(self, raw: object, where: str) -> tuple[str, ...]:
+    def names(self, raw: object, where: Text) -> tuple[Text, ...]:
         if raw is None:
             return ()
         if isinstance(raw, list) and all(isinstance(v, str) for v in raw):
-            return tuple(raw)
-        self.add(f"{where} must be a list of names")
+            return tuple(Text(v) for v in raw)
+        self.add(Text(f"{where} must be a list of names"))
         return ()
 
-    def effects(self, raw: object, where: str) -> frozenset[EffectKind]:
+    def effects(self, raw: object, where: Text) -> frozenset[EffectKind]:
         known = {e.value: e for e in EffectKind}
         kinds = set()
         for name in self.names(raw, where):
             if name in known:
                 kinds.add(known[name])
             else:
-                self.add(f"{where}: unknown effect '{name}' (known: {', '.join(known)})")
+                self.add(Text(f"{where}: unknown effect '{name}' (known: {', '.join(known)})"))
         return frozenset(kinds)
 
-    def mapping(self, raw: object, where: str) -> Mapping[str, object]:
+    def mapping(self, raw: object, where: Text) -> RawRule:
         if raw is None:
             return {}
         if isinstance(raw, Mapping):
             return raw
-        self.add(f"{where} must be a mapping")
+        self.add(Text(f"{where} must be a mapping"))
         return {}
 
 
@@ -74,9 +75,9 @@ class EffectRule:
     allow: frozenset[EffectKind] | None = None  # None: no allow-list applies
 
     @staticmethod
-    def parse(raw: Mapping[str, object], problems: Problems) -> EffectRule:
-        allow = problems.effects(raw["allow"], "effects.allow") if "allow" in raw else None
-        return EffectRule(problems.effects(raw.get("forbid"), "effects.forbid"), allow)
+    def parse(raw: RawRule, problems: Problems) -> EffectRule:
+        allow = problems.effects(raw["allow"], Text("effects.allow")) if "allow" in raw else None
+        return EffectRule(problems.effects(raw.get("forbid"), Text("effects.forbid")), allow)
 
     @staticmethod
     def combine(rules: Iterable[EffectRule]) -> EffectRule:
@@ -114,8 +115,8 @@ class DirectEffects:
     grants: Mapping[ComponentId, frozenset[EffectKind]] = field(default_factory=dict)
 
     @staticmethod
-    def parse(raw: Mapping[str, object], problems: Problems) -> DirectEffects:
-        return DirectEffects({ComponentId(k): problems.effects(v, f"direct_effects.{k}") for k, v in raw.items()})
+    def parse(raw: RawRule, problems: Problems) -> DirectEffects:
+        return DirectEffects({ComponentId(k): problems.effects(v, Text(f"direct_effects.{k}")) for k, v in raw.items()})
 
     @staticmethod
     def combine(rules: Iterable[DirectEffects]) -> DirectEffects:
@@ -140,11 +141,12 @@ class ImportRule:
     allowed_in: Mapping[ComponentId, frozenset[PackageName]] = field(default_factory=dict)
 
     @staticmethod
-    def parse(raw: Mapping[str, object], problems: Problems) -> ImportRule:
-        per = problems.mapping(raw.get("allow_third_party_in"), "imports.allow_third_party_in")
+    def parse(raw: RawRule, problems: Problems) -> ImportRule:
+        per = problems.mapping(raw.get("allow_third_party_in"), Text("imports.allow_third_party_in"))
+        allowed = problems.names(raw.get("allow_third_party"), Text("imports.allow_third_party"))
         return ImportRule(
-            frozenset(PackageName(n) for n in problems.names(raw.get("allow_third_party"), "imports.allow_third_party")),
-            {ComponentId(k): frozenset(PackageName(n) for n in problems.names(v, f"imports.allow_third_party_in.{k}"))
+            frozenset(PackageName(n) for n in allowed),
+            {ComponentId(k): frozenset(PackageName(n) for n in problems.names(v, Text(f"imports.allow_third_party_in.{k}")))
              for k, v in per.items()},
         )
 
@@ -175,11 +177,11 @@ class PortTypeRule:
     exempt: frozenset[ComponentId] = frozenset()
 
     @staticmethod
-    def parse(raw: Mapping[str, object], problems: Problems) -> PortTypeRule:
+    def parse(raw: RawRule, problems: Problems) -> PortTypeRule:
         return PortTypeRule(
-            frozenset(TypeName(n) for n in problems.names(raw.get("forbid"), "port_types.forbid")),
-            frozenset(TypeName(n) for n in problems.names(raw.get("allow_in_returns"), "port_types.allow_in_returns")),
-            frozenset(ComponentId(n) for n in problems.names(raw.get("except_in"), "port_types.except_in")),
+            frozenset(TypeName(n) for n in problems.names(raw.get("forbid"), Text("port_types.forbid"))),
+            frozenset(TypeName(n) for n in problems.names(raw.get("allow_in_returns"), Text("port_types.allow_in_returns"))),
+            frozenset(ComponentId(n) for n in problems.names(raw.get("except_in"), Text("port_types.except_in"))),
         )
 
     @staticmethod
@@ -200,13 +202,13 @@ class BudgetRule:
     limits: Mapping[MetricName, Quantity] = field(default_factory=dict)
 
     @staticmethod
-    def parse(raw: Mapping[str, object], problems: Problems) -> BudgetRule:
+    def parse(raw: RawRule, problems: Problems) -> BudgetRule:
         limits = {}
         for k, v in raw.items():
             if isinstance(v, int | float) and not isinstance(v, bool):
                 limits[MetricName(k)] = Quantity(float(v))
             elif not isinstance(v, str):  # text values are notes about the measurement
-                problems.add(f"budget.{k} must be a number")
+                problems.add(Text(f"budget.{k} must be a number"))
         return BudgetRule(limits)
 
     @staticmethod
@@ -237,12 +239,12 @@ class Policy:
     budget: BudgetRule = BudgetRule()
 
     @staticmethod
-    def parse(raw: Mapping[str, object]) -> tuple[Policy, tuple[Text, ...]]:
+    def parse(raw: RawRule) -> tuple[Policy, tuple[Text, ...]]:
         problems = Problems()
         known = {k.value for k in RuleKind}
         for name in sorted(set(raw) - known):
-            problems.add(f"unknown rule '{name}' (known: {', '.join(sorted(known))})")
-        sections = {k: problems.mapping(raw.get(k.value), k.value) for k in RuleKind}
+            problems.add(Text(f"unknown rule '{name}' (known: {', '.join(sorted(known))})"))
+        sections = {k: problems.mapping(raw.get(k.value), Text(k.value)) for k in RuleKind}
         policy = Policy(
             effects=EffectRule.parse(sections[RuleKind.EFFECTS], problems),
             direct_effects=DirectEffects.parse(sections[RuleKind.DIRECT_EFFECTS], problems)

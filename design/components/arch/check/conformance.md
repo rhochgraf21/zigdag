@@ -16,3 +16,4 @@ status: specified
 - AC5: When a rule needs a capability the unit's adapter did not analyze, it shall report "not analyzed" at info level and shall never pass silently.
 - AC6: A design link naming an unknown component or acceptance criterion shall be an error at the link's location.
 - AC7: Components without code shall be reported once per unbuilt subtree, at info below status contracted and as an error at or above it.
+- AC10: When a public port of a component under a port_types rule exposes a forbidden built-in at a leaf position, conformance shall report an error (bool returns aside where allowed), and an unannotated port parameter as a warning.

@@ -15,14 +15,19 @@ from arch.model.matrix import Matrix, matrix_of
 from arch.realize.facts import Facts, Role
 from arch.realize.history import History
 from arch.realize.mapping import map_units
+from arch.view.render import Count, JsonValue, Markdown
 
 HIDDEN_COUPLING_MIN_COMMITS = 3
 
 
-def matrix_text(m: Matrix, cell: int = 5) -> str:
+_CELL = 5  # characters per matrix column
+
+
+def matrix_text(m: Matrix) -> Markdown:
+    cell = _CELL
     names = [c.rsplit(".", 1)[-1] for c in m.order]
     if not names:
-        return f"{m.parent}: no children"
+        return Markdown(f"{m.parent}: no children")
     w = max(len(n) for n in names)
     rows = [f"{m.parent}: {m.coupling.value}", " " * (w + 2) + "".join(n[: cell - 1].ljust(cell) for n in names)]
     for row, name in zip(m.order, names):
@@ -30,10 +35,10 @@ def matrix_text(m: Matrix, cell: int = 5) -> str:
         rows.append(f"{name.ljust(w)}  " + "".join(x.ljust(cell) for x in marks))
     for coupled in m.layering.coupled:
         rows.append("coupled: " + ", ".join(c.rsplit(".", 1)[-1] for c in coupled))
-    return "\n".join(r.rstrip() for r in rows)
+    return Markdown("\n".join(r.rstrip() for r in rows))
 
 
-def matrix_json(m: Matrix) -> dict[str, object]:
+def matrix_json(m: Matrix) -> JsonValue:
     return {
         "parent": m.parent,
         "coupling": m.coupling.value,
@@ -48,10 +53,10 @@ def matrix_json(m: Matrix) -> dict[str, object]:
 class MatrixView:
     matrices: tuple[Matrix, ...]
 
-    def to_markdown(self) -> str:
-        return "\n\n".join(matrix_text(m) for m in self.matrices)
+    def to_markdown(self) -> Markdown:
+        return Markdown("\n\n".join(matrix_text(m) for m in self.matrices))
 
-    def to_json(self) -> list[dict[str, object]]:
+    def to_json(self) -> JsonValue:
         return [matrix_json(m) for m in self.matrices]
 
 
@@ -68,13 +73,13 @@ class Observed(enum.Enum):
 class ObservedMatrix:
     matrix: Matrix
     cells: dict[tuple[ComponentId, ComponentId], Observed]
-    together: dict[tuple[ComponentId, ComponentId], int]
+    together: dict[tuple[ComponentId, ComponentId], Count]
 
-    def to_markdown(self) -> str:
+    def to_markdown(self) -> Markdown:
         m = self.matrix
         names = [c.rsplit(".", 1)[-1] for c in m.order]
         if not names:
-            return f"{m.parent}: no children"
+            return Markdown(f"{m.parent}: no children")
         w = max(len(n) for n in names)
         rows = [f"{m.parent}: {m.coupling.value}  (X declared, ! undeclared import, ~ changed together "
                 f"{HIDDEN_COUPLING_MIN_COMMITS}+ times without a dependency)",
@@ -82,9 +87,9 @@ class ObservedMatrix:
         for row, name in zip(m.order, names):
             marks = ("X" if row == col else self.cells.get((row, col), Observed.NONE).value for col in m.order)
             rows.append(f"{name.ljust(w)}  " + "".join(x.ljust(5) for x in marks))
-        return "\n".join(r.rstrip() for r in rows)
+        return Markdown("\n".join(r.rstrip() for r in rows))
 
-    def to_json(self) -> dict[str, object]:
+    def to_json(self) -> JsonValue:
         return {**matrix_json(self.matrix),
                 "observed": sorted([r, c, v.value] for (r, c), v in self.cells.items()),
                 "changed_together": sorted([r, c, n] for (r, c), n in self.together.items())}
@@ -108,7 +113,7 @@ def observed_matrix(graph: Graph, parent: ComponentId, facts: Facts) -> Observed
         for b in m.order[i + 1:]:
             n = history.co_changes(members[a], members[b])
             if n:
-                together[(a, b)] = n
+                together[(a, b)] = Count(n)
             if n >= HIDDEN_COUPLING_MIN_COMMITS and (a, b) not in cells and (b, a) not in cells:
                 cells[(a, b)] = cells[(b, a)] = Observed.HIDDEN
     return ObservedMatrix(m, cells, together)
@@ -118,8 +123,8 @@ def observed_matrix(graph: Graph, parent: ComponentId, facts: Facts) -> Observed
 class ObservedMatrixView:
     matrices: tuple[ObservedMatrix, ...]
 
-    def to_markdown(self) -> str:
-        return "\n\n".join(m.to_markdown() for m in self.matrices)
+    def to_markdown(self) -> Markdown:
+        return Markdown("\n\n".join(m.to_markdown() for m in self.matrices))
 
-    def to_json(self) -> list[dict[str, object]]:
+    def to_json(self) -> JsonValue:
         return [m.to_json() for m in self.matrices]

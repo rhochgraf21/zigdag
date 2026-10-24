@@ -12,14 +12,16 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import NewType
 
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from arch.model.ids import CriterionLabel, Ref, Text
+from arch.model.ids import CriterionLabel, FieldName, Ref, Text
 from arch.model.schema import DecisionLabel, Kind, SourceText
 
 FieldValue = Text | tuple[Ref, ...] | tuple[tuple[Ref, ...], ...] | None  # None removes the field
+YamlScalar = NewType("YamlScalar", str)
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
 _CRITERION = re.compile(r"^- AC(\d+):")
@@ -37,11 +39,11 @@ _PLAIN_UNSAFE = re.compile(r"^[-?:,\[\]{}#&*!|>'\"%@`\s]|: | #|\s$|^(true|false|
 _yaml = YAML(typ="safe", pure=True)
 
 
-def scalar(value: str) -> str:
+def scalar(value: Text) -> YamlScalar:
     """A YAML scalar for `value`: plain when it reads back as exactly `value`, else double-quoted."""
     if value and not _PLAIN_UNSAFE.search(value) and "\n" not in value and _reads_back(value):
-        return value
-    return json.dumps(value, ensure_ascii=False)
+        return YamlScalar(value)
+    return YamlScalar(json.dumps(value, ensure_ascii=False))
 
 
 def _reads_back(plain: str) -> bool:
@@ -51,12 +53,12 @@ def _reads_back(plain: str) -> bool:
         return False
 
 
-def render(value: FieldValue) -> str:
+def render(value: FieldValue) -> YamlScalar:
     if isinstance(value, str):
         return scalar(value)
     if value and isinstance(value[0], tuple):
-        return "[" + ", ".join("[" + ", ".join(scalar(r) for r in group) + "]" for group in value) + "]"
-    return "[" + ", ".join(scalar(r) for r in value) + "]"
+        return YamlScalar("[" + ", ".join("[" + ", ".join(scalar(Text(r)) for r in group) + "]" for group in value) + "]")
+    return YamlScalar("[" + ", ".join(scalar(Text(r)) for r in value) + "]")
 
 
 @dataclass(frozen=True)
@@ -77,13 +79,13 @@ class NodeFile:
         self._lines = lines
 
     @staticmethod
-    def new(kind: Kind, fields: Mapping[str, FieldValue], body: str = "") -> NodeFile:
+    def new(kind: Kind, fields: Mapping[FieldName, FieldValue], body: Text = Text("")) -> NodeFile:
         f = NodeFile(kind, f"---\nkind: {kind.value}\n---\n")
         for name in _ORDER[kind]:
             if name in fields and fields[name] is not None:
                 f.set_field(name, fields[name])
         if body:
-            f.set_body(Text(body))
+            f.set_body(body)
         return f
 
     @property
@@ -92,7 +94,7 @@ class NodeFile:
 
     # frontmatter
 
-    def _field_span(self, name: str) -> tuple[int, int] | None:
+    def _field_span(self, name: FieldName) -> tuple[int, int] | None:
         """Line range [start, end) of a top-level key and its indented continuation lines."""
         for i in range(1, self._end):
             m = _KEY.match(self._lines[i])
@@ -103,7 +105,7 @@ class NodeFile:
                 return i, j
         return None
 
-    def set_field(self, name: str, value: FieldValue) -> None:
+    def set_field(self, name: FieldName, value: FieldValue) -> None:
         span = self._field_span(name)
         empty = value is None or (isinstance(value, tuple) and not value)
         if empty:

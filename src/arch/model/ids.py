@@ -14,6 +14,7 @@ NeedId = NewType("NeedId", str)
 ConstraintId = NewType("ConstraintId", str)
 CriterionId = NewType("CriterionId", str)  # "<component id>#ACn"
 CriterionLabel = NewType("CriterionLabel", str)  # "ACn"
+NodeId = NewType("NodeId", str)  # the id of any node: a component, need or constraint
 Ref = NewType("Ref", str)  # a component reference as written; arch.model.graph resolves it
 Text = NewType("Text", str)
 FieldName = NewType("FieldName", str)

@@ -6,14 +6,15 @@ Part of arch.integrate.agent.
 from __future__ import annotations
 
 from arch.guide.method import METHODS, Method, Step
+from arch.integrate.agent.claude import SkillName
 from arch.integrate.agent.commands import COMMANDS
 from arch.model.ids import Text
 
-CORE_SKILL = "arch"
+CORE_SKILL = SkillName("arch")
 
 
-def skill_name(method: Method) -> str:
-    return f"arch-{method.name.value}"
+def skill_name(method: Method) -> SkillName:
+    return SkillName(f"arch-{method.name.value}")
 
 
 def _step(i: int, step: Step) -> str:

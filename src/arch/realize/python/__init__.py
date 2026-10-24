@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from arch.realize.facts import Facts, Language, Role, Roots, SourcePath, SourceText, UnitName
+from arch.realize.facts import Facts, FileSuffix, Language, Role, Roots, SourcePath, SourceText, UnitName
 from arch.realize.python import extract as _extract
 
 
 class PythonAdapter:
     language: Language = _extract.LANGUAGE
-    suffixes: tuple[str, ...] = (".py",)
+    suffixes: tuple[FileSuffix, ...] = (FileSuffix(".py"),)
 
     def unit_name(self, path: SourcePath, roots: Roots) -> UnitName | None:
         """Module path relative to its source root; test units keep their root's name as a prefix."""

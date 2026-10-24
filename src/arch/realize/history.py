@@ -15,12 +15,15 @@ from typing import NewType
 
 from arch.realize.facts import ChangeEvent, CommitId, Facts, SourcePath, UnitName, VcsLog
 
-COMMIT_MARK = "commit "
-MAX_FILES_PER_COMMIT = 30
 Count = NewType("Count", int)
+FileLimit = NewType("FileLimit", int)
+CommitWindow = NewType("CommitWindow", int)  # how many recent commits to read
+
+COMMIT_MARK = "commit "
+MAX_FILES_PER_COMMIT = FileLimit(30)
 
 
-def parse_log(log: VcsLog, max_files: int = MAX_FILES_PER_COMMIT) -> tuple[ChangeEvent, ...]:
+def parse_log(log: VcsLog, max_files: FileLimit = MAX_FILES_PER_COMMIT) -> tuple[ChangeEvent, ...]:
     """Commits from `git log --numstat --format='commit %H'`, skipping ones that touch more than max_files."""
     events: list[ChangeEvent] = []
     commit: str | None = None

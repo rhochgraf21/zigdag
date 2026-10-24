@@ -21,7 +21,8 @@ from arch.check import Baseline, BaselineText, Lexicon, Term
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
-from arch.realize.facts import Facts, Roots, Snapshot, SourcePath, VcsLog
+from arch.realize.facts import Facts, Roots, Snapshot, SourcePath, SourceText, VcsLog
+from arch.realize.history import CommitWindow
 
 Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
 
@@ -46,8 +47,8 @@ class ProjectEdit:
     """A change to any project file (agent configuration, AGENTS.md); None before means it is created."""
 
     path: ProjectPath
-    before: str | None
-    after: str
+    before: SourceText | None
+    after: SourceText
 
 
 class StaleEdit(Exception):
@@ -69,7 +70,7 @@ class ProjectConfig:
     source_roots: tuple[SourcePath, ...] | None = None
     test_roots: tuple[SourcePath, ...] | None = None
     junit: tuple[SourcePath, ...] = (SourcePath(".arch/evidence/*.xml"),)  # glob patterns for test reports
-    history_commits: int = 500
+    history_commits: CommitWindow = CommitWindow(500)
     solution_terms: tuple[Term, ...] = ()  # added to arch.check.statements' lexicons
     vague_terms: tuple[Term, ...] = ()
 
@@ -90,7 +91,7 @@ class ProjectConfig:
         statements = raw.get("statements", {})
         return ProjectConfig(
             _paths(roots, "source", path), _paths(roots, "tests", path),
-            _paths(evidence, "junit", path) or ProjectConfig.junit, commits,
+            _paths(evidence, "junit", path) or ProjectConfig.junit, CommitWindow(commits),
             tuple(Term(t) for t in _paths(statements, "solution_terms", path) or ()),
             tuple(Term(t) for t in _paths(statements, "vague_terms", path) or ()),
         )
@@ -153,7 +154,7 @@ class Workspace:
                    for pattern in config.junit for p in sorted(self.root.glob(pattern)) if p.is_file()}
         return Snapshot(files, roots, self._log(config.history_commits), reports)
 
-    def _log(self, commits: int) -> VcsLog | None:
+    def _log(self, commits: CommitWindow) -> VcsLog | None:
         """Recent history for the source roots, or None outside a git repository."""
         if commits == 0 or not (self.root / ".git").exists() and not self._inside_git():
             return None
@@ -185,7 +186,7 @@ class Workspace:
         tmp.write_text(baseline.render(), encoding="utf-8")
         os.replace(tmp, self.baseline_path)
 
-    def read_input(self, path: Path) -> str:
+    def read_input(self, path: Path) -> SourceText:
         """A file named on the command line (e.g. a batch of operations), relative to the working directory."""
         return path.read_text(encoding="utf-8")
 
@@ -212,7 +213,7 @@ class Workspace:
             raise NoRevision(out.stderr.strip() or f"git {' '.join(args)} failed")
         return out.stdout
 
-    def read_project_file(self, path: ProjectPath) -> str | None:
+    def read_project_file(self, path: ProjectPath) -> SourceText | None:
         full = self.root / path
         return full.read_text(encoding="utf-8") if full.is_file() else None
 

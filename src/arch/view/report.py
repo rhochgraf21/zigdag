@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import NewType, Protocol, TypeAlias
 
 from arch.change import ApplyResult, Outcome
 from arch.change.diff import DesignDiff
@@ -16,15 +15,9 @@ from arch.check.engine import Finding, Report, Severity
 from arch.guide.next import Action
 from arch.guide.plan import Plan
 from arch.model.ids import Text
+from arch.view.render import Count, JsonValue, Markdown, Rendering
 
-Markdown = NewType("Markdown", str)
-JsonValue: TypeAlias = "dict[str, JsonValue] | list[JsonValue] | str | int | float | bool | None"
-
-
-class Rendering(Protocol):
-    def to_markdown(self) -> Markdown: ...
-    def to_json(self) -> JsonValue: ...
-
+__all__ = ["Rendering"]  # re-exported for the catalog
 
 class InfoFindings(enum.Enum):
     LISTED = "listed"
@@ -76,9 +69,9 @@ class InitReport:
     """What `arch init` drafted from the code."""
 
     edit: EditReport
-    components: int
+    components: Count
     cycles: tuple[tuple[Text, ...], ...]
-    baselined: int
+    baselined: Count
     notes: tuple[Text, ...]
 
     def to_markdown(self) -> Markdown:
@@ -101,9 +94,9 @@ class InitReport:
 
 @dataclass(frozen=True)
 class BaselineReport:
-    before: int
-    after: int
-    dropped: int
+    before: Count
+    after: Count
+    dropped: Count
 
     def to_markdown(self) -> Markdown:
         return Markdown(f"baseline: {self.after} findings recorded ({self.dropped} fixed ones dropped, "

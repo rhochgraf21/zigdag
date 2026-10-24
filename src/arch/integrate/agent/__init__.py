@@ -14,13 +14,15 @@ from arch.check import check
 from arch.check.engine import Finding
 from arch.guide.method import METHODS
 from arch.integrate.agent import claude
+from arch.integrate.agent.claude import ArchCommand, HookPayload, SettingsText
 from arch.integrate.agent.render import CORE_SKILL, core_skill, method_skill, skill_name
 from arch.integrate.catalog import ProjectEdit, ProjectPath, Workspace
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, is_within
 from arch.realize.facts import Facts
 from arch.realize.mapping import map_units
-from arch.view.outline import outline
+from arch.view.outline import Depth, outline
+from arch.view.render import JsonValue, Markdown
 
 AGENTS_MD = ProjectPath("AGENTS.md")
 _BEGIN, _END = "<!-- arch:begin -->", "<!-- arch:end -->"
@@ -54,25 +56,26 @@ class Installation:
     product: Product
     edits: tuple[ProjectEdit, ...]
 
-    def to_markdown(self) -> str:
+    def to_markdown(self) -> Markdown:
         if not self.edits:
-            return f"{self.product.value}: already installed, nothing to change"
+            return Markdown(f"{self.product.value}: already installed, nothing to change")
         lines = [f"{self.product.value}: writes {len(self.edits)} files"]
         lines += [f"  {'create' if e.before is None else 'update'} {e.path}" for e in self.edits]
-        return "\n".join(lines)
+        return Markdown("\n".join(lines))
 
-    def to_json(self) -> dict[str, object]:
+    def to_json(self) -> JsonValue:
         return {"product": self.product.value,
                 "edits": [{"path": e.path, "action": "create" if e.before is None else "update"} for e in self.edits]}
 
 
-def installation(ws: Workspace, product: Product, command: str = "arch") -> Installation:
+def installation(ws: Workspace, product: Product, command: ArchCommand = ArchCommand("arch")) -> Installation:
     """The files to write so `product` uses arch; idempotent (unchanged files are left out)."""
     wanted: list[tuple[ProjectPath, str]] = [(AGENTS_MD, _agents_md(ws.read_project_file(AGENTS_MD)))]
     if product is Product.CLAUDE_CODE:
         wanted.append((claude.skill_path(CORE_SKILL), core_skill()))
         wanted += [(claude.skill_path(skill_name(m)), method_skill(m)) for m in METHODS]
-        wanted.append((claude.SETTINGS, claude.merged_settings(ws.read_project_file(claude.SETTINGS), command)))
+        current = ws.read_project_file(claude.SETTINGS)
+        wanted.append((claude.SETTINGS, claude.merged_settings(SettingsText(current) if current else None, command)))
     edits = []
     for path, text in wanted:
         before = ws.read_project_file(path)
@@ -89,7 +92,7 @@ def _agents_md(current: str | None) -> str:
     return (current.rstrip("\n") + "\n\n" if current else "") + block
 
 
-def handle(event: HookEvent, ws: Workspace, payload: str) -> HookResponse:
+def handle(event: HookEvent, ws: Workspace, payload: HookPayload) -> HookResponse:
     if event is HookEvent.SESSION_START:
         return _session_start(ws)
     return _post_edit(ws, payload)
@@ -98,7 +101,7 @@ def handle(event: HookEvent, ws: Workspace, payload: str) -> HookResponse:
 def _session_start(ws: Workspace) -> HookResponse:
     g = Graph(ws.design())
     report = check(g, ws.facts(), ws.baseline())
-    top = outline(g, None, 1).to_markdown()
+    top = outline(g, None, Depth(1)).to_markdown()
     blocking = len(report.blocking)
     text = (f"This project's design is kept by arch in design/. Top level:\n{top}\n\n"
             "Before editing a file, run `arch context <path>`. Change the design only with arch commands "
@@ -107,7 +110,7 @@ def _session_start(ws: Workspace) -> HookResponse:
     return HookResponse(stdout=Text(text[:MAX_SESSION_CONTEXT]))
 
 
-def _post_edit(ws: Workspace, payload: str) -> HookResponse:
+def _post_edit(ws: Workspace, payload: HookPayload) -> HookResponse:
     path = claude.edited_path(payload)
     rel = ws.relative(Path(path)) if path else None
     if rel is None:
@@ -136,4 +139,5 @@ def _about(f: Finding, rel: ProjectPath, focus: ComponentId | None) -> bool:
     return focus is not None and is_within(ComponentId(f.subject), focus)
 
 
-__all__ = ["HookEvent", "HookExit", "HookResponse", "Installation", "Product", "handle", "installation"]
+__all__ = ["ArchCommand", "HookEvent", "HookExit", "HookPayload", "HookResponse", "Installation", "Product", "handle",
+           "installation"]

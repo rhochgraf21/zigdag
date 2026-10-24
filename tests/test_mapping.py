@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from arch import realize, realizes
-from arch.realize.facts import Roots, Snapshot, SourcePath
+from arch.realize.facts import Reach, Roots, Snapshot, SourcePath
 from arch.realize.mapping import map_units
 from arch.realize.python import PythonAdapter
 from tests.conftest import NEED, component, graph
@@ -52,4 +52,4 @@ def test_names_reexported_by_a_package_resolve_to_the_package():
     m = map_units(G, facts)
     imp = next(i for i in facts.imports if i.unit == "app.shell")
     assert m.target_of(imp) == "app.core"  # the function the package binds, not the submodule app.core.run
-    assert any(e.unit == "app.shell" and e.symbol == "main" and not e.direct for e in facts.effects)  # followed the alias
+    assert any(e.unit == "app.shell" and e.symbol == "main" and e.reach is Reach.TRANSITIVE for e in facts.effects)  # followed the alias
