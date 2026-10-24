@@ -38,3 +38,18 @@ def test_longest_prefix_mapping_and_test_units():
     assert [u.name for u in m.unmapped] == ["other"]
     assert m.resolve("app.core.deep.x.func") == "app.core.deep.x"
     assert m.resolve("os.path") is None
+
+
+def test_names_reexported_by_a_package_resolve_to_the_package():
+    snap = Snapshot({
+        SourcePath("src/app/__init__.py"): "",
+        SourcePath("src/app/core/__init__.py"): "from app.core.impl import run\n",
+        SourcePath("src/app/core/impl.py"): "import os\n\ndef run():\n    return os.environ\n",
+        SourcePath("src/app/core/run.py"): "",
+        SourcePath("src/app/shell.py"): "from app.core import run\n\ndef main():\n    return run()\n",
+    }, ROOTS)
+    facts = realize.extract(snap)
+    m = map_units(G, facts)
+    imp = next(i for i in facts.imports if i.unit == "app.shell")
+    assert m.target_of(imp) == "app.core"  # the function the package binds, not the submodule app.core.run
+    assert any(e.unit == "app.shell" and e.symbol == "main" and not e.direct for e in facts.effects)  # followed the alias

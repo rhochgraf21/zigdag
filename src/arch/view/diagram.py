@@ -6,6 +6,8 @@ realization order, so a decoupled design reads lower-triangular.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from arch.model.matrix import Matrix
 
 
@@ -32,3 +34,14 @@ def matrix_json(m: Matrix) -> dict[str, object]:
         "layers": [list(layer) for layer in m.layering.layers],
         "coupled": [list(c) for c in m.layering.coupled],
     }
+
+
+@dataclass(frozen=True)
+class MatrixView:
+    matrices: tuple[Matrix, ...]
+
+    def to_markdown(self) -> str:
+        return "\n\n".join(matrix_text(m) for m in self.matrices)
+
+    def to_json(self) -> list[dict[str, object]]:
+        return [matrix_json(m) for m in self.matrices]

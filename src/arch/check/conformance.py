@@ -46,7 +46,7 @@ def boundaries(ctx: Context) -> Iterator[Finding]:
     seen: dict[tuple[ComponentId, ComponentId], Finding] = {}
     for imp in ctx.facts.imports if ctx.facts else ():
         a = m.component_of.get(imp.unit)
-        target = m.resolve(imp.target)
+        target = m.target_of(imp)
         b = m.component_of.get(target) if target else None
         if a is None or b is None or is_within(b, a) or g.may_use(a, b) or (a, b) in seen:
             continue
@@ -113,7 +113,7 @@ def third_party(ctx: Context) -> Iterator[Finding]:
     source = _source_units(ctx)
     for imp in ctx.facts.imports if ctx.facts else ():
         a = m.component_of.get(imp.unit)
-        if a is None or imp.unit not in source or m.resolve(imp.target) is not None:
+        if a is None or imp.unit not in source or m.target_of(imp) is not None:
             continue
         top = imp.target.split(".")[0]
         rule = g.effective_policy(a).imports

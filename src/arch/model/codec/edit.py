@@ -1,0 +1,162 @@
+"""Editing one design file with the smallest possible text change.
+
+Part of arch.model.codec. A NodeFile knows a file's frontmatter fields and body sections; changing a
+field rewrites only that field's lines, and new fields go in canonical order. Everything else, including
+comments and formatting people chose, is left exactly as it was.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+
+from arch.model.ids import CriterionLabel, Ref, Text
+from arch.model.schema import DecisionLabel, Kind, SourceText
+
+FieldValue = Text | tuple[Ref, ...] | tuple[tuple[Ref, ...], ...] | None  # None removes the field
+
+_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
+_CRITERION = re.compile(r"^- AC(\d+):")
+_ORDER: Mapping[Kind, tuple[str, ...]] = {
+    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "accepts_coupling", "status"),
+    Kind.NEED: ("kind", "stakeholder", "signal"),
+    Kind.CONSTRAINT: ("kind", "applies_to", "rule"),
+}
+_CRITERIA = "Acceptance criteria"
+_DECISIONS = "Decisions"
+_PLAIN_UNSAFE = re.compile(r"^[-?:,\[\]{}#&*!|>'\"%@`\s]|: | #|\s$|^(true|false|yes|no|on|off|null|~)$|^[0-9.+-]", re.I)
+
+
+def scalar(value: str) -> str:
+    """A YAML scalar for `value`: plain when unambiguous, else double-quoted."""
+    if value and not _PLAIN_UNSAFE.search(value) and "\n" not in value:
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def render(value: FieldValue) -> str:
+    if isinstance(value, str):
+        return scalar(value)
+    if value and isinstance(value[0], tuple):
+        return "[" + ", ".join("[" + ", ".join(scalar(r) for r in group) + "]" for group in value) + "]"
+    return "[" + ", ".join(scalar(r) for r in value) + "]"
+
+
+@dataclass(frozen=True)
+class DecisionDraft:
+    title: Text
+    lines: Sequence[tuple[DecisionLabel, Text]]  # in the order to write them
+
+
+class NodeFile:
+    """One design file, edited in place. Construct from text, call edits, read `.text`."""
+
+    def __init__(self, kind: Kind, text: SourceText):
+        self.kind = kind
+        lines = text.split("\n")
+        if not lines or lines[0] != "---" or "---" not in lines[1:]:
+            raise ValueError("not a design file: missing frontmatter")
+        self._end = lines.index("---", 1)  # index of the closing delimiter
+        self._lines = lines
+
+    @staticmethod
+    def new(kind: Kind, fields: Mapping[str, FieldValue], body: str = "") -> NodeFile:
+        f = NodeFile(kind, f"---\nkind: {kind.value}\n---\n")
+        for name in _ORDER[kind]:
+            if name in fields and fields[name] is not None:
+                f.set_field(name, fields[name])
+        if body:
+            f.set_body(Text(body))
+        return f
+
+    @property
+    def text(self) -> SourceText:
+        return "\n".join(self._lines)
+
+    # frontmatter
+
+    def _field_span(self, name: str) -> tuple[int, int] | None:
+        """Line range [start, end) of a top-level key and its indented continuation lines."""
+        for i in range(1, self._end):
+            m = _KEY.match(self._lines[i])
+            if m and m.group(1) == name:
+                j = i + 1
+                while j < self._end and self._lines[j][:1] in (" ", "\t"):
+                    j += 1
+                return i, j
+        return None
+
+    def set_field(self, name: str, value: FieldValue) -> None:
+        span = self._field_span(name)
+        empty = value is None or (isinstance(value, tuple) and not value)
+        if empty:
+            if span:
+                del self._lines[span[0] : span[1]]
+                self._end -= span[1] - span[0]
+            return
+        line = f"{name}: {render(value)}"
+        if span:
+            self._lines[span[0] : span[1]] = [line]
+            self._end -= span[1] - span[0] - 1
+            return
+        order = _ORDER[self.kind]
+        later = order[order.index(name) + 1 :] if name in order else ()
+        at = next((s[0] for s in (self._field_span(n) for n in later) if s), self._end)
+        self._lines.insert(at, line)
+        self._end += 1
+
+    def set_body(self, text: Text) -> None:
+        """Replace everything after the frontmatter (a need's statement)."""
+        self._lines = self._lines[: self._end + 1] + text.rstrip("\n").split("\n") + [""]
+
+    # body sections
+
+    def _section(self, title: str) -> tuple[int, int] | None:
+        """Line range [heading, end) of a `## title` section in the body."""
+        for i in range(self._end + 1, len(self._lines)):
+            if self._lines[i] == f"## {title}":
+                j = i + 1
+                while j < len(self._lines) and not self._lines[j].startswith("## "):
+                    j += 1
+                return i, j
+        return None
+
+    def _ensure_section(self, title: str, first: bool) -> tuple[int, int]:
+        if (span := self._section(title)) is not None:
+            return span
+        if first:  # directly after the frontmatter, before other sections
+            at = self._end + 1
+            self._lines[at:at] = [f"## {title}", ""]
+            return at, at + 2
+        while self._lines and self._lines[-1] == "":
+            self._lines.pop()
+        self._lines += ["", f"## {title}", ""]
+        return len(self._lines) - 2, len(self._lines)
+
+    def add_criterion(self, text: Text) -> CriterionLabel:
+        start, end = self._ensure_section(_CRITERIA, first=True)
+        numbers = [int(m.group(1)) for line in self._lines[start:end] if (m := _CRITERION.match(line))]
+        label = CriterionLabel(f"AC{max(numbers, default=0) + 1}")
+        last = max((i for i in range(start, end) if _CRITERION.match(self._lines[i])), default=start)
+        self._lines.insert(last + 1, f"- {label}: {text}")
+        return label
+
+    def remove_criterion(self, label: CriterionLabel) -> bool:
+        span = self._section(_CRITERIA)
+        for i in range(*span) if span else ():
+            if self._lines[i].startswith(f"- {label}:"):
+                del self._lines[i]
+                return True
+        return False
+
+    def add_decision(self, draft: DecisionDraft) -> None:
+        start, end = self._ensure_section(_DECISIONS, first=False)
+        block = [f"### {draft.title}", *(f"- {label.value}: {text}" for label, text in draft.lines)]
+        while end > start + 1 and self._lines[end - 1] == "":
+            end -= 1
+        has_entries = any(line.startswith("### ") for line in self._lines[start:end])
+        self._lines[end:end] = ([""] if has_entries else []) + block
+        if end + len(block) >= len(self._lines) or self._lines[-1] != "":
+            self._lines.append("")

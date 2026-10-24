@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 
 from arch.realize.facts import (
+    Alias,
     Call,
     Capability,
     ContractDecl,
@@ -18,6 +19,7 @@ from arch.realize.facts import (
     EffectUse,
     Facts,
     Import,
+    ImportForm,
     Language,
     LineNo,
     ParseError,
@@ -83,6 +85,7 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
         links=tuple(links),
         effects=effects,
         calls=calls,
+        aliases=tuple(_aliases(tree, unit, package, at)),
     )
 
 
@@ -92,7 +95,7 @@ def _imports(tree: ast.Module, unit: UnitName, package: UnitName, at):
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                yield Import(unit, UnitName(alias.name), at(node))
+                yield Import(unit, UnitName(alias.name), at(node), ImportForm.MODULE)
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 parts = package.split(".") if package else []
@@ -105,8 +108,10 @@ def _imports(tree: ast.Module, unit: UnitName, package: UnitName, at):
             if module == "__future__":
                 continue
             for alias in node.names:
-                target = module if alias.name == "*" else ".".join(p for p in (module, alias.name) if p)
-                yield Import(unit, UnitName(target), at(node))
+                if alias.name == "*":
+                    yield Import(unit, UnitName(module), at(node), ImportForm.MODULE)
+                else:
+                    yield Import(unit, UnitName(".".join(p for p in (module, alias.name) if p)), at(node), ImportForm.NAME)
 
 
 def _definitions(tree: ast.Module):
@@ -359,3 +364,14 @@ def _open_mode(node: ast.Call, offset: int = 1) -> Effect:
     if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
         return Effect.FS_WRITE if set(mode.value) & set("wax+") else Effect.FS_READ
     return Effect.FS_WRITE  # unknown mode: assume the stronger effect
+
+
+def _aliases(tree: ast.Module, unit: UnitName, package: UnitName, at):
+    """Names this module binds at the top level by importing them from elsewhere."""
+    names = _bindings(tree, unit, package)
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name != "*":
+                    local = a.asname or a.name
+                    yield Alias(unit, SymbolName(local), Text(names[local]), at(node))

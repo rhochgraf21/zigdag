@@ -37,7 +37,7 @@ def test_targets_resolve_from_ids_modules_paths_and_lines():
     assert card("src/s/shell.py").component == "s.shell"
     line = card("src/s/shell.py:4")
     assert line.component == "s.shell" and "`main`" in line.focus
-    assert "need `n`" in card("s.shell").to_text()
+    assert "need `n`" in card("s.shell").to_markdown()
     with pytest.raises(UnknownTarget):
         card("tests/test_core.py")
     with pytest.raises(UnknownTarget):
@@ -46,11 +46,11 @@ def test_targets_resolve_from_ids_modules_paths_and_lines():
 
 @realizes("arch.view.context#AC2")
 def test_neighbours_appear_only_by_external_spec():
-    text = card("s.shell").to_text()
+    text = card("s.shell").to_markdown()
     assert "### s.core" in text and "`api(x: int) -> int`" in text
     assert "_hidden" not in text
     assert "s.core#AC1" not in text and "tests.test_core" not in text  # the neighbour's criteria and evidence stay out
-    assert "evidence: tests.test_core.test_api" in card("s.core").to_text()
+    assert "evidence: tests.test_core.test_api" in card("s.core").to_markdown()
 
 
 @realizes("arch.view.context#AC3")
@@ -74,7 +74,7 @@ def test_over_budget_compacts_then_drops_lowest_priority_first():
         assert dropped == sorted(dropped, reverse=True)  # lowest priority goes first
         assert c.sections[0].title == "Component"  # never dropped
         if c.omitted:
-            assert "omitted:" in c.to_text()
+            assert "omitted:" in c.to_markdown()
 
 
 @realizes("arch.view.context#AC4")

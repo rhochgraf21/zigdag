@@ -3,7 +3,7 @@ kind: component
 realizes: Compute the semantic difference between two design states
 solution: Match nodes by id, compare field by field, detect renames by content when ids differ, and classify each change
 hides: Matching and rename detection
-uses: [model.graph]
+uses: [model.ids, model.schema]
 status: specified
 ---
 ## Acceptance criteria

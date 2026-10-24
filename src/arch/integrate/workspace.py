@@ -6,16 +6,23 @@ Hides filesystem layout; the core only ever sees snapshots as data.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NewType
 
 from arch import realize
+from arch.change import DesignEdit, SourceEdit
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
 from arch.realize.facts import Facts, Roots, Snapshot, SourcePath
+
+Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
 
 DESIGN_DIR = "design"
 CONFIG_FILE = "arch.toml"
@@ -27,6 +34,14 @@ class NoProject(Exception):
 
 
 class BadConfig(Exception):
+    pass
+
+
+class StaleEdit(Exception):
+    """A file changed on disk since it was read; nothing was written."""
+
+
+class NoRevision(Exception):
     pass
 
 
@@ -102,6 +117,67 @@ class Workspace:
 
     def facts(self) -> Facts:
         return realize.extract(self.snapshot())
+
+    def read_input(self, path: Path) -> str:
+        """A file named on the command line (e.g. a batch of operations), relative to the working directory."""
+        return path.read_text(encoding="utf-8")
+
+    def design_at(self, revision: Revision) -> Design:
+        """The design as committed at a git revision (e.g. HEAD)."""
+        rel = self.design_dir.relative_to(self._git_root()).as_posix()
+        listing = self._git("ls-tree", "-r", "--name-only", "--full-name", revision, "--", rel)
+        files = {}
+        for name in listing.splitlines():
+            path = DesignPath(name[len(rel) + 1:])
+            if codec.node_id(path) is not None:
+                files[path] = self._git("show", f"{revision}:{name}")
+        return codec.load(files)
+
+    def _git_root(self) -> Path:
+        return Path(self._git("rev-parse", "--show-toplevel").strip())
+
+    def _git(self, *args: str) -> str:
+        try:
+            out = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True, check=False)
+        except FileNotFoundError as e:
+            raise NoRevision("git is not installed") from e
+        if out.returncode != 0:
+            raise NoRevision(out.stderr.strip() or f"git {' '.join(args)} failed")
+        return out.stdout
+
+    def write(self, design_edits: Sequence[DesignEdit], source_edits: Sequence[SourceEdit]) -> None:
+        """Write a batch of edits, all or nothing. Refuses if any file changed since it was read."""
+        targets = [(self.design_dir / e.path, e.before, e.after) for e in design_edits]
+        targets += [(self.root / e.path, e.before, e.after) for e in source_edits]
+        for path, before, _ in targets:
+            current = path.read_text(encoding="utf-8") if path.exists() else None
+            if current != before:
+                raise StaleEdit(f"{path.relative_to(self.root)} changed since it was read; run the command again")
+        staged: list[tuple[Path, Path]] = []
+        try:
+            for path, _, after in targets:
+                if after is not None:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".arch-tmp")
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        f.write(after)
+                    staged.append((Path(tmp), path))
+        except OSError:
+            for tmp, _ in staged:
+                tmp.unlink(missing_ok=True)
+            raise
+        for tmp, path in staged:
+            os.replace(tmp, path)
+        for path, _, after in targets:
+            if after is None:
+                path.unlink(missing_ok=True)
+                self._prune(path.parent)
+
+    def _prune(self, directory: Path) -> None:
+        """Remove directories emptied by deletions, up to the design directory."""
+        while directory != self.design_dir and directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+            directory = directory.parent
 
 
 def find(start: Path) -> Workspace:

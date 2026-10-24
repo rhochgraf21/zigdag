@@ -13,3 +13,4 @@ status: specified
 - AC4: A use that reaches outside the component's parent (beyond its siblings and their parts) shall be an error unless the parent may use the target.
 - AC5: An `accepts_coupling` entry whose members are no longer coupled shall be a warning.
 - AC6: A decision entry without `Chose:` and `Because:` lines shall be a warning.
+- AC7: A component whose parent has no design file shall be an error.

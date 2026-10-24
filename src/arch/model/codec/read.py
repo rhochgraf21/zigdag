@@ -1,9 +1,7 @@
-"""Design files <-> nodes.
+"""Reading design files into nodes.
 
-Realizes arch.model.codec. Hides the on-disk format: Markdown files with YAML frontmatter, laid out as
-needs/, constraints/ and components/ (where the directory tree is the decomposition).
-
-Parsing only for now. Rendering and minimal-diff edits arrive with arch.change.
+Part of arch.model.codec. Files are Markdown with YAML frontmatter, laid out as needs/, constraints/ and
+components/ (where the directory tree is the decomposition).
 """
 
 from __future__ import annotations
@@ -56,6 +54,14 @@ _KIND_DIRS: Mapping[str, Kind] = {
 }
 
 _yaml = YAML(typ="safe", pure=True)
+
+
+def path_of(kind: Kind, ident: str) -> DesignPath:
+    """The file a node of `kind` with id `ident` lives in; the inverse of node_id."""
+    folder = next(d for d, k in _KIND_DIRS.items() if k is kind)
+    if kind is Kind.COMPONENT:
+        return DesignPath(f"{folder}/{ident.replace('.', '/')}.md")
+    return DesignPath(f"{folder}/{ident}.md")
 
 
 def node_id(path: DesignPath) -> str | None:

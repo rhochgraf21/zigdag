@@ -39,8 +39,11 @@ def propagate_effects(facts: Facts) -> Facts:
     for c in facts.calls:
         calls.setdefault(key(c.unit, c.symbol), []).append(c)
     defined = set(direct) | set(calls)
+    aliases = {key(a.unit, a.name): a.target for a in facts.aliases}
 
-    def targets(callee: str) -> list[str]:
+    def targets(callee: str, depth: int = 0) -> list[str]:
+        if callee in aliases and depth < 8:  # a re-exported name: follow it to where it is defined
+            return targets(aliases[callee], depth + 1)
         return [t for t in (callee, f"{callee}.__init__", f"{callee}.__post_init__", f"{callee}.__call__") if t in defined]
 
     total = {k: set(v) for k, v in direct.items()}

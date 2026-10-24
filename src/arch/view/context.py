@@ -41,7 +41,7 @@ class Card:
     compacted: tuple[str, ...] = ()
     budget_tokens: int = DEFAULT_BUDGET_TOKENS
 
-    def to_text(self) -> str:
+    def to_markdown(self) -> str:
         out = [f"# Context: {self.component}"]
         if self.focus:
             out.append(f"Focus: {self.focus}")
@@ -68,7 +68,7 @@ class Card:
 
     @property
     def tokens(self) -> int:
-        return len(self.to_text()) // CHARS_PER_TOKEN
+        return len(self.to_markdown()) // CHARS_PER_TOKEN
 
 
 def context(graph: Graph, facts: Facts, report: Report, target: str, budget: int = DEFAULT_BUDGET_TOKENS) -> Card:

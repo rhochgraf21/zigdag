@@ -67,10 +67,26 @@ class Unit:
     capabilities: frozenset[Capability]
 
 
+class ImportForm(enum.Enum):
+    MODULE = "module"  # `import a.b`
+    NAME = "name"  # `from a import b`: b may be a submodule or a name bound in a
+
+
 @dataclass(frozen=True)
 class Import:
     unit: UnitName
-    target: UnitName  # the most specific module named; may be outside the project
+    target: UnitName  # the most specific name imported; may be outside the project
+    location: SourceLocation
+    form: ImportForm = ImportForm.MODULE
+
+
+@dataclass(frozen=True)
+class Alias:
+    """A module-level name a unit re-exports from elsewhere (`from x import y as name`)."""
+
+    unit: UnitName
+    name: SymbolName
+    target: Text  # dotted
     location: SourceLocation
 
 
@@ -139,6 +155,7 @@ class Facts:
     errors: tuple[ParseError, ...] = ()
     effects: tuple[EffectUse, ...] = ()
     calls: tuple[Call, ...] = ()
+    aliases: tuple[Alias, ...] = ()
     _by_name: Mapping[UnitName, Unit] = field(default=None, init=False, repr=False, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -152,7 +169,7 @@ class Facts:
         parts = list(parts)
         def gather(attr: str) -> tuple:
             return tuple(sorted((x for p in parts for x in getattr(p, attr)), key=_sort_key))
-        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls")))
+        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases")))
 
 
 def _sort_key(fact: object) -> tuple:

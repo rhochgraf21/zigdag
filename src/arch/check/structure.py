@@ -57,6 +57,15 @@ def dangling_references(ctx: Context) -> Iterator[Finding]:
                                "use the component's full dotted id", con.location)
 
 
+def orphans(ctx: Context) -> Iterator[Finding]:
+    g = ctx.graph
+    for cid in g.ids():
+        parent = parent_of(cid)
+        if parent is not None and parent not in g:
+            yield _finding("S011", cid, "parent", Severity.ERROR, f"its parent {parent} has no design file",
+                           f"add the component {parent}, or move this one", g[cid].location)
+
+
 def untraced(ctx: Context) -> Iterator[Finding]:
     g, design = ctx.graph, ctx.graph.design
     for root in g.roots:
@@ -161,6 +170,7 @@ def illegal_uses(ctx: Context) -> Iterator[Finding]:
 RULES: tuple[Rule, ...] = (
     Rule(RuleId("S000"), Text("node files parse and match their schema"), invalid_nodes),
     Rule(RuleId("S001"), Text("references resolve"), dangling_references),
+    Rule(RuleId("S011"), Text("every component's parent exists"), orphans),
     Rule(RuleId("S002"), Text("top-level components and needs trace to each other"), untraced),
     Rule(RuleId("S004"), Text("at most nine children"), span),
     Rule(RuleId("S005"), Text("children are not coupled"), coupling),

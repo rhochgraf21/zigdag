@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId
-from arch.realize.facts import Facts, Role, Unit, UnitName
+from arch.realize.facts import Facts, Import, ImportForm, Role, Unit, UnitName
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,14 @@ class UnitMap:
     component_of: Mapping[UnitName, ComponentId]
     unmapped: tuple[Unit, ...]
     known_units: frozenset[UnitName] = field(default=frozenset())
+    bound_names: frozenset[tuple[UnitName, str]] = field(default=frozenset())  # (unit, name) it re-exports
+
+    def target_of(self, imp: Import) -> UnitName | None:
+        """The project unit an import reaches. `from p import n` reaches p itself when p binds n."""
+        head, _, name = imp.target.rpartition(".")
+        if imp.form is ImportForm.NAME and (UnitName(head), name) in self.bound_names:
+            return UnitName(head)
+        return self.resolve(imp.target)
 
     def resolve(self, target: UnitName) -> UnitName | None:
         """The longest prefix of an import target that names a project unit."""
@@ -48,4 +56,5 @@ def map_units(graph: Graph, facts: Facts) -> UnitMap:
             mapped[unit.name] = ComponentId(name)
         else:
             unmapped.append(unit)
-    return UnitMap(mapped, tuple(unmapped), frozenset(u.name for u in facts.units))
+    bound = frozenset((a.unit, a.name) for a in facts.aliases)
+    return UnitMap(mapped, tuple(unmapped), frozenset(u.name for u in facts.units), bound)

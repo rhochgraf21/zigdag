@@ -10,3 +10,4 @@ status: specified
 - AC1: Every operation shall declare whether it writes the design, and read operations shall never write.
 - AC2: Every result shall be a typed object renderable as Markdown or JSON.
 - AC3: Operation names and input schemas shall be versioned; removing or renaming one is a breaking change.
+- AC4: Every operation shall take domain types and return a report that renders itself; parsing text into domain types belongs to the surfaces.

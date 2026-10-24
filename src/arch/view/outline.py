@@ -27,7 +27,7 @@ class OutlineLine:
 class Outline:
     lines: tuple[OutlineLine, ...]
 
-    def to_text(self, width: int = 100) -> str:
+    def to_markdown(self, width: int = 100) -> str:
         out = []
         for line in self.lines:
             name = line.id.rsplit(".", 1)[-1] if line.depth else line.id

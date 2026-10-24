@@ -73,6 +73,19 @@ class Graph:
                 return candidate
         return None
 
+    def reference(self, cid: ComponentId, target: ComponentId) -> Ref | None:
+        """The shortest reference that, written in `cid`, resolves to `target`; the inverse of resolve."""
+        segments = target.split(".")
+        for k in range(1, len(segments) + 1):
+            ref = Ref(".".join(segments[-k:]))
+            if self.resolve(cid, ref) == target:
+                return ref
+        return None
+
+    def users_of(self, target: ComponentId) -> tuple[ComponentId, ...]:
+        """Components outside `target` whose declared uses name `target` or one of its parts."""
+        return tuple(c for c in self.ids() if not is_within(c, target) and any(is_within(u, target) for u in self.uses(c)))
+
     def uses(self, cid: ComponentId) -> tuple[ComponentId, ...]:
         """Resolved uses of `cid`; unresolved references are reported by arch.check.structure."""
         return tuple(r for ref in self[cid].uses if (r := self.resolve(cid, ref)) is not None)

@@ -4,8 +4,8 @@ realizes: Present the design to each actor at the level of detail their task nee
 solution: Pure renderers that produce Markdown, JSON and diagram models for context cards, outlines, diagrams and matrices, review summaries and a static site
 hides: Selection, formatting and layout
 serves: [understand-system, right-context, proportional-review]
-uses: [model, realize, check, change]
-exports: [context, outline, diagram, review]
+uses: [model, realize, check, change, guide]
+exports: [context, outline, diagram, report, review]
 status: specified
 ---
 ## Acceptance criteria
