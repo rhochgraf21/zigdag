@@ -1,218 +1,52 @@
-# The design of arch, written as arch
+# The design of arch, kept with arch
 
-This directory is the axiomatic design of `arch`, written in the format `arch` will read. It is
-hand-maintained until `arch` exists. After that, the outline, matrices and plan below are generated
-(`arch outline`, `arch diagram --matrix`, `arch plan`), and this page shrinks to the prose.
+This directory is the axiomatic design of `arch`, in the format `arch` reads. It is edited with arch's
+own commands and checked by `arch check` (which must stay at zero errors and zero warnings). Nothing
+here is derived by hand any more: run the commands below for the current picture.
 
 ```
 design/
-  needs/          9 customer needs. Solution-neutral: what must be true for people, not how
-  constraints/    9 constraints, inherited down the tree, mostly machine-checkable
-  components/     43 components (34 leaves). The FR/DP hierarchy; directories = decomposition;
-                  each component carries the decisions behind its design parameter
+  needs/          customer needs: what must be true for stakeholders, solution-neutral
+  constraints/    policies inherited down the tree, mostly machine-checked (effects, imports, port types)
+  components/     the FR/DP hierarchy; the directory tree is the decomposition; decisions live on components
+  baseline        findings accepted as a starting point (empty for arch itself)
 ```
 
-Three node kinds, matching axiomatic design's domains: needs (customer domain), components (an FR and
-the DP chosen for it), constraints. Decisions are not a separate kind: in axiomatic design a decision
-is the choice of a DP, so it lives on that component.
+Three node kinds match axiomatic design's domains: needs (customer domain), components (a functional
+requirement and the design parameter chosen for it), constraints. A decision is the choice of a design
+parameter, so it lives on the component it shaped.
 
 ## How to read a component
 
 ```yaml
-realizes: <functional requirement: what it must do>     # the FR
-solution: <design parameter: how, at this level>         # the DP
+realizes: <functional requirement: what it must do>      # the FR, one function
+solution: <design parameter: how, at this level>          # the DP
 hides:    <the decision it encapsulates (Parnas secret)>
-uses:     [<siblings or exported parts it may depend on>] # = design-matrix row = allowed imports
-exports:  [<children visible outside it>]                 # default: none
-accepts_coupling: [[<child>, <child>]]                     # couplings kept on purpose (explained in Decisions)
-serves:   [<needs>]                                       # top level; children inherit
-status:   draft | specified | contracted | verified       # strictness of checks scales with this
+uses:     [<siblings or exported parts it may depend on>]  # = design-matrix row = allowed imports
+exports:  [<children visible outside it>]                  # default: none
+accepts_coupling: [[<child>, <child>]]                     # couplings kept on purpose (with a decision)
+serves:   [<needs>]                                        # top level; children inherit
+status:   draft | specified | contracted | verified        # checks tighten as this rises
+suppress: {RULE: reason}                                   # accepted findings, with the reason
 ```
 
-The body holds acceptance criteria (`- ACn:` lines, EARS-style "When …, … shall …"), optional
-Rationale, and a `## Decisions` section: one `### title` per choice, with `- Chose:` and `- Because:`
-lines (plus optional `Over:`, `Consequences:`, `Previously:`, `Backed by:`). A decision lives on the
-component whose DP embodies it; system-wide decisions live on the root. Constraints name their own scope (`applies_to`) and are inherited down the
-tree. Ids come from paths (`components/arch/check/baseline.md` is
-`arch.check.baseline`). References are written short and resolve by lexical scope. Interfaces and
-contracts are **not** here: they live in code and link back by id (a root decision).
+The body holds acceptance criteria (`- ACn:` lines in EARS form, linked from tests with
+`@realizes("component#ACn")`), optional rationale, and a `## Decisions` section: one `### title` per
+choice with `- Chose:` and `- Because:` lines (plus `Over:`, `Consequences:`, `Previously:`,
+`Backed by:`). References are written short and resolve by lexical scope. Interfaces and contracts live
+in code; arch reads them back.
 
-## Customer needs
+## Seeing the design
 
-| Need | Statement (abridged) | How we'd know |
-|---|---|---|
-| understand-system | Understand the whole and any part well enough to change it confidently | Newcomer's time to first correct change |
-| right-context | Agents have the knowledge they need about intent and boundaries, no less, no more | Context per task; structure-violating edits |
-| catch-departures | A departure from intended structure is noticed before it joins shared work | Violations reaching mainline ≈ 0 |
-| proportional-review | Review effort is proportional to risk, not size | Review minutes vs. risk |
-| trace-purpose | Every part traces to an end-user purpose; unneeded parts can be found | % code traced; parts removed |
-| sound-reasoning | Real problems, best-available solutions, even when agents do the work | Wrong-problem rework |
-| low-adoption-cost | Adoptable incrementally on existing code; upkeep < savings | Time to first value |
-| compose-at-scale | Big systems from parts each understandable and verifiable alone | Change cost stays flat with size |
-| durable-knowledge | The reasons behind the shape outlive the people and agents who made them | Rationale findable for any choice |
-
-## Level 0
-
-**FR0:** Maintain an explicit, checked model of a software system's intent and structure that humans
-and agents use to understand and change it.
-**DP0:** A local, deterministic design toolchain (library, CLI, MCP, agent skills) over plain-text
-design files in the repository.
-
-## Level 1: decomposition and design matrix
-
-| Component | FR (realizes) | DP (solution) | Hides |
-|---|---|---|---|
-| model | Represent the design persistently and recursively, queryably | Immutable typed model + lossless codec + graph/matrix queries | Internal representation |
-| realize | Relate design and realizing artifacts, both directions | Language-neutral facts from pluggable adapters + mapping + scaffolds | Languages, report formats, VCS |
-| check | Decide well-formedness and conformance | Rule engine: statement, structure, conformance rules + baseline ratchet | Rule evaluation, finding identity |
-| change | Change the design via validated, reviewable operations | Typed atomic ops → file edits as data; semantic diff | Edit semantics |
-| guide | Lead structured reasoning and the next most valuable work | Deterministic advisors + tool-agnostic method documents | Heuristics, method content |
-| view | Present the design at the detail each task needs | Pure renderers: context cards, outlines, diagrams, review, site | Selection, layout |
-| integrate | Be present in existing human and agent workflows | I/O-owning workspace + one operation catalog + thin surfaces | Transports, FS, environment |
-
-```
-            model realize check change guide view integrate
-model         X     .      .     .      .     .      .
-realize       X     X      .     .      .     .      .
-check         X     X      X     .      .     .      .
-change        X     X      X     X      .     .      .
-guide         X     X      X     X      X     .      .
-view          X     X      X     X      .     X      .
-integrate     X     X      X     X      X     X      X
-```
-
-**Decoupled** (lower-triangular), so there is a valid realization order and no FR depends on a later
-DP. `guide` and `view` are independent of each other and can be built in parallel. Every child
-matrix is decoupled or uncoupled. Two couplings were found and removed while making this design:
-inference first lived in `realize`, and skills first lived in `guide` (see the `Previously:` lines on
-`guide.infer` and `guide.method`).
-
-## Full outline (realization order within each level)
-
-```
-arch
-├─ model ............ represent the design
-│  ├─ schema          node kinds, fields, validity
-│  ├─ codec           files ↔ nodes, losslessly
-│  ├─ graph           ancestry, visibility, inherited constraints, traceability
-│  └─ matrix          design matrix, coupling class, realization order
-├─ realize .......... relate design ↔ realization
-│  ├─ facts           language-neutral facts: the adapter contract (exported)
-│  ├─ evidence        JUnit / coverage / benchmark / mutation reports → evidence
-│  ├─ history         git log → churn, co-change
-│  ├─ mapping         source unit → component (exported)
-│  ├─ python          Python adapter (semantic tier)
-│  │  ├─ extract      AST → imports, API, ports, contracts, effects, links
-│  │  └─ scaffold     create a component's starting code once
-│  └─ treesitter      any language with a grammar (structural tier, draft)
-├─ check ............ well-formedness and conformance
-│  ├─ engine          rules → findings with stable identity (exported)
-│  ├─ baseline        ratchet: only new findings block
-│  ├─ conformance     imports, effects, evidence, budgets vs. design
-│  ├─ statements      solution-in-need, compound, vague, non-EARS
-│  └─ structure       dangling, orphans, span, coupling, secrets, loosened constraints
-├─ change ........... validated design edits
-│  ├─ diff            semantic diff, classified intent / structure / policy / prose
-│  ├─ ops             add, set, remove, move, link, unlink (JSON)
-│  └─ apply           atomic batch → design + minimal edits
-├─ guide ............ structured reasoning
-│  ├─ infer           brownfield: draft decomposition that starts green
-│  ├─ method          elicitation, EARS, zigzag + secrets, TRIZ/ASIT, review
-│  ├─ next            rank the most valuable next action
-│  └─ plan            impact + parallel layers for agents
-├─ view ............. right detail for each task
-│  ├─ context         the context card for a component or file:line
-│  ├─ diagram         containment / dependency / DSM, stable layout, change marks
-│  ├─ outline         this view
-│  ├─ review          layered, risk-ranked PR summary
-│  └─ site            static browsable site (draft, last)
-└─ integrate ........ be where work happens (only place with I/O)
-   ├─ workspace       files, git, content-hash cache, atomic writes
-   ├─ catalog         every operation defined once
-   ├─ agent           skills + hooks per agent product, AGENTS.md fallback
-   ├─ ci              check + review summary in CI (draft)
-   ├─ cli             primary surface; --json; exit codes
-   └─ mcp             same catalog over stdio (draft)
-```
-
-## Realization plan (what `arch plan` will print)
-
-Leaf components grouped so each layer depends only on earlier layers. Items in a layer can go to
-separate agents in parallel.
-
-```
-L0  model.schema · realize.facts · guide.method
-L1  model.codec · model.graph · change.ops · realize.evidence · realize.history
-    realize.python.extract · realize.python.scaffold · realize.treesitter
-L2  model.matrix · realize.mapping · check.engine · change.diff · view.outline · guide.infer
-L3  check.baseline · check.conformance · check.statements · check.structure · guide.next
-    guide.plan · view.context · view.diagram · integrate.workspace
-L4  change.apply · view.review · view.site
-L5  integrate.catalog
-L6  integrate.cli · integrate.agent · integrate.ci · integrate.mcp
-```
-
-The design rules that must settle first, since the most depends on them: `model.schema` and
-`realize.facts`.
-
-## Constraints
-
-| Constraint | Applies to | Rule |
-|---|---|---|
-| no-network | arch | effects forbid network |
-| deterministic | arch | effects forbid time, random; no run-dependent output |
-| plain-text | arch | everything committed is diffable, stably ordered text |
-| agent-neutral | arch | no LLM calls; product-specific code only in `integrate.agent` |
-| typed-ports | arch | no bare built-ins in port signatures, except the CLI/MCP parse boundary |
-| dependency-allowlist | arch | runtime: ruamel.yaml, deal; optional extras: mcp, tree-sitter |
-| edit-loop-speed | arch | context p95 ≤ 300 ms; scoped check p95 ≤ 1 s; cold full ≤ 30 s |
-| pure-core | model, realize, check, change, view, guide | no effects at all |
-| shell-io | integrate | fs/subprocess(git)/stdio/env, *directly* only in workspace, cli (stdio, env), mcp |
-
-## Where the decisions live
-
-| Component | Decision |
+| To see | Run |
 |---|---|
-| arch | No language model inside arch (backed by `no-network`, `agent-neutral`) |
-| arch | Interfaces and contracts live in code; scaffold once |
-| arch | Functional core, imperative shell (backed by `pure-core`, `shell-io`) |
-| arch | Rigor without ceremony: maturity levels; the agent authors (TRIZ time; ASIT closed world) |
-| arch.model | Ids are paths; the directory tree is the decomposition |
-| arch.model.schema | One component node per FR/DP pair |
-| arch.model.schema | Decisions live on components, not as nodes |
-| arch.model.schema | Frozen dataclasses for nodes |
-| arch.model.matrix | Declared `uses` is the design matrix and the allowed-import set |
-| arch.realize | Two adapter tiers behind one fact schema; "not analyzed" never passes |
-| arch.realize.evidence | Read reports; don't run the tools |
-| arch.check | Strict checks that don't block adoption: ratchet and maturity-scaled severity |
-| arch.change | Git is the transaction log: no proposal store |
-| arch.guide.infer | Inference belongs to guide (removed a coupling) |
-| arch.guide.method | Method content separate from skill packaging (removed a coupling) |
-| arch.view.context | Neighbours by external spec only (information hiding) |
-
-## Traceability: needs → components
-
-| Need | Served by |
-|---|---|
-| understand-system | view |
-| right-context | view, integrate |
-| catch-departures | realize, check, integrate |
-| proportional-review | change, view |
-| trace-purpose | model, check |
-| sound-reasoning | check, guide |
-| low-adoption-cost | realize, guide, integrate |
-| compose-at-scale | model, check, guide |
-| durable-knowledge | model, change |
-
-`understand-system` rests on `view` alone. That is the thinnest need, and the one to watch.
-
-## Suggested v1 cut
-
-Everything through L5, plus `integrate.cli` and `integrate.agent` (Claude Code adapter + AGENTS.md
-fallback), with these exceptions: `realize.evidence` reads JUnit only; `view.diagram` renders Mermaid
-only; `guide.infer` arrives in v1.1; `view.site`, `integrate.mcp` and `integrate.ci` come after.
-Success criterion: arch's own design passes `arch check` with an empty baseline (arch AC5), and arch's
-own code is developed through `arch context` / `arch check`.
+| The decomposition, in build order | `arch outline [component] --depth N` |
+| A design matrix, or declared vs. observed coupling | `arch matrix <component> [--observed]` |
+| Build layers, or the impact of a change | `arch plan [component...]` |
+| Everything needed to work on one part | `arch context <component | path[:line]>` |
+| What to do next | `arch next [component]` |
+| How the design changed | `arch diff [revision]` |
+| Whether design and code agree | `arch check [--all]` |
 
 ## Open questions
 
@@ -225,7 +59,7 @@ own code is developed through `arch context` / `arch check`.
 4. **Cross-repository composition.** How a parent design references a versioned sub-design from another
    repo (the multi-repo / Terraform-module story). Leaning toward `uses: [pkg:billing@2]`, against
    that package's published external spec.
-5. **EARS strictness.** Warning or error at `contracted`?
+5. **EARS strictness.** `S103` is a warning even at `contracted`; should it become an error there?
 6. **CLI library.** Standard-library argparse for now (no dependency; hidden behind `integrate.cli`).
 7. **Second adapter.** TypeScript (semantic) proves the fact schema is neutral; Mojo via tree-sitter
    (structural) is the exciting one. Both wait until the Python path is proven.

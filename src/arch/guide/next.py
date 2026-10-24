@@ -25,6 +25,7 @@ class ActionKind(enum.Enum):
     TRACE_TO_NEEDS = "trace work to needs"
     STATE_REQUIREMENTS = "state requirements and criteria"
     STATE_SECRET = "state what a component hides"
+    BUILD = "build a component that has no code yet"
     LINK_EVIDENCE = "link criteria to tests"
     IMPROVE = "address a warning"
 
@@ -36,7 +37,7 @@ _GUIDANCE: dict[str, tuple[ActionKind, MethodName | None, AbstractOp | None]] = 
     "S009": (ActionKind.STATE_REQUIREMENTS, MethodName.WRITE_REQUIREMENTS, AbstractOp.ADD_CRITERION),
     "S006": (ActionKind.STATE_SECRET, MethodName.DECOMPOSE, AbstractOp.SET_FIELD),
     "C005": (ActionKind.LINK_EVIDENCE, None, AbstractOp.CONTEXT),
-    "C003": (ActionKind.STATE_REQUIREMENTS, MethodName.DECOMPOSE, AbstractOp.CONTEXT),
+    "C003": (ActionKind.BUILD, None, AbstractOp.CONTEXT),
 }
 ActionLimit = NewType("ActionLimit", int)
 _STATEMENT_RULES_PREFIX = "S1"  # statement-quality rules (arch.check.statements)
