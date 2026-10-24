@@ -31,7 +31,18 @@ from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
 from arch.view.context import DEFAULT_BUDGET_TOKENS, ContextTarget, TokenBudget, UnknownTarget
 from arch.view.context import context as make_context
-from arch.view.diagram import MatrixView, ObservedMatrixView, observed_matrix
+from arch.view.diagram import (
+    DiagramFormat,
+    DiagramView,
+    Edges,
+    MatrixView,
+    ObservedMatrixView,
+    changes,
+    containment,
+    observed_matrix,
+    with_effects,
+    with_observed,
+)
 from arch.view.outline import Depth
 from arch.view.outline import outline as make_outline
 from arch.view.report import (
@@ -85,6 +96,7 @@ class Command(enum.Enum):
     BASELINE = "baseline"
     INIT = "init"
     NEXT = "next"
+    DIAGRAM = "diagram"
 
 
 @dataclass(frozen=True)
@@ -158,6 +170,29 @@ def next_(ws: Workspace, scope: ComponentId | None = None, limit: ActionLimit = 
     return Result(NextReport(next_actions(g, report, _component(g, scope), limit)))
 
 
+class Overlay(enum.Enum):
+    EFFECTS = "effects"  # colour components pure, effectful within constraints, or violating them
+    OBSERVED = "observed"  # add undeclared imports and hidden coupling from git history
+
+
+def diagram(ws: Workspace, root: ComponentId | None = None, depth: Depth = Depth(1), edges: Edges = Edges.REDUCED,
+            overlays: frozenset[Overlay] = frozenset(), base: Revision | None = None,
+            form: DiagramFormat = DiagramFormat.MARKDOWN) -> Result:
+    """A containment diagram of `root`'s children, or (with `base`) only what changed since a revision."""
+    g = _graph(ws)
+    if base is not None:
+        before = ws.design_at(base)
+        return Result(DiagramView(changes(Graph(before), g, design_diff(before, ws.design())), form))
+    d = containment(g, _component(g, root), depth, edges)
+    if overlays:
+        facts = ws.facts()
+        if Overlay.EFFECTS in overlays:
+            d = with_effects(d, g, facts, run_checks(g, facts, ws.baseline(), ws.config().lexicon()))
+        if Overlay.OBSERVED in overlays:
+            d = with_observed(d, g, facts)
+    return Result(DiagramView(d, form))
+
+
 def plan(ws: Workspace, targets: Sequence[ComponentId] = ()) -> Result:
     g = _graph(ws)
     return Result(PlanReport(make_plan(g, [c for t in targets if (c := _component(g, t)) is not None])))
@@ -204,6 +239,8 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(Command.MATRIX, Text("Show design matrices (rows use columns)"), Access.READS, matrix),
     Operation(Command.NEXT, Text("The most valuable next actions, with the method or operation for each"),
               Access.READS, next_),
+    Operation(Command.DIAGRAM, Text("Draw a component's parts and their uses (Mermaid or Graphviz), or what changed "
+                                    "since a revision; overlays for effects and observed coupling"), Access.READS, diagram),
     Operation(Command.PLAN, Text("Show realization layers, or the impact of changing components"), Access.READS, plan),
     Operation(Command.EDIT, Text("Change the design through validated operations (add, set, link, move, remove, ...)"),
               Access.WRITES, edit),
@@ -216,5 +253,5 @@ OPERATIONS: tuple[Operation, ...] = (
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "DiagramFormat", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

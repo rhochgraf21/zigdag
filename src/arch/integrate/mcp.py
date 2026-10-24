@@ -15,7 +15,17 @@ from mcp.server.mcpserver import MCPServer
 
 from arch.change import ops
 from arch.integrate import catalog
-from arch.integrate.catalog import Command, ContextTarget, Depth, MatrixOverlay, Revision, TokenBudget
+from arch.integrate.catalog import (
+    Command,
+    ContextTarget,
+    DiagramFormat,
+    Depth,
+    Edges,
+    MatrixOverlay,
+    Overlay,
+    Revision,
+    TokenBudget,
+)
 from arch.model.ids import ComponentId
 from arch.view.report import EditMode, InfoFindings
 
@@ -45,6 +55,13 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
         overlay = MatrixOverlay.OBSERVED if observed else MatrixOverlay.DECLARED_ONLY
         return text(catalog.matrix(ws(), ComponentId(parent) if parent else None, overlay))
 
+    def diagram(component: str | None = None, depth: int = 1, all_edges: bool = False, effects: bool = False,
+                observed: bool = False, diff: str | None = None, format: str = "markdown") -> str:
+        overlays = frozenset(o for o, on in ((Overlay.EFFECTS, effects), (Overlay.OBSERVED, observed)) if on)
+        return text(catalog.diagram(ws(), ComponentId(component) if component else None, Depth(depth),
+                                    Edges.ALL if all_edges else Edges.REDUCED, overlays,
+                                    Revision(diff) if diff else None, DiagramFormat(format)))
+
     def plan(targets: list[str] | None = None) -> str:
         return text(catalog.plan(ws(), [ComponentId(t) for t in targets or []]))
 
@@ -68,7 +85,7 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
         return text(catalog.init(catalog.new_project(project), EditMode.DRY_RUN if dry_run else EditMode.WRITE))
 
     return {Command.CHECK: check, Command.CONTEXT: context, Command.OUTLINE: outline, Command.MATRIX: matrix,
-            Command.PLAN: plan, Command.NEXT: next_, Command.EDIT: edit, Command.DIFF: diff,
+            Command.PLAN: plan, Command.NEXT: next_, Command.DIAGRAM: diagram, Command.EDIT: edit, Command.DIFF: diff,
             Command.BASELINE: baseline, Command.INIT: init}
 
 

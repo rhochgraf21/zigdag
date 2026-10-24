@@ -54,6 +54,14 @@ def _parser() -> argparse.ArgumentParser:
     nx = sub.add_parser("next", help=summary[Command.NEXT])
     nx.add_argument("scope", nargs="?", help="only actions within this component")
     nx.add_argument("--limit", type=int, default=10)
+    dg = sub.add_parser("diagram", help=summary[Command.DIAGRAM])
+    dg.add_argument("component", nargs="?", help="whose parts to draw (default: the whole system)")
+    dg.add_argument("--depth", type=int, default=1, help="levels of nesting to draw")
+    dg.add_argument("--all-edges", action="store_true", help="also draw uses implied by other uses")
+    dg.add_argument("--effects", action="store_true", help="colour parts by their effects")
+    dg.add_argument("--observed", action="store_true", help="add undeclared imports and hidden coupling")
+    dg.add_argument("--diff", metavar="REVISION", help="draw only what changed since a git revision")
+    dg.add_argument("--format", default="markdown", choices=[f.value for f in catalog.DiagramFormat])
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
@@ -190,6 +198,11 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
         "matrix": lambda: catalog.matrix(ws, ComponentId(args.parent) if args.parent else None,
                                          catalog.MatrixOverlay.OBSERVED if args.observed else catalog.MatrixOverlay.DECLARED_ONLY),
         "plan": lambda: catalog.plan(ws, [ComponentId(t) for t in args.targets]),
+        "diagram": lambda: catalog.diagram(
+            ws, ComponentId(args.component) if args.component else None, Depth(args.depth),
+            catalog.Edges.ALL if args.all_edges else catalog.Edges.REDUCED,
+            frozenset(o for o, on in ((catalog.Overlay.EFFECTS, args.effects), (catalog.Overlay.OBSERVED, args.observed)) if on),
+            Revision(args.diff) if args.diff else None, catalog.DiagramFormat(args.format)),
         "next": lambda: catalog.next_(ws, ComponentId(args.scope) if args.scope else None, catalog.ActionLimit(args.limit)),
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
         "baseline": lambda: catalog.baseline(ws),

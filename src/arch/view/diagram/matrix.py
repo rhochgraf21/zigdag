@@ -1,7 +1,7 @@
-"""Structure, shown in forms that stay stable across revisions.
+"""Design structure matrices as text, with observations overlaid.
 
-Realizes arch.view.diagram. For now: the design structure matrix as text. Rows and columns follow
-realization order, so a decoupled design reads lower-triangular.
+Part of arch.view.diagram. Rows and columns follow realization order, so a decoupled design reads
+lower-triangular.
 """
 
 from __future__ import annotations
