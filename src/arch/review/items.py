@@ -243,6 +243,16 @@ class ReviewItem:
 # building the deck
 
 
+def _n(count: int, word: str, plural: str | None = None) -> str:
+    return f"{count} {word if count == 1 else plural or word + 's'}"
+
+
+def _listing(*parts: tuple[int, str]) -> str:
+    """'4 requirements' or '1 need and 4 requirements', leaving out what did not change."""
+    shown = [_n(n, w) for n, w in parts if n]
+    return " and ".join(shown) or "nothing"
+
+
 def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     design_diff = diff(inp.before, inp.after)
     before, after = Graph(inp.before), Graph(inp.after)
@@ -255,25 +265,26 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     intent = _intent(design_diff, inp.before, inp.after, evidence)
     if intent.needs or intent.requirements:
         pages.append(ReviewItem(ItemId("intent"), Stage.INTENT,
-                                Text(f"{len(intent.needs)} needs and {len(intent.requirements)} requirements changed"),
+                                Text(_listing((len(intent.needs), "need"), (len(intent.requirements), "requirement")) + " changed"),
                                 intent, Risk.HIGH))
     arch = _architecture(design_diff, before, after)
     if arch.panels:
         pages.append(ReviewItem(ItemId("architecture"), Stage.ARCHITECTURE,
-                                Text(f"{len(arch.rewiring)} components added, removed, moved or rewired"), arch, Risk.HIGH))
+                                Text(f"{_n(len(arch.rewiring), 'component')} added, removed, moved or rewired"), arch, Risk.HIGH))
     constraints = _constraints(design_diff, inp.before, inp.after)
     if constraints.constraints:
         pages.append(ReviewItem(ItemId("constraints"), Stage.CONSTRAINTS,
-                                Text(f"{len(constraints.constraints)} constraints changed"), constraints, Risk.HIGH))
+                                Text(f"{_n(len(constraints.constraints), 'constraint')} changed"), constraints, Risk.HIGH))
     design = _design(design_diff, inp.before, inp.after)
     if design.changes:
-        pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {len(design.changes)} components"),
+        pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {_n(len(design.changes), 'component')}"),
                                 design, Risk.MEDIUM))
     attention = tuple(p for p in ports if p.compatibility is not Compatibility.COMPATIBLE)
     if attention:
         breaking = sum(1 for p in attention if p.compatibility is Compatibility.BREAKING)
         pages.append(ReviewItem(ItemId("interfaces"), Stage.INTERFACES,
-                                Text(f"{breaking} breaking and {len(attention) - breaking} uncertain interface changes"),
+                                Text(_listing((breaking, "breaking interface change"),
+                                              (len(attention) - breaking, "uncertain interface change"))),
                                 InterfacesBody(attention), Risk.HIGH if breaking else Risk.MEDIUM))
     upstream = tuple(p.id for p in pages)
     pages += _code_pages(inp, after, risks, evidence, upstream)
@@ -532,7 +543,7 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], evi
         risk = min((h.risk.risk for h in files), key=list(Risk).index, default=Risk.LOW)
         out.append(ReviewItem(ItemId(f"code:{cid or '(none)'}"), Stage.CODE, title, body, risk, upstream))
     if batch:
-        out.append(ReviewItem(ItemId("batch"), Stage.BATCH, Text(f"{len(batch)} mechanical changes"),
+        out.append(ReviewItem(ItemId("batch"), Stage.BATCH, Text(_n(len(batch), "mechanical change")),
                               BatchBody(tuple(batch)), Risk.LOW, upstream))
     return out
 
