@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from arch.model.graph import Graph
-from arch.model.schema import ComponentId
+from arch.model.ids import ComponentId
 from arch.realize.facts import Facts, Role, Unit, UnitName
 
 

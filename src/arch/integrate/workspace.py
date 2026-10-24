@@ -6,13 +6,15 @@ Hides filesystem layout; the core only ever sees snapshots as data.
 
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from arch import realize
 from arch.model import codec
-from arch.model.schema import Design, DesignPath
+from arch.model.ids import DesignPath
+from arch.model.schema import Design
 from arch.realize.facts import Facts, Roots, Snapshot, SourcePath
 
 DESIGN_DIR = "design"
@@ -22,6 +24,38 @@ _SKIP_DIRS = frozenset({"__pycache__", "node_modules", "venv", "build", "dist", 
 
 class NoProject(Exception):
     pass
+
+
+class BadConfig(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class ProjectConfig:
+    """What `arch.toml` says; every field optional. Parsed here, at the edge, into typed values."""
+
+    source_roots: tuple[SourcePath, ...] | None = None
+    test_roots: tuple[SourcePath, ...] | None = None
+
+    @staticmethod
+    def read(path: Path) -> ProjectConfig:
+        if not path.is_file():
+            return ProjectConfig()
+        try:
+            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as e:
+            raise BadConfig(f"{path.name}: {e}") from e
+        roots = raw.get("roots", {})
+        return ProjectConfig(_paths(roots, "source", path), _paths(roots, "tests", path))
+
+
+def _paths(table: object, key: str, path: Path) -> tuple[SourcePath, ...] | None:
+    value = table.get(key) if isinstance(table, dict) else None
+    if value is None:
+        return None
+    if not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+        raise BadConfig(f"{path.name}: roots.{key} must be a list of paths")
+    return tuple(SourcePath(v.strip("/")) for v in value)
 
 
 @dataclass(frozen=True)
@@ -43,11 +77,16 @@ class Workspace:
     def design(self) -> Design:
         return codec.load(self.design_files())
 
+    def config(self) -> ProjectConfig:
+        return ProjectConfig.read(self.root / CONFIG_FILE)
+
     def roots(self) -> Roots:
-        """Defaults until arch.toml is read: `src/` (else the project root) and `tests/`."""
-        source = SourcePath("src") if (self.root / "src").is_dir() else SourcePath("")
-        tests = (SourcePath("tests"),) if (self.root / "tests").is_dir() else ()
-        return Roots((source,), tests)
+        """From arch.toml `[roots]`, else `src/` (or the project root) and `tests/`."""
+        config = self.config()
+        source = config.source_roots or ((SourcePath("src"),) if (self.root / "src").is_dir() else (SourcePath(""),))
+        tests = config.test_roots if config.test_roots is not None else (
+            (SourcePath("tests"),) if (self.root / "tests").is_dir() else ())
+        return Roots(source, tests)
 
     def snapshot(self) -> Snapshot:
         roots = self.roots()

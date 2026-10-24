@@ -3,7 +3,7 @@ kind: component
 realizes: Derive the design matrix of a component's children, classify it, and order the children for realization
 solution: Declared sibling uses are the off-diagonal entries; strongly connected components identify coupled sets; topological layering gives realization order and parallel layers
 hides: Matrix construction and ordering algorithms
-uses: [graph, schema]
+uses: [graph, ids]
 status: specified
 ---
 ## Acceptance criteria

@@ -3,7 +3,7 @@ kind: component
 realizes: Determine which component each source unit belongs to
 solution: Longest-prefix match of each unit's module path against component code paths, where a component's code path defaults to its id
 hides: Resolution rules
-uses: [facts, model.graph, model.schema]
+uses: [facts, model.graph, model.ids]
 status: specified
 ---
 ## Acceptance criteria

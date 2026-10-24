@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 from arch.model import codec
 from arch.model.graph import Graph
-from arch.model.schema import DesignPath
+from arch.model.ids import DesignPath
 
 
 def component(uses: str = "", exports: str = "", serves: str = "", status: str = "specified",

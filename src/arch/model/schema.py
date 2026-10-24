@@ -8,18 +8,22 @@ from __future__ import annotations
 import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import NewType
 
-ComponentId = NewType("ComponentId", str)
-NeedId = NewType("NeedId", str)
-ConstraintId = NewType("ConstraintId", str)
-CriterionId = NewType("CriterionId", str)  # "<component id>#ACn"
-Ref = NewType("Ref", str)  # a reference as written; arch.model.graph resolves it
-Text = NewType("Text", str)
-FieldName = NewType("FieldName", str)
-DesignPath = NewType("DesignPath", str)  # '/'-separated, relative to the design root
-LineNo = NewType("LineNo", int)
-PolicyJson = NewType("PolicyJson", str)  # canonical JSON of a constraint's rule, until rules are typed
+from arch.model.ids import (
+    ComponentId,
+    ConstraintId,
+    CriterionId,
+    DesignPath,
+    FieldName,
+    Issue,
+    Location,
+    NeedId,
+    Ref,
+    Text,
+)
+from arch.model.policy import Policy
+
+SourceText = str  # the raw contents of a design file
 
 
 class Kind(enum.Enum):
@@ -39,15 +43,6 @@ class Status(enum.Enum):
     @property
     def rank(self) -> int:
         return list(Status).index(self)
-
-
-@dataclass(frozen=True, order=True)
-class Location:
-    path: DesignPath
-    line: LineNo = LineNo(1)
-
-    def __str__(self) -> str:
-        return f"{self.path}:{self.line}"
 
 
 @dataclass(frozen=True)
@@ -106,19 +101,10 @@ class Need:
 @dataclass(frozen=True)
 class Constraint:
     id: ConstraintId
-    applies_to: tuple[Ref, ...]  # absolute component ids
-    rule: PolicyJson | None
+    applies_to: tuple[ComponentId, ...]  # absolute ids
+    policy: Policy
     statement: Text
     location: Location
-
-
-@dataclass(frozen=True)
-class Issue:
-    """A problem with a single node. arch.check.engine turns issues into findings."""
-
-    location: Location
-    field: FieldName | None
-    message: Text
 
 
 @dataclass(frozen=True)
@@ -127,6 +113,7 @@ class Design:
     needs: Mapping[NeedId, Need]
     constraints: Mapping[ConstraintId, Constraint]
     issues: tuple[Issue, ...]
+    sources: Mapping[DesignPath, SourceText]  # every node file as read, for lossless edits
 
 
 class FieldType(enum.Enum):

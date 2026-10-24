@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 from arch.model.graph import Graph
 from arch.model.matrix import matrix_of
-from arch.model.schema import ComponentId, Status, Text
+from arch.model.ids import ComponentId, Text
+from arch.model.schema import Status
 
 
 @dataclass(frozen=True)

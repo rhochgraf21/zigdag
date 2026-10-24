@@ -10,7 +10,8 @@ from collections.abc import Iterator
 from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
 from arch.model.graph import is_within, parent_of
 from arch.model.matrix import matrix_of
-from arch.model.schema import DecisionLabel, Text
+from arch.model.ids import Text
+from arch.model.schema import DecisionLabel
 
 MAX_SPAN = 9
 
@@ -61,7 +62,8 @@ def untraced(ctx: Context) -> Iterator[Finding]:
     for root in g.roots:
         for cid in g.children(root):
             if not g[cid].serves:
-                yield _finding("S002", cid, "serves", Severity.ERROR, "top-level component declares no needs it serves",
+                sev = by_maturity(g[cid].status, draft=Severity.INFO, specified=Severity.ERROR, contracted=Severity.ERROR)
+                yield _finding("S002", cid, "serves", sev, "top-level component declares no needs it serves",
                                "add `serves: [...]` naming the needs this part exists for", g[cid].location)
     served_below_root = {n for cid in g.ids() if parent_of(cid) is not None for n in g[cid].serves}
     for nid, need in sorted(design.needs.items()):
@@ -149,8 +151,8 @@ def illegal_uses(ctx: Context) -> Iterator[Finding]:
                 yield _finding("S008", cid, f"invisible:{target}", Severity.ERROR,
                                f"uses {target}, which its parent does not export",
                                f"export it from {parent_of(target)}, or use that parent instead", g[cid].location)
-            sibling = parent is not None and parent_of(target) == parent
-            if parent is not None and not sibling and not any(is_within(target, u) for u in g.uses(parent)):
+            inside_parent = parent is not None and is_within(target, parent)  # a sibling or a sibling's part
+            if parent is not None and not inside_parent and not any(is_within(target, u) for u in g.uses(parent)):
                 yield _finding("S007", cid, f"outside:{target}", Severity.ERROR,
                                f"uses {target}, which its parent {parent} may not use",
                                f"add it to the uses of {parent}, or remove this use", g[cid].location)

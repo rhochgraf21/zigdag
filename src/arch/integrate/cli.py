@@ -54,7 +54,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = catalog.matrix(ws, args.parent)
             case "plan":
                 result = catalog.plan(ws, args.targets)
-    except (catalog.NoProject, *catalog.UsageError) as e:
+    except (*catalog.NoProject, *catalog.UsageError) as e:
         print(f"arch: {e}", file=sys.stderr)
         return USAGE_ERROR
     except Exception as e:  # noqa: BLE001

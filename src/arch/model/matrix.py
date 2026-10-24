@@ -14,7 +14,7 @@ from typing import Generic, TypeVar
 import deal
 
 from arch.model.graph import Graph, is_within
-from arch.model.schema import ComponentId
+from arch.model.ids import ComponentId
 
 N = TypeVar("N", bound=str)
 

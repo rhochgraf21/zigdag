@@ -3,7 +3,7 @@ kind: component
 realizes: Detect where the realization departs from the design
 solution: Rules comparing mapped facts with the design for undeclared or invisible imports, effects outside the effective allowance, unmapped units, missing code, acceptance criteria without evidence, failing or stale evidence, budget breaches and dependencies outside the allowlist
 hides: Comparison rules
-uses: [engine, model.graph, model.schema, realize.facts, realize.mapping]
+uses: [engine, model.graph, model.ids, model.policy, realize.facts, realize.mapping]
 status: specified
 ---
 ## Acceptance criteria

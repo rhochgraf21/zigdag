@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from arch.check.engine import Report, Severity
 from arch.model.graph import Graph, is_within
 from arch.model.matrix import matrix_of
-from arch.model.schema import ComponentId
+from arch.model.ids import ComponentId
 from arch.realize.facts import Facts, UnitName
 from arch.realize.mapping import UnitMap, map_units
 

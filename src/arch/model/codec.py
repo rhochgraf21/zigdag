@@ -9,7 +9,6 @@ Parsing only for now. Rendering and minimal-diff edits arrive with arch.change.
 from __future__ import annotations
 
 import io
-import json
 import re
 from collections.abc import Mapping
 
@@ -17,32 +16,33 @@ import deal
 from ruamel.yaml import YAML
 from ruamel.yaml.error import MarkedYAMLError, YAMLError
 
-from arch.model.schema import (
-    Component,
+from arch.model.ids import (
     ComponentId,
-    Constraint,
     ConstraintId,
-    Criterion,
     CriterionId,
-    DecisionEntry,
-    DecisionLabel,
-    Design,
     DesignPath,
     FieldName,
     Issue,
-    Kind,
     LineNo,
     Location,
-    Need,
     NeedId,
-    PolicyJson,
     Ref,
-    Status,
     Text,
+)
+from arch.model.policy import Policy
+from arch.model.schema import (
+    Component,
+    Constraint,
+    Criterion,
+    DecisionEntry,
+    DecisionLabel,
+    Design,
+    Kind,
+    Need,
+    SourceText,
+    Status,
     validate_fields,
 )
-
-SourceText = str
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
 _CRITERION = re.compile(r"^- (AC\d+):[ \t]*(.+)$", re.M)
@@ -93,7 +93,8 @@ def load(files: Mapping[DesignPath, SourceText]) -> Design:
                 needs[node.id] = node
             case Constraint():
                 constraints[node.id] = node
-    return Design(components, needs, constraints, tuple(issues))
+    sources = {p: files[p] for p in sorted(files) if kind_of(p) is not None}
+    return Design(components, needs, constraints, tuple(issues), sources)
 
 
 Node = Component | Need | Constraint
@@ -170,8 +171,10 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
             node = Need(NeedId(ident), Text(statement), opt_text("stakeholder"), opt_text("signal"), loc)
         case Kind.CONSTRAINT:
             rule = raw.get("rule")
-            policy = PolicyJson(json.dumps(rule, sort_keys=True)) if isinstance(rule, dict) else None
-            node = Constraint(ConstraintId(ident), refs("applies_to"), policy, Text(body.strip()), loc)
+            policy, problems = Policy.parse(rule) if isinstance(rule, dict) else (Policy(), ())
+            issues += tuple(Issue(loc, FieldName("rule"), p) for p in problems)
+            node = Constraint(ConstraintId(ident), tuple(ComponentId(r) for r in refs("applies_to")),
+                              policy, Text(body.strip()), loc)
     return node, issues
 
 

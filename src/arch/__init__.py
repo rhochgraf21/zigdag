@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar
 
-from arch.model.schema import CriterionId
+from arch.model.ids import CriterionId
 
 F = TypeVar("F", bound=Callable[..., object])
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from arch.model.graph import Graph, is_within
 from arch.model.matrix import Layering, layer
-from arch.model.schema import ComponentId
+from arch.model.ids import ComponentId
 
 
 @dataclass(frozen=True)

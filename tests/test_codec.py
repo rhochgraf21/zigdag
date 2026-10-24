@@ -5,7 +5,8 @@ from hypothesis import strategies as st
 
 from arch import realizes
 from arch.model import codec
-from arch.model.schema import Component, DesignPath
+from arch.model.ids import DesignPath
+from arch.model.schema import Component
 from tests.conftest import component
 
 

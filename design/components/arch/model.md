@@ -5,7 +5,7 @@ solution: An immutable typed domain model with a lossless text codec and structu
 hides: Internal representation and indexing of the design
 serves: [durable-knowledge, compose-at-scale, trace-purpose]
 uses: []
-exports: [schema, codec, graph, matrix]
+exports: [ids, policy, schema, codec, graph, matrix]
 status: specified
 ---
 ## Acceptance criteria

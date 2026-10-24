@@ -3,7 +3,7 @@ kind: component
 realizes: Define the node kinds, their fields, and what makes an individual node valid
 solution: Frozen dataclasses and enums per kind (Need, Component, Constraint) with distinct id types, and a JSON Schema generated from them for editors and agents
 hides: Field representation and per-field validation
-uses: []
+uses: [ids, policy]
 status: specified
 ---
 ## Acceptance criteria

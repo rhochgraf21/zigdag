@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import NewType
 
 from arch.model.graph import Graph
-from arch.model.schema import Location, Status, Text
+from arch.model.ids import Location, Text
+from arch.model.schema import Status
 from arch.realize.facts import Facts, SourceLocation
 
 RuleId = NewType("RuleId", str)

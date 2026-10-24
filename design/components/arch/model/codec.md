@@ -3,7 +3,7 @@ kind: component
 realizes: Convert between design files and nodes without losing or reformatting human-written content
 solution: A Markdown-with-YAML-frontmatter codec built on a round-trip YAML parser; edits are applied as minimal text patches to the original file
 hides: The on-disk file format
-uses: [schema]
+uses: [ids, policy, schema]
 status: specified
 ---
 ## Acceptance criteria

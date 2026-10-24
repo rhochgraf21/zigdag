@@ -37,10 +37,28 @@ def test_own_matrices_are_not_coupled():
 @realizes("arch.guide.plan#AC1")
 def test_design_rules_come_first():
     first = plan(GRAPH).layering.layers[0]
-    assert {"arch.model.schema", "arch.realize.facts"} <= set(first)
+    assert {"arch.model.ids", "arch.realize.facts"} <= set(first)
 
 
 @realizes("arch.integrate.cli#AC1")
 def test_cli_exit_codes(capsys):
     assert main(["--project", str(WS.root), "check"]) == 0
     assert main(["--project", str(WS.root), "outline", "no.such.thing"]) == 2
+
+
+@realizes("arch.integrate.workspace#AC6")
+def test_config_roots(tmp_path):
+    from arch.integrate.workspace import BadConfig, Workspace
+
+    (tmp_path / "design").mkdir()
+    (tmp_path / "lib").mkdir()
+    ws = Workspace(tmp_path)
+    assert ws.roots().source == ("",)
+    (tmp_path / "arch.toml").write_text('[roots]\nsource = ["lib"]\ntests = []\n')
+    assert ws.roots().source == ("lib",) and ws.roots().test == ()
+    (tmp_path / "arch.toml").write_text("[roots\n")
+    try:
+        ws.roots()
+        raise AssertionError("expected BadConfig")
+    except BadConfig as e:
+        assert "arch.toml" in str(e)

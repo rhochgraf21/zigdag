@@ -3,7 +3,7 @@ kind: component
 realizes: Evaluate rules over a design and facts, producing findings with stable identities
 solution: Rules are pure functions registered with an id, a scope and a default severity; a finding's identity is (rule id, subject id, normalized message key) and excludes line numbers
 hides: Rule scheduling, scoping and identity computation
-uses: [model.graph, model.schema, realize.facts]
+uses: [model.graph, model.ids, model.schema, realize.facts]
 status: specified
 ---
 ## Acceptance criteria

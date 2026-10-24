@@ -52,6 +52,16 @@ def test_uses_must_stay_within_parent_allowance():
     assert ("S007", "s.a.x", Severity.ERROR) in findings(files)
 
 
+@realizes("arch.check.structure#AC4")
+def test_using_a_siblings_part_needs_no_parent_declaration():
+    files = {
+        "components/s/a.md": component(serves="n", exports="x"),
+        "components/s/a/x.md": component(),
+        "components/s/b.md": component(uses="a.x", serves="n"),
+    }
+    assert not any(r in ("S007", "S008") for r, _, _ in findings(files))
+
+
 def test_uses_must_be_visible():
     files = {
         "components/s/a.md": component(serves="n"),

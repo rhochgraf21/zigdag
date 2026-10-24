@@ -12,17 +12,11 @@ from functools import cached_property
 
 import deal
 
-from arch.model.schema import Component, ComponentId, ConstraintId, Design, NeedId, Ref
+from arch.model.ids import ComponentId, ConstraintId, NeedId, Ref, is_within, parent_of
+from arch.model.policy import Policy
+from arch.model.schema import Component, Design
 
-
-def parent_of(cid: ComponentId) -> ComponentId | None:
-    head, sep, _ = cid.rpartition(".")
-    return ComponentId(head) if sep else None
-
-
-def is_within(inner: ComponentId, outer: ComponentId) -> bool:
-    """True if `inner` is `outer` or one of its descendants."""
-    return inner == outer or inner.startswith(outer + ".")
+__all__ = ["Graph", "is_within", "parent_of"]
 
 
 @dataclass(frozen=True)
@@ -107,6 +101,10 @@ class Graph:
         return tuple(
             k for k, c in sorted(self.design.constraints.items()) if any(ComponentId(a) in scope for a in c.applies_to)
         )
+
+    def effective_policy(self, cid: ComponentId) -> Policy:
+        """The combined policy of every constraint in force for `cid`."""
+        return Policy.combine(self.design.constraints[k].policy for k in self.effective_constraints(cid))
 
     def needs_of(self, cid: ComponentId) -> tuple[NeedId, ...]:
         for c in (cid, *self.ancestors(cid)):

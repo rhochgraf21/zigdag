@@ -18,7 +18,7 @@ from arch.integrate import workspace
 from arch.integrate.workspace import Workspace
 from arch.model.graph import Graph
 from arch.model.matrix import matrix_of
-from arch.model.schema import ComponentId
+from arch.model.ids import ComponentId
 from arch.view import diagram
 from arch.view.context import DEFAULT_BUDGET_TOKENS, UnknownTarget
 from arch.view.context import context as make_context
@@ -32,7 +32,7 @@ class UnknownComponent(Exception):
 UsageError = (UnknownComponent, UnknownTarget)
 
 
-NoProject = workspace.NoProject
+NoProject = (workspace.NoProject, workspace.BadConfig)
 
 
 def open_project(start: Path) -> Workspace:
