@@ -14,7 +14,8 @@ from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severi
 from arch.model.graph import is_within, parent_of
 from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
-from arch.realize.facts import Capability, Effect, Facts, Reach, Role, UnitName
+from arch.model.schema import Status
+from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
 
 _maps: WeakKeyDictionary[Context, UnitMap] = WeakKeyDictionary()
@@ -191,6 +192,29 @@ def declared_effects(ctx: Context) -> Iterator[Finding]:
                                e.location)
 
 
+def surviving_mutants(ctx: Context) -> Iterator[Finding]:
+    """Mutants the tests did not notice: the tests do not constrain that code. Strict at contracted and verified."""
+    if not ctx.facts or not ctx.facts.mutants:
+        return
+    g, m = ctx.graph, _mapping(ctx)
+    unit_at = {u.path: u.name for u in ctx.facts.units}
+    by_component: dict[ComponentId, list] = {}
+    for mutant in ctx.facts.mutants:
+        cid = m.component_of.get(unit_at.get(mutant.path)) if mutant.path in unit_at else None
+        if cid is not None:
+            by_component.setdefault(cid, []).append(mutant)
+    for cid, mutants in sorted(by_component.items()):
+        survived = [x for x in mutants if x.outcome is MutantOutcome.SURVIVED]
+        if not survived:
+            continue
+        status = g[cid].status
+        sev = Severity.ERROR if status is Status.VERIFIED else Severity.WARNING if status is Status.CONTRACTED else Severity.INFO
+        functions = ", ".join(sorted({x.symbol for x in survived}))
+        decided = sum(1 for x in mutants if x.outcome in (MutantOutcome.KILLED, MutantOutcome.SURVIVED))
+        yield _finding("C013", cid, "mutants", sev, f"{len(survived)} of {decided} mutants survived (in {functions})",
+                       "add tests or contracts that fail when that code changes", g[cid].location)
+
+
 def third_party(ctx: Context) -> Iterator[Finding]:
     """Imports outside the project and the standard library must be allowed by an imports constraint."""
     g, m = ctx.graph, _mapping(ctx)
@@ -276,4 +300,5 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C010"), Text("linked tests pass"), failing_evidence),
     Rule(RuleId("C011"), Text("public ports use domain types"), port_types),
     Rule(RuleId("C012"), Text("declared side effects (deal) cover the inferred ones"), declared_effects),
+    Rule(RuleId("C013"), Text("tests notice changes to the code (mutation)"), surviving_mutants),
 )

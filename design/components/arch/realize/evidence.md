@@ -10,6 +10,7 @@ status: specified
 - AC1: Each test result shall be linked to the acceptance criteria named by `@realizes` on that test.
 - AC2: A missing report shall yield "no evidence", never "failed".
 - AC3: Evidence shall record the revision it was produced from when the report provides it, otherwise freshness `unknown`.
+- AC4: When mutmut results exist under mutants/, evidence shall record each mutant of each function as killed, survived, not checked or inconclusive, treating only verified exit codes as killed or survived.
 
 ## Decisions
 ### Read reports; don't run the tools

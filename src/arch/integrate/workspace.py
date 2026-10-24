@@ -152,7 +152,9 @@ class Workspace:
         config = self.config()
         reports = {SourcePath(p.relative_to(self.root).as_posix()): p.read_text(encoding="utf-8", errors="replace")
                    for pattern in config.junit for p in sorted(self.root.glob(pattern)) if p.is_file()}
-        return Snapshot(files, roots, self._log(config.history_commits), reports)
+        mutation = {SourcePath(p.relative_to(self.root).as_posix()): p.read_text(encoding="utf-8", errors="replace")
+                    for p in sorted((self.root / "mutants").rglob("*.meta")) if p.is_file()}
+        return Snapshot(files, roots, self._log(config.history_commits), reports, mutation)
 
     def _log(self, commits: CommitWindow) -> VcsLog | None:
         """Recent history for the source roots, or None outside a git repository."""

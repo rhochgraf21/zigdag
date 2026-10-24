@@ -15,7 +15,7 @@ from arch.check.engine import Report, Severity
 from arch.model.graph import Graph, is_within
 from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
-from arch.realize.facts import Facts, UnitName
+from arch.realize.facts import Facts, MutantOutcome, UnitName
 from arch.realize.mapping import UnitMap, map_units
 from arch.view.render import JsonValue, Markdown
 
@@ -133,6 +133,12 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
     head.append(f"**Status:** {c.status.value}")
     paths = sorted(u.path for u in facts.units if u.name in own_units)
     head.append(f"**Code:** {', '.join(paths) if paths else 'none yet'}")
+    own_paths = set(paths)
+    mutants = [x for x in facts.mutants if x.path in own_paths]
+    decided = [x for x in mutants if x.outcome in (MutantOutcome.KILLED, MutantOutcome.SURVIVED)]
+    if decided:
+        killed = sum(1 for x in decided if x.outcome is MutantOutcome.KILLED)
+        head.append(f"**Mutation:** {killed} of {len(decided)} mutants killed")
 
     why = [f"- {a}: {graph[a].realizes}" for a in graph.ancestors(cid)]
     why += [f"- need `{n}`: {_first_sentence(design.needs[n].statement)}" for n in graph.needs_of(cid) if n in design.needs]

@@ -3,7 +3,7 @@ kind: component
 realizes: Detect where the realization departs from the design
 solution: Rules comparing mapped facts with the design for undeclared or invisible imports, effects outside the effective allowance, unmapped units, missing code, acceptance criteria without evidence, failing or stale evidence, budget breaches and dependencies outside the allowlist
 hides: Comparison rules
-uses: [engine, model.graph, model.ids, model.policy, realize.facts, realize.mapping]
+uses: [engine, model.graph, model.ids, model.policy, model.schema, realize.facts, realize.mapping]
 status: specified
 ---
 ## Acceptance criteria
@@ -18,3 +18,4 @@ status: specified
 - AC7: Components without code shall be reported once per unbuilt subtree, at info below status contracted and as an error at or above it.
 - AC10: When a public port of a component under a port_types rule exposes a forbidden built-in at a leaf position, conformance shall report an error (bool returns aside where allowed), and an unannotated port parameter as a warning.
 - AC11: When a function declares its side effects with deal (has or pure), conformance shall report each inferred effect that no declared marker covers as an error, and dynamic code as a warning.
+- AC12: When a component's code has surviving mutants, conformance shall report how many survived and in which functions: an error at status verified, a warning at contracted, info below.

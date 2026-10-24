@@ -190,6 +190,22 @@ class Evidence:
     report: SourcePath
 
 
+class MutantOutcome(enum.Enum):
+    KILLED = "killed"  # a test failed on the mutant: the tests constrain this code
+    SURVIVED = "survived"  # every test passed on the mutant
+    NOT_CHECKED = "not checked"
+    INCONCLUSIVE = "inconclusive"  # timeouts, crashes and other results
+
+
+@dataclass(frozen=True)
+class Mutant:
+    """One mutation of a function, and whether the tests noticed it."""
+
+    path: SourcePath
+    symbol: SymbolName
+    outcome: MutantOutcome
+
+
 @dataclass(frozen=True)
 class DesignLink:
     unit: UnitName
@@ -218,6 +234,7 @@ class Facts:
     aliases: tuple[Alias, ...] = ()
     changes: tuple[ChangeEvent, ...] = ()  # newest first, as the log lists them
     evidence: tuple[Evidence, ...] = ()  # test outcomes from reports
+    mutants: tuple[Mutant, ...] = ()
     _by_name: Mapping[UnitName, Unit] = field(default=None, init=False, repr=False, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -232,9 +249,9 @@ class Facts:
 
         def gather(attr: str) -> tuple:
             items = [x for p in parts for x in getattr(p, attr)]
-            return tuple(items) if attr in ("changes", "evidence") else tuple(sorted(items, key=_sort_key))
+            return tuple(items) if attr in ("changes", "evidence", "mutants") else tuple(sorted(items, key=_sort_key))
         return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases",
-                                         "changes", "evidence")))
+                                         "changes", "evidence", "mutants")))
 
 
 def _sort_key(fact: object) -> tuple:
@@ -271,6 +288,7 @@ class Snapshot:
     roots: Roots
     log: VcsLog | None = None
     reports: Mapping[SourcePath, SourceText] = field(default_factory=dict)  # test reports (JUnit XML)
+    mutation_reports: Mapping[SourcePath, SourceText] = field(default_factory=dict)  # mutmut .meta files
 
 
 class Adapter(Protocol):

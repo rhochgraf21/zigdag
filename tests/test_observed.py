@@ -77,3 +77,35 @@ def test_observed_matrix_marks_undeclared_imports_and_hidden_coupling():
     assert om.cells[("s.c", "s.a")] is Observed.DECLARED
     assert om.cells[("s.b", "s.c")] is Observed.UNDECLARED_IMPORT
     assert om.cells[("s.a", "s.b")] is Observed.HIDDEN and om.together[("s.a", "s.b")] == 3
+
+
+MUTMUT_META = """{"exit_code_by_key": {"s.a.x_add__mutmut_1": 1, "s.a.x_clamp__mutmut_1": 0,
+ "s.a.x_clamp__mutmut_2": 0, "s.a.xǁBoxǁopen__mutmut_1": 1, "s.a.x_slow__mutmut_1": null,
+ "s.a.x_odd__mutmut_1": 36}}"""
+
+
+@realizes("arch.realize.evidence#AC4")
+def test_mutmut_results_become_mutant_facts():
+    from arch.realize.evidence import parse_mutmut
+    from arch.realize.facts import MutantOutcome
+    mutants = parse_mutmut(SourcePath("mutants/src/s/a.py.meta"), MUTMUT_META)
+    got = {(m.symbol, m.outcome) for m in mutants}
+    assert got == {("add", MutantOutcome.KILLED), ("clamp", MutantOutcome.SURVIVED), ("Box.open", MutantOutcome.KILLED),
+                   ("slow", MutantOutcome.NOT_CHECKED), ("odd", MutantOutcome.INCONCLUSIVE)}
+    assert {m.path for m in mutants} == {"src/s/a.py"}
+    assert parse_mutmut(SourcePath("mutants/x.meta"), "not json") == ()
+
+
+@realizes("arch.check.conformance#AC12")
+def test_surviving_mutants_are_strict_at_higher_maturity():
+    def run_at(status):
+        design = graph({"needs/n.md": NEED, "components/s.md": component(serves="n"),
+                        "components/s/a.md": component(serves="n", status=status)})
+        snap = Snapshot({SourcePath("src/s/__init__.py"): "", SourcePath("src/s/a.py"): ""}, Roots(("src",), ()),
+                        mutation_reports={SourcePath("mutants/src/s/a.py.meta"): MUTMUT_META})
+        facts = realize.extract(snap)
+        return [f for f in check(design, facts).findings if f.rule == "C013"], context(design, facts, check(design, facts), "s.a")
+    for status, severity in (("specified", "info"), ("contracted", "warning"), ("verified", "error")):
+        found, card = run_at(status)
+        assert [(f.severity.value, f.message) for f in found] == [(severity, "2 of 4 mutants survived (in clamp)")]
+    assert "**Mutation:** 2 of 4 mutants killed" in card.to_markdown()

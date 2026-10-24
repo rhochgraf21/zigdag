@@ -28,6 +28,8 @@ def extract(snapshot: Snapshot, extra: Sequence[Adapter] = ()) -> Facts:
     observed = Facts(
         changes=history.parse_log(snapshot.log) if snapshot.log else (),
         evidence=tuple(r for path in sorted(snapshot.reports) for r in evidence.parse_junit(path, snapshot.reports[path])),
+        mutants=tuple(x for path in sorted(snapshot.mutation_reports)
+                      for x in evidence.parse_mutmut(path, snapshot.mutation_reports[path])),
     )
     return propagate_effects(Facts.merge([*parts, observed]))
 
