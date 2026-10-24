@@ -62,6 +62,8 @@ def _parser() -> argparse.ArgumentParser:
     dg.add_argument("--observed", action="store_true", help="add undeclared imports and hidden coupling")
     dg.add_argument("--diff", metavar="REVISION", help="draw only what changed since a git revision")
     dg.add_argument("--format", default="markdown", choices=[f.value for f in catalog.DiagramFormat])
+    rv = sub.add_parser("review", help=summary[Command.REVIEW])
+    rv.add_argument("base", nargs="?", default="HEAD", help="compare with where the work diverged from this revision")
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
@@ -205,6 +207,7 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
             Revision(args.diff) if args.diff else None, catalog.DiagramFormat(args.format)),
         "next": lambda: catalog.next_(ws, ComponentId(args.scope) if args.scope else None, catalog.ActionLimit(args.limit)),
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
+        "review": lambda: catalog.review(ws, Revision(args.base)),
         "baseline": lambda: catalog.baseline(ws),
     }
     return runners[args.cmd]()

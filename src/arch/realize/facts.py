@@ -95,14 +95,20 @@ class Import:
     form: ImportForm = ImportForm.MODULE
 
 
+class Exposure(enum.Enum):
+    PUBLIC = "public"  # part of the unit's interface (for Python: listed in __all__)
+    INTERNAL = "internal"  # imported for the unit's own use
+
+
 @dataclass(frozen=True)
 class Alias:
-    """A module-level name a unit re-exports from elsewhere (`from x import y as name`)."""
+    """A module-level name a unit binds to something defined elsewhere (`from x import y as name`)."""
 
     unit: UnitName
     name: SymbolName
     target: Text  # dotted
     location: SourceLocation
+    exposure: Exposure = Exposure.INTERNAL
 
 
 @dataclass(frozen=True)
@@ -113,10 +119,16 @@ class TypeRef:
     leaves: frozenset[Text]
 
 
+class Optionality(enum.Enum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"  # has a default, or collects extra arguments (*args, **kwargs)
+
+
 @dataclass(frozen=True)
 class Parameter:
     name: Text
     type: TypeRef | None  # None: not annotated
+    optionality: Optionality = Optionality.REQUIRED
 
 
 @dataclass(frozen=True)
@@ -215,6 +227,40 @@ class DesignLink:
 
 
 @dataclass(frozen=True)
+class FileChange:
+    """A file changed between two revisions, with its line counts (from `git diff --numstat`)."""
+
+    path: SourcePath
+    added: LineNo
+    removed: LineNo
+
+
+class PortChangeType(enum.Enum):
+    ADDED = "added"
+    REMOVED = "removed"
+    SIGNATURE = "signature changed"
+    CONTRACT = "contract changed"
+
+
+class Compatibility(enum.Enum):
+    """What a port change means for callers. In order of severity."""
+
+    BREAKING = "breaking"
+    NEEDS_REVIEW = "needs review"  # arch cannot tell (contract and return-type changes)
+    COMPATIBLE = "compatible"
+
+
+@dataclass(frozen=True)
+class PortChange:
+    unit: UnitName
+    symbol: SymbolName
+    type: PortChangeType
+    compatibility: Compatibility
+    before: Text | None
+    after: Text | None
+
+
+@dataclass(frozen=True)
 class ParseError:
     path: SourcePath
     message: Text
@@ -258,6 +304,62 @@ def _sort_key(fact: object) -> tuple:
     """Source order: path, then line as a number, then content for ties."""
     loc = getattr(fact, "location", None)
     return (loc.path, loc.line, repr(fact)) if loc else (getattr(fact, "path", ""), 0, repr(fact))
+
+
+def port_changes(before: Facts, after: Facts) -> tuple[PortChange, ...]:
+    """How public symbols and their contracts changed, each classified for callers. A name a unit still
+    re-exports (a package facade importing it from a submodule) has not gone away."""
+    old, contracts_old = _public(before)
+    new, contracts_new = _public(after)
+    out: list[PortChange] = []
+    for key in sorted(set(old) | set(new)):
+        a, b = old.get(key), new.get(key)
+        if a is None:
+            out.append(PortChange(*key, PortChangeType.ADDED, Compatibility.COMPATIBLE, None, b.signature))
+        elif b is None:
+            out.append(PortChange(*key, PortChangeType.REMOVED, Compatibility.BREAKING, a.signature, None))
+        elif a.parameters != b.parameters or a.returns != b.returns:
+            out.append(PortChange(*key, PortChangeType.SIGNATURE, _signature_compatibility(a, b), a.signature, b.signature))
+        if a is not None and b is not None and contracts_old.get(key, ()) != contracts_new.get(key, ()):
+            out.append(PortChange(*key, PortChangeType.CONTRACT, Compatibility.NEEDS_REVIEW,
+                                  Text("; ".join(contracts_old.get(key, ()))) or None,
+                                  Text("; ".join(contracts_new.get(key, ()))) or None))
+    return tuple(out)
+
+
+def _public(facts: Facts) -> tuple[dict[tuple[UnitName, SymbolName], PublicSymbol],
+                                   dict[tuple[UnitName, SymbolName], tuple[str, ...]]]:
+    """Public names per unit, including names re-exported from elsewhere, with their contracts."""
+    symbols = {(s.unit, s.name): s for s in facts.symbols}
+    contracts: dict[tuple[UnitName, SymbolName], list[str]] = {}
+    for c in facts.contracts:
+        contracts.setdefault((c.unit, c.symbol), []).append(f"{c.kind}({c.expression})")
+    by_dotted = {f"{s.unit}.{s.name}": s for s in facts.symbols}
+    for a in facts.aliases:
+        if a.exposure is not Exposure.PUBLIC:
+            continue
+        for dotted, s in by_dotted.items():  # the re-exported name, and the members of a re-exported class
+            if dotted == a.target or dotted.startswith(a.target + "."):
+                key = (a.unit, SymbolName(a.name + dotted[len(a.target):]))
+                if key not in symbols:
+                    symbols[key] = s
+                    contracts[key] = contracts.get((s.unit, s.name), [])
+    return symbols, {k: tuple(sorted(v)) for k, v in contracts.items()}
+
+
+def _signature_compatibility(a: PublicSymbol, b: PublicSymbol) -> Compatibility:
+    """Callers break when a parameter goes away, changes type, or a new one is required."""
+    old = {p.name: p for p in a.parameters}
+    new = {p.name: p for p in b.parameters}
+    if any(n not in new or new[n].type != p.type for n, p in old.items()):
+        return Compatibility.BREAKING
+    if any(n not in old and p.optionality is Optionality.REQUIRED for n, p in new.items()):
+        return Compatibility.BREAKING
+    if [p.name for p in a.parameters] != [p.name for p in b.parameters][: len(a.parameters)]:
+        return Compatibility.BREAKING  # positional order changed
+    if a.returns != b.returns:
+        return Compatibility.NEEDS_REVIEW
+    return Compatibility.COMPATIBLE
 
 
 @dataclass(frozen=True)

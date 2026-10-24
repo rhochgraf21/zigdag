@@ -10,7 +10,7 @@ import enum
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from arch.change.diff import DesignDiff, NodeChangeType
+from arch.change.diff import ChangeClass, DesignDiff, NodeChangeType
 from arch.check.engine import Report
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, is_within, parent_of, short_name
@@ -203,10 +203,12 @@ def with_observed(diagram: Diagram, graph: Graph, facts: Facts) -> Diagram:
 
 
 def changes(before: Graph, after: Graph, diff: DesignDiff) -> Diagram:
-    """Only what changed since `before`, with its direct neighbours, marked added, removed or changed."""
+    """Structural change since `before`: components added, removed, moved, or whose uses, exports or accepted
+    couplings changed, plus the components their changed edges connect. Text-only changes are not structure."""
     marks: dict[ComponentId, Mark] = {}
     for c in diff.changes:
-        if c.kind.value != "component":
+        structural = c.type is not NodeChangeType.CHANGED or ChangeClass.STRUCTURE in c.classes
+        if c.kind.value != "component" or not structural:
             continue
         mark = {NodeChangeType.ADDED: Mark.ADDED, NodeChangeType.REMOVED: Mark.REMOVED,
                 NodeChangeType.MOVED: Mark.CHANGED, NodeChangeType.CHANGED: Mark.CHANGED}[c.type]
@@ -217,14 +219,12 @@ def changes(before: Graph, after: Graph, diff: DesignDiff) -> Diagram:
     def uses(g: Graph, cid: ComponentId) -> set[ComponentId]:
         return set(g.uses(cid)) if cid in g else set()
 
-    shown = set(marks)
-    for cid in list(marks):
-        for g in (before, after):
-            if cid in g:
-                shown |= uses(g, cid) | set(g.users_of(cid))
-    touches = lambda a, b: a in marks or b in marks  # noqa: E731  (edges between neighbours are not about the change)
-    old = {(a, b) for a in shown for b in uses(before, a) if b in shown and touches(a, b)}
-    new = {(a, b) for a in shown for b in uses(after, a) if b in shown and touches(a, b)}
+    old = {(a, b) for a in marks for b in uses(before, a)} | {(a, b) for b in marks for a in before.users_of(b) if b in before}
+    new = {(a, b) for a in marks for b in uses(after, a)} | {(a, b) for b in marks for a in after.users_of(b) if b in after}
+    changed_edges = old ^ new
+    shown = set(marks) | {x for edge in changed_edges for x in edge}
+    old = {e for e in old if e[0] in shown and e[1] in shown}
+    new = {e for e in new if e[0] in shown and e[1] in shown}
     edges = [Edge(a, b, EdgeKind.DECLARED, Mark.ADDED if (a, b) not in old else Mark.REMOVED if (a, b) not in new
                   else Mark.UNCHANGED) for a, b in sorted(old | new)]
 

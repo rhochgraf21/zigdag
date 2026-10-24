@@ -17,12 +17,14 @@ from arch.realize.facts import (
     DesignLink,
     Effect,
     EffectUse,
+    Exposure,
     Reach,
     Facts,
     Import,
     ImportForm,
     Language,
     LineNo,
+    Optionality,
     Parameter,
     ParseError,
     PublicSymbol,
@@ -385,22 +387,30 @@ def _open_mode(node: ast.Call, offset: int = 1) -> Effect:
 
 
 def _aliases(tree: ast.Module, unit: UnitName, package: UnitName, at):
-    """Names this module binds at the top level by importing them from elsewhere."""
+    """Names this module binds at the top level by importing them from elsewhere; public if in __all__."""
     names = _bindings(tree, unit, package)
+    exported = _dunder_all(tree) or frozenset()
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
             for a in node.names:
                 if a.name != "*":
                     local = a.asname or a.name
-                    yield Alias(unit, SymbolName(local), Text(names[local]), at(node))
+                    exposure = Exposure.PUBLIC if local in exported else Exposure.INTERNAL
+                    yield Alias(unit, SymbolName(local), Text(names[local]), at(node), exposure)
 
 
 def _parameters(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[Parameter, ...]:
-    args = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
-    args += [a for a in (fn.args.vararg, fn.args.kwarg) if a is not None]
+    a = fn.args
+    positional = [*a.posonlyargs, *a.args]
+    defaulted = {arg.arg for arg in positional[len(positional) - len(a.defaults):]} if a.defaults else set()
+    defaulted |= {arg.arg for arg, d in zip(a.kwonlyargs, a.kw_defaults) if d is not None}
+    extra = [x for x in (a.vararg, a.kwarg) if x is not None]
+    args = [*positional, *a.kwonlyargs, *extra]
     if args and args[0].arg in ("self", "cls"):
         args = args[1:]
-    return tuple(Parameter(Text(a.arg), _type_ref(a.annotation)) for a in args)
+    optional = defaulted | {x.arg for x in extra}
+    return tuple(Parameter(Text(x.arg), _type_ref(x.annotation),
+                           Optionality.OPTIONAL if x.arg in optional else Optionality.REQUIRED) for x in args)
 
 
 def _type_ref(annotation: ast.expr | None) -> TypeRef | None:

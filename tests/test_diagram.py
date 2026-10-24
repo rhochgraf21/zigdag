@@ -112,10 +112,8 @@ def test_change_diagram_shows_only_changes_and_neighbours():
                            Link(ComponentId("s.c.y"), Relation.USES, Ref("a"))]).after
     d = changes(Graph(before), Graph(after), diff(before, after))
     marks = {n.id: n.mark for n in d.nodes}
-    assert marks["s.b"] is Mark.CHANGED and marks["s.c.y"] is Mark.CHANGED and marks["s.a"] is Mark.UNCHANGED
-    assert "s.c.x" in marks and "s" not in marks
-    assert any((e.source, e.target, e.mark) == ("s.c.y", "s.a", Mark.ADDED) for e in d.edges)
-    assert all(e.source in ("s.b", "s.c.y") or e.target in ("s.b", "s.c.y") for e in d.edges)  # only edges about the change
+    assert marks == {"s.c.y": Mark.CHANGED, "s.a": Mark.UNCHANGED}  # s.b's change is text, not structure
+    assert [(e.source, e.target, e.mark) for e in d.edges] == [("s.c.y", "s.a", Mark.ADDED)]
 
 
 def test_cli_draws(tmp_path, capsys):

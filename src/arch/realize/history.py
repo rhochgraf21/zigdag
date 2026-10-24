@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import NewType
 
-from arch.realize.facts import ChangeEvent, CommitId, Facts, SourcePath, UnitName, VcsLog
+from arch.realize.facts import ChangeEvent, CommitId, Facts, FileChange, LineNo, SourcePath, UnitName, VcsLog
+
+NumStat = NewType("NumStat", str)  # raw `git diff --numstat` output
 
 Count = NewType("Count", int)
 FileLimit = NewType("FileLimit", int)
@@ -43,6 +45,17 @@ def parse_log(log: VcsLog, max_files: FileLimit = MAX_FILES_PER_COMMIT) -> tuple
                 paths.append(SourcePath(_renamed_to(parts[2])))
     flush()
     return tuple(events)
+
+
+def parse_numstat(text: NumStat) -> tuple[FileChange, ...]:
+    """Changed files with their line counts; binary files count as zero lines."""
+    out = []
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3:
+            added, removed = (int(x) if x.isdigit() else 0 for x in parts[:2])
+            out.append(FileChange(SourcePath(_renamed_to(parts[2])), LineNo(added), LineNo(removed)))
+    return tuple(sorted(out, key=lambda c: c.path))
 
 
 def _renamed_to(path: str) -> str:

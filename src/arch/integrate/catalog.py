@@ -58,6 +58,8 @@ from arch.view.report import (
     Rendering,
 )
 from arch.view.render import Count
+from arch.view.review import ReviewInput
+from arch.view.review import review as make_review
 
 
 
@@ -97,6 +99,7 @@ class Command(enum.Enum):
     INIT = "init"
     NEXT = "next"
     DIAGRAM = "diagram"
+    REVIEW = "review"
 
 
 @dataclass(frozen=True)
@@ -193,6 +196,22 @@ def diagram(ws: Workspace, root: ComponentId | None = None, depth: Depth = Depth
     return Result(DiagramView(d, form))
 
 
+def review(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
+    """The change since `base` (from where the work diverged from it), layered for a reviewer."""
+    since = ws.merge_base(base)
+    before = ws.design_at(since)
+    facts_before = realize.extract(ws.snapshot_at(since))
+    after, facts_after = ws.design(), ws.facts()
+    baseline, lexicon = ws.baseline(), ws.config().lexicon()
+    inp = ReviewInput(
+        base=Text(base), before=before, after=after, facts_before=facts_before, facts_after=facts_after,
+        report_before=run_checks(Graph(before), facts_before, baseline, lexicon),
+        report_after=run_checks(Graph(after), facts_after, baseline, lexicon),
+        changed=ws.changed_files(since),
+    )
+    return Result(make_review(inp))
+
+
 def plan(ws: Workspace, targets: Sequence[ComponentId] = ()) -> Result:
     g = _graph(ws)
     return Result(PlanReport(make_plan(g, [c for t in targets if (c := _component(g, t)) is not None])))
@@ -241,6 +260,8 @@ OPERATIONS: tuple[Operation, ...] = (
               Access.READS, next_),
     Operation(Command.DIAGRAM, Text("Draw a component's parts and their uses (Mermaid or Graphviz), or what changed "
                                     "since a revision; overlays for effects and observed coupling"), Access.READS, diagram),
+    Operation(Command.REVIEW, Text("Summarise a change for review: intent, design, structure, contracts, evidence, "
+                                   "then code ranked by risk"), Access.READS, review),
     Operation(Command.PLAN, Text("Show realization layers, or the impact of changing components"), Access.READS, plan),
     Operation(Command.EDIT, Text("Change the design through validated operations (add, set, link, move, remove, ...)"),
               Access.WRITES, edit),

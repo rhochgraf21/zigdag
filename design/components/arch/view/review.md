@@ -1,9 +1,9 @@
 ---
 kind: component
 realizes: Let a reviewer judge a change with effort proportional to its risk
-solution: A layered Markdown summary of intent, design diff, structure diagram, contract changes with compatibility class, evidence, and source changes ranked by risk, sized for a pull-request comment
+solution: A layered Markdown summary (intent, design, structure with a change diagram, port changes classified for callers, evidence, then changed files ranked by a documented risk score), each layer collapsible, sized for a pull-request comment
 hides: Layering and risk scoring
-uses: [change.diff, realize.facts, check.engine, diagram]
+uses: [change.diff, realize.facts, check.engine, diagram, render, model.graph, model.ids, model.schema, realize.history, realize.mapping]
 status: specified
 ---
 ## Acceptance criteria

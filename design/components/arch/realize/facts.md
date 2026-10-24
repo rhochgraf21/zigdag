@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Represent what is true of the realization in a language-neutral form
-solution: Typed fact records (Unit, Import, PublicSymbol with its signature, ContractDecl, EffectUse, DesignLink, ParseError, Evidence, ChangeEvent), the Snapshot and Roots an extraction runs over, the Adapter protocol, and a fact diff
+solution: Typed fact records (units, imports, public symbols with typed parameters, contracts, effects, calls, aliases, design links, parse errors, test evidence, mutants, change history, changed files), the Snapshot and Roots an extraction runs over, the Adapter protocol, and port changes between two sets of facts
 hides: Fact representation and comparison
 uses: []
 status: specified

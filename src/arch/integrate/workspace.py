@@ -21,8 +21,8 @@ from arch.check import Baseline, BaselineText, Lexicon, Term
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
-from arch.realize.facts import Facts, Roots, Snapshot, SourcePath, SourceText, VcsLog
-from arch.realize.history import CommitWindow
+from arch.realize.facts import FileChange, Facts, LineNo, Roots, Snapshot, SourcePath, SourceText, VcsLog
+from arch.realize.history import CommitWindow, NumStat, parse_numstat
 
 Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
 
@@ -202,6 +202,36 @@ class Workspace:
             if codec.node_id(path) is not None:
                 files[path] = self._git("show", f"{revision}:{name}")
         return codec.load(files)
+
+    def merge_base(self, revision: Revision) -> Revision:
+        """Where the current work diverged from `revision`: what a pull request against it would compare with."""
+        return Revision(self._git("merge-base", revision, "HEAD").strip())
+
+    def snapshot_at(self, revision: Revision) -> Snapshot:
+        """The sources as committed at `revision`, under today's roots (no history or reports)."""
+        roots = self.roots()
+        top = self._git_root()
+        prefix = self.root.relative_to(top).as_posix()
+        prefix = "" if prefix == "." else prefix + "/"
+        files: dict[SourcePath, str] = {}
+        for base in (*roots.source, *roots.test):
+            listing = self._git("ls-tree", "-r", "--name-only", "--full-name", revision, "--", base or ".")
+            for name in listing.splitlines():
+                rel = name[len(prefix):] if name.startswith(prefix) else name
+                if rel.endswith(".py") and not any(p.startswith(".") or p in _SKIP_DIRS for p in rel.split("/")[:-1]):
+                    files.setdefault(SourcePath(rel), self._git("show", f"{revision}:{name}"))
+        return Snapshot(files, roots)
+
+    def changed_files(self, revision: Revision) -> tuple[FileChange, ...]:
+        """Source files that differ from `revision` in the working tree, including new untracked ones."""
+        roots = self.roots()
+        paths = [r or "." for r in (*roots.source, *roots.test)]
+        tracked = parse_numstat(NumStat(self._git("diff", "--numstat", "--relative", revision, "--", *paths)))
+        untracked = []
+        for name in self._git("ls-files", "--others", "--exclude-standard", "--", *paths).splitlines():
+            text = (self.root / name).read_text(encoding="utf-8", errors="replace")
+            untracked.append(FileChange(SourcePath(name), LineNo(text.count("\n")), LineNo(0)))
+        return tuple(sorted((*tracked, *untracked), key=lambda c: c.path))
 
     def _git_root(self) -> Path:
         return Path(self._git("rev-parse", "--show-toplevel").strip())

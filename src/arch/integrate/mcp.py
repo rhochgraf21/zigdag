@@ -78,6 +78,9 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
     def diff(base: str = "HEAD") -> str:
         return text(catalog.diff(ws(), Revision(base)))
 
+    def review(base: str = "HEAD") -> str:
+        return text(catalog.review(ws(), Revision(base)))
+
     def baseline() -> str:
         return text(catalog.baseline(ws()))
 
@@ -86,7 +89,7 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
 
     return {Command.CHECK: check, Command.CONTEXT: context, Command.OUTLINE: outline, Command.MATRIX: matrix,
             Command.PLAN: plan, Command.NEXT: next_, Command.DIAGRAM: diagram, Command.EDIT: edit, Command.DIFF: diff,
-            Command.BASELINE: baseline, Command.INIT: init}
+            Command.BASELINE: baseline, Command.REVIEW: review, Command.INIT: init}
 
 
 def server(project: Path) -> MCPServer:
