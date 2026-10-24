@@ -12,7 +12,7 @@ from weakref import WeakKeyDictionary
 
 from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
 from arch.model.graph import is_within, parent_of
-from arch.model.ids import ComponentId, CriterionId, Text
+from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
 from arch.realize.facts import Capability, Effect, Facts, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
@@ -106,6 +106,21 @@ def evidence(ctx: Context) -> Iterator[Finding]:
                                f'add @realizes("{cr.id}") to a test or contract that checks it', cr.location)
 
 
+def failing_evidence(ctx: Context) -> Iterator[Finding]:
+    """A criterion whose linked tests failed in the latest report is not met."""
+    if not ctx.facts or not ctx.facts.evidence:
+        return
+    outcome = {r.test: r for r in ctx.facts.evidence}
+    for link in ctx.facts.links:
+        result = outcome.get(Text(f"{link.unit}.{link.symbol}"))
+        if result is not None and result.outcome.fails:
+            comp, _ = split_criterion(link.target)
+            subject = comp if comp in ctx.graph else Subject(link.target)
+            yield _finding("C010", subject, f"failing:{link.target}:{result.test}", Severity.ERROR,
+                           f"{link.target} is not met: {result.test} {result.outcome.value} (in {result.report})",
+                           "fix the code or the test; the criterion counts as unmet until it passes", link.location)
+
+
 def third_party(ctx: Context) -> Iterator[Finding]:
     """Imports outside the project and the standard library must be allowed by an imports constraint."""
     g, m = ctx.graph, _mapping(ctx)
@@ -188,4 +203,5 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C006"), Text("third-party imports are allowed by a constraint"), third_party),
     Rule(RuleId("C007"), Text("effect constraints are analyzable"), effects_unanalyzed),
     Rule(RuleId("C008"), Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
+    Rule(RuleId("C010"), Text("linked tests pass"), failing_evidence),
 )

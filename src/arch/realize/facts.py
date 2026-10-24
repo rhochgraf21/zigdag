@@ -16,6 +16,8 @@ UnitName = NewType("UnitName", str)  # dotted segments, defined by each adapter 
 SymbolName = NewType("SymbolName", str)  # qualified within its unit, e.g. "Graph.resolve"
 Language = NewType("Language", str)
 SourceText = str
+CommitId = NewType("CommitId", str)
+VcsLog = NewType("VcsLog", str)  # raw `git log --numstat` output; arch.realize.history reads it
 LineNo = NewType("LineNo", int)
 Text = NewType("Text", str)  # display text; facts depend on nothing else in arch, so adapters need only this module
 
@@ -133,6 +135,34 @@ class Call:
 
 
 @dataclass(frozen=True)
+class ChangeEvent:
+    """One commit, and the files it touched."""
+
+    commit: CommitId
+    paths: tuple[SourcePath, ...]
+
+
+class Verdict(enum.Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+    @property
+    def fails(self) -> bool:
+        return self in (Verdict.FAILED, Verdict.ERROR)
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """One test's outcome in a report. `test` is the dotted id `<unit>.<symbol>` design links use."""
+
+    test: Text
+    outcome: Verdict
+    report: SourcePath
+
+
+@dataclass(frozen=True)
 class DesignLink:
     unit: UnitName
     symbol: SymbolName
@@ -158,6 +188,8 @@ class Facts:
     effects: tuple[EffectUse, ...] = ()
     calls: tuple[Call, ...] = ()
     aliases: tuple[Alias, ...] = ()
+    changes: tuple[ChangeEvent, ...] = ()  # newest first, as the log lists them
+    evidence: tuple[Evidence, ...] = ()  # test outcomes from reports
     _by_name: Mapping[UnitName, Unit] = field(default=None, init=False, repr=False, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -169,9 +201,12 @@ class Facts:
     @staticmethod
     def merge(parts: Iterable[Facts]) -> Facts:
         parts = list(parts)
+
         def gather(attr: str) -> tuple:
-            return tuple(sorted((x for p in parts for x in getattr(p, attr)), key=_sort_key))
-        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases")))
+            items = [x for p in parts for x in getattr(p, attr)]
+            return tuple(items) if attr in ("changes", "evidence") else tuple(sorted(items, key=_sort_key))
+        return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases",
+                                         "changes", "evidence")))
 
 
 def _sort_key(fact: object) -> tuple:
@@ -206,6 +241,8 @@ class Snapshot:
 
     files: Mapping[SourcePath, SourceText]
     roots: Roots
+    log: VcsLog | None = None
+    reports: Mapping[SourcePath, SourceText] = field(default_factory=dict)  # test reports (JUnit XML)
 
 
 class Adapter(Protocol):

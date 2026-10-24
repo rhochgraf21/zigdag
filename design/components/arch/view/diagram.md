@@ -3,7 +3,7 @@ kind: component
 realizes: Show structure visually, in forms that stay stable across revisions
 solution: A renderer-neutral diagram model (nested containment, dependencies within one level, design structure matrix) with change marks, rendered to Mermaid for pull requests and to ELK graph JSON for the site
 hides: Diagram construction and target formats
-uses: [model.graph, model.matrix, realize.facts, change.diff]
+uses: [model.graph, model.ids, model.matrix, realize.facts, realize.history, realize.mapping, change.diff]
 status: specified
 ---
 ## Acceptance criteria

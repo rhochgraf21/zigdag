@@ -21,7 +21,7 @@ from arch.check import Baseline, BaselineText
 from arch.model import codec
 from arch.model.ids import DesignPath
 from arch.model.schema import Design
-from arch.realize.facts import Facts, Roots, Snapshot, SourcePath
+from arch.realize.facts import Facts, Roots, Snapshot, SourcePath, VcsLog
 
 Revision = NewType("Revision", str)  # anything git accepts, e.g. HEAD or a commit id
 
@@ -56,6 +56,8 @@ class ProjectConfig:
 
     source_roots: tuple[SourcePath, ...] | None = None
     test_roots: tuple[SourcePath, ...] | None = None
+    junit: tuple[SourcePath, ...] = (SourcePath(".arch/evidence/*.xml"),)  # glob patterns for test reports
+    history_commits: int = 500
 
     @staticmethod
     def read(path: Path) -> ProjectConfig:
@@ -66,7 +68,15 @@ class ProjectConfig:
         except tomllib.TOMLDecodeError as e:
             raise BadConfig(f"{path.name}: {e}") from e
         roots = raw.get("roots", {})
-        return ProjectConfig(_paths(roots, "source", path), _paths(roots, "tests", path))
+        evidence = raw.get("evidence", {})
+        history = raw.get("history", {})
+        commits = history.get("commits", 500) if isinstance(history, dict) else 500
+        if not isinstance(commits, int) or isinstance(commits, bool) or commits < 0:
+            raise BadConfig(f"{path.name}: history.commits must be a non-negative integer")
+        return ProjectConfig(
+            _paths(roots, "source", path), _paths(roots, "tests", path),
+            _paths(evidence, "junit", path) or ProjectConfig.junit, commits,
+        )
 
 
 def _paths(table: object, key: str, path: Path) -> tuple[SourcePath, ...] | None:
@@ -118,7 +128,26 @@ class Workspace:
                 if any(p.startswith(".") or p in _SKIP_DIRS for p in rel.parts[:-1]):
                     continue
                 files.setdefault(SourcePath(rel.as_posix()), path.read_text(encoding="utf-8", errors="replace"))
-        return Snapshot(files, roots)
+        config = self.config()
+        reports = {SourcePath(p.relative_to(self.root).as_posix()): p.read_text(encoding="utf-8", errors="replace")
+                   for pattern in config.junit for p in sorted(self.root.glob(pattern)) if p.is_file()}
+        return Snapshot(files, roots, self._log(config.history_commits), reports)
+
+    def _log(self, commits: int) -> VcsLog | None:
+        """Recent history for the source roots, or None outside a git repository."""
+        if commits == 0 or not (self.root / ".git").exists() and not self._inside_git():
+            return None
+        try:
+            return VcsLog(self._git("log", f"-n{commits}", "--numstat", "--no-renames", "--format=commit %H", "--", "."))
+        except NoRevision:
+            return None
+
+    def _inside_git(self) -> bool:
+        try:
+            self._git("rev-parse", "--is-inside-work-tree")
+            return True
+        except NoRevision:
+            return False
 
     def facts(self) -> Facts:
         return realize.extract(self.snapshot())

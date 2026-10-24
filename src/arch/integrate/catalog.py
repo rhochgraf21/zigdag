@@ -31,7 +31,7 @@ from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
 from arch.view.context import DEFAULT_BUDGET_TOKENS, UnknownTarget
 from arch.view.context import context as make_context
-from arch.view.diagram import MatrixView
+from arch.view.diagram import MatrixView, ObservedMatrixView, observed_matrix
 from arch.view.outline import outline as make_outline
 from arch.view.report import (
     BaselineReport,
@@ -136,10 +136,18 @@ def outline(ws: Workspace, root: ComponentId | None = None, depth: Depth | None 
     return Result(make_outline(g, _component(g, root), depth))
 
 
-def matrix(ws: Workspace, parent: ComponentId | None = None) -> Result:
+class MatrixOverlay(enum.Enum):
+    DECLARED_ONLY = "declared"
+    OBSERVED = "observed"  # also imports and co-change from git history
+
+
+def matrix(ws: Workspace, parent: ComponentId | None = None, overlay: MatrixOverlay = MatrixOverlay.DECLARED_ONLY) -> Result:
     g = _graph(ws)
-    parents = [_component(g, parent)] if parent else [c for c in g.ids() if g.children(c)]
-    return Result(MatrixView(tuple(matrix_of(g, c) for c in parents if c is not None)))
+    parents = [c for c in ([_component(g, parent)] if parent else [c for c in g.ids() if g.children(c)]) if c is not None]
+    if overlay is MatrixOverlay.OBSERVED:
+        facts = ws.facts()
+        return Result(ObservedMatrixView(tuple(observed_matrix(g, c, facts) for c in parents)))
+    return Result(MatrixView(tuple(matrix_of(g, c) for c in parents)))
 
 
 def plan(ws: Workspace, targets: Sequence[ComponentId] = ()) -> Result:
@@ -196,6 +204,6 @@ OPERATIONS: tuple[Operation, ...] = (
 )
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
-    "Access", "Command", "ContextTarget", "Depth", "NoProject", "Operation", "Outcome", "Result", "Revision",
+    "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
     "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

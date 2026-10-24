@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from dataclasses import replace
 
+from arch.realize import evidence, history
 from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Snapshot, Text
 from arch.realize.python import PythonAdapter
 
@@ -24,7 +25,11 @@ def extract(snapshot: Snapshot, extra: Sequence[Adapter] = ()) -> Facts:
             if path.endswith(adapter.suffixes) and (unit := adapter.unit_name(path, snapshot.roots)) is not None:
                 parts.append(adapter.extract(path, snapshot.files[path], unit, snapshot.roots.role_of(path)))
                 break
-    return propagate_effects(Facts.merge(parts))
+    observed = Facts(
+        changes=history.parse_log(snapshot.log) if snapshot.log else (),
+        evidence=tuple(r for path in sorted(snapshot.reports) for r in evidence.parse_junit(path, snapshot.reports[path])),
+    )
+    return propagate_effects(Facts.merge([*parts, observed]))
 
 
 def propagate_effects(facts: Facts) -> Facts:

@@ -102,9 +102,11 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
     c = graph[cid]
     design = graph.design
     own_units = [u for u, owner in m.component_of.items() if owner == cid]
+    outcome = {r.test: r.outcome.value for r in facts.evidence}
     linked: dict[str, list[str]] = {}
     for link in facts.links:
-        linked.setdefault(link.target, []).append(f"{link.unit}.{link.symbol}")
+        test = f"{link.unit}.{link.symbol}"
+        linked.setdefault(link.target, []).append(f"{test} ({outcome[test]})" if test in outcome else test)
 
     head = [f"**Realizes:** {c.realizes}", f"**Solution:** {c.solution}"]
     if c.hides:

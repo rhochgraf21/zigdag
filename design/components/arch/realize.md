@@ -5,7 +5,7 @@ solution: Language-neutral facts extracted from source snapshots by pluggable ad
 hides: Knowledge of particular languages, report formats and version control
 serves: [catch-departures, low-adoption-cost]
 uses: [model]
-exports: [facts, mapping]
+exports: [facts, history, mapping]
 status: specified
 ---
 ## Acceptance criteria

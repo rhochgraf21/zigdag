@@ -13,3 +13,4 @@ status: specified
 - AC4: The project root shall be found by searching upward for `design/` or `arch.toml`, and the search shall stop at the repository root.
 - AC5: Until configured, source roots shall default to `src/` (or the project root when there is no `src/`), and test roots to `tests/`.
 - AC6: `[roots] source` and `tests` in `arch.toml` shall replace those defaults; a malformed `arch.toml` shall be a usage error naming the problem.
+- AC7: Test reports shall be read from `[evidence] junit` globs (default `.arch/evidence/*.xml`), and history from the last `[history] commits` commits (default 500) when the project is in a git repository.
