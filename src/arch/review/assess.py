@@ -43,14 +43,16 @@ class Risk(enum.Enum):
 
 @dataclass(frozen=True)
 class ReviewInput:
-    base: Text
-    before: Design
-    after: Design
-    facts_before: Facts
-    facts_after: Facts
-    report_before: Report
-    report_after: Report
-    changed: tuple[FileChange, ...]
+    """Everything a review compares: the design, the code facts and the check results, before and after."""
+
+    base: Text  # the revision the change is compared with
+    before: Design  # the design at that revision
+    after: Design  # the design as the change leaves it
+    facts_before: Facts  # what the code at that revision contains
+    facts_after: Facts  # what the code contains after the change
+    report_before: Report  # check results at that revision
+    report_after: Report  # check results after the change
+    changed: tuple[FileChange, ...]  # each changed file, with its line counts
     diffs: tuple[FileDiff, ...] = ()  # the actual changes, for reviewing code
 
 
@@ -124,6 +126,16 @@ def _verdict(criterion: Text, facts: Facts, verdicts: dict) -> Text:
     return Text("linked, no report")
 
 
+def _interface_reason(changes: list[PortChange], worst: Compatibility) -> Text:
+    total, n = len(changes), sum(1 for p in changes if p.compatibility is worst)
+    if worst is Compatibility.COMPATIBLE:
+        return Text("1 compatible interface change" if total == 1 else f"{total} interface changes, all compatible")
+    if total == 1:
+        return Text("1 breaking interface change" if worst is Compatibility.BREAKING else "1 interface change that needs review")
+    verb = ("is breaking" if n == 1 else "are breaking") if worst is Compatibility.BREAKING else ("needs review" if n == 1 else "need review")
+    return Text(f"{n} of {total} interface changes {verb}")
+
+
 def _risks(inp: ReviewInput, after: Graph, ports: tuple[PortChange, ...]) -> list[FileRisk]:
     facts = inp.facts_after
     units = {u.path: u for u in (*inp.facts_before.units, *facts.units)}
@@ -149,13 +161,11 @@ def _risks(inp: ReviewInput, after: Graph, ports: tuple[PortChange, ...]) -> lis
             continue
         cid = mapping.component_of.get(unit.name) if unit else None
         score = 0
-        own_ports = [p for p in ports if unit and p.unit == unit.name]
+        own_ports = [p for p in ports if unit and p.unit == unit.name and p.reexport_of is None]  # defined here
         if own_ports:
             worst = max(own_ports, key=lambda p: weight[p.compatibility])
             score += weight[worst.compatibility]
-            n = sum(1 for p in own_ports if p.compatibility is worst.compatibility)
-            reasons.append(Text(f"{len(own_ports)} port changes, all compatible" if worst.compatibility is Compatibility.COMPATIBLE
-                                else f"{n} {worst.compatibility.value} of {len(own_ports)} port changes"))
+            reasons.append(_interface_reason(own_ports, worst.compatibility))
         if unit is not None and cid is not None:
             gained = deps_after.get(cid, set()) - deps_before.get(cid, set())
             mine = {mapping.component_of.get(t) for i in facts.imports if i.unit == unit.name and (t := mapping.target_of(i))}

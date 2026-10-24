@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import NewType
 
 from arch.model.ids import ComponentId, ConstraintId, NeedId, Text, short_name
-from arch.realize.facts import Compatibility, FileShape, LineNo
+from arch.realize.facts import Compatibility, FileShape, LineNo, SourcePath
 from arch.review.items import (
     ArchitectureBody,
     BatchBody,
@@ -25,12 +25,14 @@ from arch.review.items import (
     Glossary,
     Hunked,
     IntentBody,
+    InterfaceNote,
     ItemId,
     InterfacesBody,
     OverviewBody,
     Readiness,
     ReviewItem,
 )
+from arch.review.explain import HunkView, Reason, Why
 from arch.review.page import highlight
 from arch.view.diagram import Diagram, Mark, svg
 from arch.view.render import Count
@@ -77,6 +79,13 @@ def _link(cls: str, href: Href | None, tip: str | None, label: str) -> Fragment:
     return Fragment(f'<span class="{cls}"{_tip(tip)}>{_e(label)}</span>')
 
 
+class Named(enum.Enum):
+    """How a criterion chip is labelled."""
+
+    SHORT = "short"  # AC2: on a page about its component
+    WITH_COMPONENT = "with component"  # assess#AC2: where criteria of several components can meet
+
+
 @dataclass(frozen=True)
 class Refs:
     """Links and hover text for every id on the page."""
@@ -110,12 +119,22 @@ class Refs:
         href = Href("#intent") if "intent" in self.pages else None
         return _link("chip need", href, self.glossary.needs.get(nid), nid)
 
-    def criterion(self, cid: Text, verdict: Text | None = None) -> Fragment:
-        label = cid.partition("#")[2] or cid
+    def criterion(self, cid: Text, verdict: Text | None = None, named: Named = Named.SHORT) -> Fragment:
+        component, _, short = cid.partition("#")
+        label = f"{short_name(ComponentId(component))}#{short}" if named is Named.WITH_COMPONENT and short else short or cid
         text = self.glossary.criteria.get(Text(cid))
         tip = " ".join(x for x in (f"{label}: {text}" if text else None, _EVIDENCE_TIPS.get(verdict or "")) if x)
         cls = f" ev-{_e((verdict or '').replace(' ', '-').replace(',', ''))}" if verdict else ""
         return Fragment(f'<span class="chip crit{cls}"{_tip(tip)}>{_e(label)}</span>')
+
+    def interface(self, dotted: Text) -> Fragment:
+        """A changed interface: its short name, how it reads now on hover, and a link to the page that shows it."""
+        page = self.glossary.interface_pages.get(dotted)
+        name = dotted.rsplit(".", 2)
+        label = ".".join(name[-2:]) if len(name) > 2 and name[-2][:1].isupper() else name[-1]
+        unit = dotted[: -len(label) - 1]
+        tip = self.glossary.interfaces.get(dotted)
+        return Fragment(f'<code>{_link("ref", Href(f"#{_e(page)}") if page else None, f"{unit}: {tip}" if tip else dotted, label)}</code>')
 
     def constraint(self, kid: ConstraintId) -> Fragment:
         link = self.editor_link(self.glossary.files.get(Text(kid), Text("")))
@@ -309,14 +328,26 @@ def _design(b: DesignBody, refs: Refs) -> str:
                   "reason is written down.") + f'<div class="card">{"".join(rows)}</div>')
 
 
+_MEANING = {Compatibility.BREAKING: "Code that calls this may break.",
+            Compatibility.NEEDS_REVIEW: "arch cannot tell whether callers break. Read the change.",
+            Compatibility.COMPATIBLE: "Existing callers keep working."}
+
+
+def _compat_badge(c: Compatibility) -> str:
+    kind = {Compatibility.BREAKING: "removed", Compatibility.NEEDS_REVIEW: "changed", Compatibility.COMPATIBLE: "added"}[c]
+    return f'<span class="badge b-{kind}">{_e(c.value)}</span>'
+
+
 def _interfaces(b: InterfacesBody, refs: Refs) -> str:
-    meaning = {Compatibility.BREAKING: "Code that calls this may break.",
-               Compatibility.NEEDS_REVIEW: "arch cannot tell whether callers break. Read the change.",
-               Compatibility.COMPATIBLE: "Existing callers keep working."}
+    again: dict[str, list[str]] = {}
+    for r in b.reexports:
+        again.setdefault(r.reexport_of or "", []).append(r.unit)
     rows = "".join(
-        f'<div class="row"><div class="row-head"><span class="badge b-{"removed" if p.compatibility is Compatibility.BREAKING else "changed"}">'
-        f'{_e(p.compatibility.value)}</span><code>{_e(p.unit)}.{_e(p.symbol)}</code><span class="muted">{_e(p.type.value)}. '
-        f'{meaning[p.compatibility]}</span></div>{_text_diff(p.before, p.after)}</div>' for p in b.ports)
+        f'<div class="row"><div class="row-head">{_compat_badge(p.compatibility)}{refs.interface(p.dotted)}'
+        f'<span class="muted">{_e(p.type.value.capitalize())}. {_MEANING[p.compatibility]}</span></div>'
+        + (f'<div class="muted small">Also re-exported by {_e(", ".join(sorted(set(again[p.dotted]))))}.</div>'
+           if p.dotted in again else "")
+        + f'{_text_diff(p.before, p.after)}</div>' for p in b.ports)
     return (_lead("These public interfaces changed in a way that can affect the code that calls them. Approve if each "
                   "change is intended.") + f'<div class="card">{rows}</div>')
 
@@ -332,40 +363,115 @@ def _code(b: CodeBody, refs: Refs) -> str:
                 + f'<div class="facts"><div><div class="label">Serves</div>{serves}</div>'
                 f'<div><div class="label">Acceptance criteria</div>{criteria}</div></div>'
                 + (f'<div class="label">Rules that apply here</div><div>{constraints}</div>' if constraints else "") + "</div>")
-        lead = _lead("This is the code for one component. Approve if the tests check its acceptance criteria and the "
-                     "code does what the tests say.")
+        lead = _lead("This is the code that changed in one component. Each change says why it was made. Approve if the "
+                     "code does what its reason says.")
     else:
-        head, lead = "", _lead("These files belong to no component in the design. Approve if that is intended.")
+        head = ""
+        lead = _lead("These files belong to no component in the design. Each change says why it was made. Approve if "
+                     "that is intended.")
+    away = "".join(
+        f'<li>{_n(m.count, "change")} in <code>{_e(m.path)}</code> only {"updates" if m.count == 1 else "update"} calls to '
+        f'{refs.interface(m.interface)}. {"It is" if m.count == 1 else "They are"} shown with that change on '
+        f'{_link("ref", Href(f"#{_e(m.page)}"), None, m.page.removeprefix("code:"))}.</li>' for m in b.moved)
+    interfaces = "".join(_interface(n, refs) for n in b.interfaces)
     tests = "".join(_file(h, refs) for h in b.tests)
     sources = "".join(_file(h, refs) for h in b.sources)
-    return (lead + head + (f'<h2 class="section">Tests <span class="muted">what the code should do</span></h2>{tests}' if tests else "")
+    return (lead + head
+            + (f'<div class="callout plain"><ul class="plain">{away}</ul></div>' if away else "")
+            + (f'<h2 class="section">Interfaces it changed <span class="muted">and the callers updated to match</span></h2>'
+               f"{interfaces}" if interfaces else "")
+            + (f'<h2 class="section">Tests <span class="muted">what the code should do</span></h2>{tests}' if tests else "")
             + (f'<h2 class="section">Code <span class="muted">how it does it</span></h2>{sources}' if sources else ""))
+
+
+def _n(count: int, word: str) -> str:
+    return f"{count} {word if count == 1 else word + 's'}"
+
+
+def _interface(n: InterfaceNote, refs: Refs) -> str:
+    p = n.change
+    again = f'<div class="muted small">Also re-exported by {_e(", ".join(n.reexported_by))}.</div>' if n.reexported_by else ""
+    callers = "".join(
+        '<div class="caller"><div class="caller-head">'
+        + (refs.component(f.component, short_name(f.component)) if f.component else '<span class="muted">no component</span>')
+        + f' · {_file_link(f.path, refs)}</div>{_hunk(f.hunk, f.path, refs)}</div>' for f in n.callers)
+    count = (f'<div class="label">{_n(len(n.callers), "caller")} updated to match</div>' if n.callers else "")
+    return (f'<div class="card interface"><div class="row-head">{_compat_badge(p.compatibility)}<code>{_e(p.symbol)}</code>'
+            f'<span class="muted">{_e(p.type.value.capitalize())}. {_MEANING[p.compatibility]}</span></div>{again}'
+            f"{_text_diff(p.before, p.after)}{count}{callers}</div>")
+
+
+_WHY_LABEL = {Why.TESTS: "Tests", Why.REALIZES: "Realizes", Why.EXERCISED: "Tested by", Why.FOLLOWS: "Follows",
+              Why.NEW_COMPONENT: "New part", Why.IMPORTS: "Imports", Why.NONE: "No reason"}
+
+
+def _and(parts: list[str]) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _criterion_order(cid: Text) -> tuple[str, int]:
+    component, _, label = cid.partition("#")
+    return component, int(label[2:]) if label[2:].isdigit() else 0
+
+
+def _reason(r: Reason, refs: Refs) -> str:
+    ordered = sorted(r.refs, key=_criterion_order) if r.why in (Why.TESTS, Why.REALIZES, Why.EXERCISED) else list(r.refs)
+    chips = _and([refs.criterion(t, named=Named.WITH_COMPONENT) for t in ordered]) if ordered else ""
+    many = len(r.refs) > 1
+    if r.why is Why.TESTS:
+        text = f"It tests {chips}, which this change {_e(r.detail)}."
+    elif r.why is Why.REALIZES:
+        text = f"It is linked to {chips}, which this change {_e(r.detail)}."
+    elif r.why is Why.EXERCISED:
+        how = f"calls <code>{_e(r.via)}</code>, which leads here" if r.via else "calls it"
+        text = f"A test for {chips} {how}. This change {_e(r.detail)} {'those criteria' if many else 'that criterion'}."
+    elif r.why is Why.FOLLOWS:
+        names = _and([refs.interface(t) for t in r.refs])
+        text = (f"It updates calls to {names}, which this change removed." if r.detail == "removed"
+                else f"It updates calls to {names}, whose signature this change altered.")
+    elif r.why is Why.IMPORTS:
+        text = "It only changes imports or the names the module exports. The code that uses them says why."
+    elif r.why is Why.NEW_COMPONENT:
+        text = f"It is part of {refs.component(ComponentId(r.refs[0]))}, which this change adds."
+    else:
+        text = ("No reason given. It touches no changed criterion, follows no interface change and is not part of a "
+                "new component.")
+    cls = " none" if r.why is Why.NONE else ""
+    return f'<div class="why{cls}"><span class="why-label">{_WHY_LABEL[r.why]}</span><span>{text}</span></div>'
+
+
+def _hunk(v: HunkView, path: SourcePath, refs: Refs) -> str:
+    color = highlight.python if path.endswith(".py") else highlight.plain
+    rows = []
+    for line, names in zip(v.hunk.lines, v.names):
+        link = refs.editor_link(Text(path), line.new_line) if line.new_line else None
+        number = f'<a href="{link}">{line.new_line}</a>' if link else (line.new_line or "")
+        rows.append(f'<tr class="{line.kind.name.lower()}"><td class="ln">{line.old_line or ""}</td>'
+                    f'<td class="ln">{number}</td><td class="code">{color(highlight.CodeLine(line.text), names)}</td></tr>')
+    if v.enclosing is not None:
+        about = f'<div class="muted">{_e(v.enclosing.summary)}</div>' if v.enclosing.summary else ""
+        where = f'<div class="where">In <code class="sig">{_e(v.enclosing.signature)}</code>{about}</div>'
+    else:
+        where = '<div class="where">At module level</div>'
+    reasons = "".join(_reason(r, refs) for r in v.reasons)
+    return f'<div class="hunk"><div class="hunk-head">{where}{reasons}</div><table>{"".join(rows)}</table></div>'
+
+
+def _file_link(path: SourcePath, refs: Refs) -> str:
+    link = refs.editor_link(Text(path))
+    return (f'<a class="fname" href="{link}"{_tip("Open in your editor")}>{_e(path)}</a>' if link
+            else f'<span class="fname">{_e(path)}</span>')
 
 
 def _file(h: Hunked, refs: Refs) -> str:
     d = h.diff
     shape = {FileShape.RENAMED: f"renamed from {_e(d.old_path)}", FileShape.ADDED: "new file",
              FileShape.DELETED: "deleted", FileShape.MODIFIED: ""}[d.shape]
-    reasons = (f'<span class="reasons"{_tip("Why this file needs a close look")}>{_e("; ".join(h.risk.reasons))}</span>'
+    reasons = (f'<span class="reasons"{_tip("Why this file needs a close look")}>{_e(". ".join(h.risk.reasons))}.</span>'
                if h.risk and h.risk.reasons else "")
-    color = highlight.python if d.path.endswith(".py") else highlight.plain
-    hunks = []
-    for hunk, symbol, proves in zip(d.hunks, h.symbols, h.proves):
-        rows = []
-        for line in hunk.lines:
-            link = refs.editor_link(d.path, line.new_line) if line.new_line else None
-            number = f'<a href="{link}">{line.new_line}</a>' if link else (line.new_line or "")
-            rows.append(f'<tr class="{line.kind.name.lower()}"><td class="ln">{line.old_line or ""}</td>'
-                        f'<td class="ln">{number}</td><td class="code">{color(highlight.CodeLine(line.text))}</td></tr>')
-        where = f"In <code>{_e(symbol)}</code>" if symbol else (_e(hunk.header) or "")
-        checks = "".join(refs.criterion(t) for t in proves)
-        hunks.append(f'<div class="hunk"><div class="hunk-head">{where}{" · checks " + checks if checks else ""}</div>'
-                     f'<table>{"".join(rows)}</table></div>')
-    body = "".join(hunks) or '<p class="muted pad">No lines changed.</p>'
-    link = refs.editor_link(d.path)
-    name = (f'<a class="fname" href="{link}"{_tip("Open in your editor")}>{_e(d.path)}</a>' if link
-            else f'<span class="fname">{_e(d.path)}</span>')
-    return (f'<div class="file"><div class="file-head">{name}' + (f'<span class="muted">{shape}</span>' if shape else "")
+    body = "".join(_hunk(v, d.path, refs) for v in h.hunks) or '<p class="muted pad">No lines changed.</p>'
+    return (f'<div class="file"><div class="file-head">{_file_link(d.path, refs)}'
+            + (f'<span class="muted">{shape}</span>' if shape else "")
             + f'<span class="counts"><span class="plus">+{d.added}</span> <span class="minus">−{d.removed}</span></span>{reasons}'
             f'</div>{body}</div>')
 

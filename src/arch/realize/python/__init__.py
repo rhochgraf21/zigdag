@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from arch.realize.facts import Facts, FileSuffix, Language, Role, Roots, SourcePath, SourceText, UnitName
+from arch.realize.facts import Facts, FileSuffix, Language, Reference, Role, Roots, SourcePath, SourceText, UnitName
 from arch.realize.python import extract as _extract
 
 
@@ -27,3 +27,6 @@ class PythonAdapter:
 
     def extract(self, path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> Facts:
         return _extract.extract(path, text, unit, role)
+
+    def names(self, path: SourcePath, text: SourceText, unit: UnitName) -> tuple[Reference, ...]:
+        return _extract.names(path, text, unit)

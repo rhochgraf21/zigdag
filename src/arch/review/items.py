@@ -24,16 +24,17 @@ from arch.model.schema import Design, Kind
 from arch.realize.facts import (
     Compatibility,
     DiffLineKind,
-    Facts,
     FileDiff,
     FileShape,
-    LineNo,
     PortChange,
     Role,
+    SourcePath,
+    UnitName,
     port_changes,
 )
 from arch.realize.mapping import map_units
 from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, evidence_of, file_risks
+from arch.review.explain import HunkView, Touch, Trace, Tracer
 from arch.view.diagram import Diagram, Edge, Mark, Node
 from arch.view.render import Count
 
@@ -203,16 +204,44 @@ class DesignBody:
 @dataclass(frozen=True)
 class InterfacesBody:
     ports: tuple[PortChange, ...]
+    reexports: tuple[PortChange, ...] = ()  # the same changes, seen through units that re-export the names
 
 
 @dataclass(frozen=True)
 class Hunked:
-    """One file's diff, with each hunk labelled by the definition it falls in and the criteria it proves."""
+    """One file's diff, each hunk with the definition it is in, why it changed and what its names mean."""
 
-    diff: FileDiff
+    diff: FileDiff  # only the hunks shown here
     risk: FileRisk | None
-    symbols: tuple[Text | None, ...]  # per hunk
-    proves: tuple[tuple[Text, ...], ...]  # per hunk: criteria linked to that definition
+    hunks: tuple[HunkView, ...]
+
+
+@dataclass(frozen=True)
+class Follower:
+    """A change in another file that only updates calls to an interface this component changed."""
+
+    component: ComponentId | None
+    path: SourcePath
+    hunk: HunkView
+
+
+@dataclass(frozen=True)
+class InterfaceNote:
+    """An interface the component changed, with the callers updated to match."""
+
+    change: PortChange
+    reexported_by: tuple[UnitName, ...]
+    callers: tuple[Follower, ...]
+
+
+@dataclass(frozen=True)
+class Moved:
+    """Changes in one of this component's files that are shown on another page, next to their cause."""
+
+    path: SourcePath
+    count: Count
+    interface: Text
+    page: ItemId
 
 
 @dataclass(frozen=True)
@@ -225,6 +254,13 @@ class CodeBody:
     criteria: tuple[CriterionEvidence, ...]
     tests: tuple[Hunked, ...]
     sources: tuple[Hunked, ...]
+    interfaces: tuple[InterfaceNote, ...] = ()
+    moved: tuple[Moved, ...] = ()
+
+    def views(self) -> tuple[HunkView, ...]:
+        """Every hunk the page shows, its own and its callers'."""
+        return (*(v for h in (*self.tests, *self.sources) for v in h.hunks),
+                *(f.hunk for note in self.interfaces for f in note.callers))
 
 
 @dataclass(frozen=True)
@@ -262,6 +298,8 @@ class Glossary:
     constraints: Mapping[ConstraintId, Text]
     pages: Mapping[ComponentId, ItemId]  # each component's code page, when it has one
     files: Mapping[Text, Text]  # node id -> its design file, relative to the project root
+    interfaces: Mapping[Text, Text]  # each changed interface (dotted) -> how it reads now
+    interface_pages: Mapping[Text, ItemId]  # the page that shows that change
 
     @staticmethod
     def of(design: Design, items: tuple[ReviewItem, ...], design_dir: Text) -> Glossary:
@@ -275,6 +313,9 @@ class Glossary:
             constraints={k: c.statement.split(". ")[0] for k, c in design.constraints.items()},
             pages={ComponentId(i.id.removeprefix("code:")): i.id for i in items if i.stage is Stage.CODE},
             files=files,
+            interfaces={n.change.dotted: n.change.after or n.change.before or Text("")
+                        for i in items if isinstance(i.body, CodeBody) for n in i.body.interfaces},
+            interface_pages={n.change.dotted: i.id for i in items if isinstance(i.body, CodeBody) for n in i.body.interfaces},
         )
 
 
@@ -316,15 +357,24 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     if design.changes:
         pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {_n(len(design.changes), 'component')}"),
                                 design, Risk.MEDIUM))
-    attention = tuple(p for p in ports if p.compatibility is not Compatibility.COMPATIBLE)
+    attention = tuple(p for p in ports if p.compatibility is not Compatibility.COMPATIBLE and p.reexport_of is None)
     if attention:
         breaking = sum(1 for p in attention if p.compatibility is Compatibility.BREAKING)
+        shown = {p.dotted for p in attention}
+        reexports = tuple(p for p in ports if p.reexport_of in shown)
         pages.append(ReviewItem(ItemId("interfaces"), Stage.INTERFACES,
                                 Text(_listing((breaking, "breaking interface change"),
                                               (len(attention) - breaking, "uncertain interface change"))),
-                                InterfacesBody(attention), Risk.HIGH if breaking else Risk.MEDIUM))
+                                InterfacesBody(attention, reexports), Risk.HIGH if breaking else Risk.MEDIUM))
     upstream = tuple(p.id for p in pages)
-    pages += _code_pages(inp, after, risks, upstream)
+    mapping = map_units(after, inp.facts_after)
+    units = (*inp.facts_before.units, *inp.facts_after.units)
+    tracer = Tracer(Trace(
+        inp.facts_before, inp.facts_after, _touched(design_diff, inp.after), ports,
+        frozenset(ComponentId(c.ident) for c in design_diff.changes
+                  if c.kind is Kind.COMPONENT and c.type is NodeChangeType.ADDED),
+        {u.path: mapping.component_of[u.name] for u in units if u.name in mapping.component_of}))
+    pages += _code_pages(inp, after, risks, ports, tracer, upstream)
     overview = _overview(inp, design_diff, pages)
     return (overview, *pages)
 
@@ -341,7 +391,9 @@ def _overview(inp: ReviewInput, design_diff: DesignDiff, pages: list[ReviewItem]
     def tally(n: Count, noun: str, verb: str) -> Tally:
         return Tally(Text(f"{noun if n == 1 else noun + 's'} {verb}"), n)
 
+    unexplained = Count(sum(1 for p in pages if isinstance(p.body, CodeBody) for v in p.body.views() if v.unexplained))
     tallies = (
+        tally(unexplained, "change", "with no reason given"),
         tally(count("need", NodeChangeType.ADDED), "need", "added"),
         tally(count("need", NodeChangeType.CHANGED), "need", "changed"),
         tally(count("component", NodeChangeType.ADDED), "component", "added"),
@@ -542,51 +594,63 @@ def _mechanical(d: FileDiff) -> Mechanical | None:
     return None
 
 
-def _hunked(d: FileDiff, facts: Facts, risk: FileRisk | None) -> Hunked:
-    """Label each hunk with the public definition its first change falls in, and the criteria that definition proves."""
-    defs = sorted((s.location.line, s.unit, s.name) for s in facts.symbols if s.location.path == d.path)
-    links: dict[tuple[str, str], list[Text]] = {}
-    for link in facts.links:
-        if link.location.path == d.path:
-            links.setdefault((link.unit, link.symbol), []).append(link.target)
-    symbols: list[Text | None] = []
-    proves: list[tuple[Text, ...]] = []
-    for h in d.hunks:
-        first = next((l.new_line or l.old_line for l in h.lines if l.kind is not DiffLineKind.CONTEXT), h.new_start)
-        added = [l.new_line for l in h.lines if l.kind is DiffLineKind.ADDED and l.new_line is not None]
-        inside = [(unit, name) for line, unit, name in defs if added and min(added) <= line <= max(added)]
-        above = [(unit, name) for line, unit, name in defs if line <= (first or LineNo(0))]
-        label = above[-1] if above else (inside[0] if inside else None)  # a hunk starting on a decorator
-        touched = ([label] if label else []) + [x for x in inside if x != label]
-        symbols.append(Text(label[1]) if label else None)
-        proves.append(tuple(dict.fromkeys(target for x in touched for target in links.get(x, ()))))
-    return Hunked(d, risk, tuple(symbols), tuple(proves))
+def _touched(design_diff: DesignDiff, after: Design) -> dict[Text, Touch]:
+    """Criteria the change added or reworded, including every criterion of a component it adds."""
+    out: dict[Text, Touch] = {}
+    for c in design_diff.changes:
+        if c.kind is not Kind.COMPONENT:
+            continue
+        if c.type is NodeChangeType.ADDED and (new := after.components.get(ComponentId(c.ident))) is not None:
+            out.update({Text(cr.id): Touch.ADDED for cr in new.criteria})
+        for f in c.fields:
+            if f.field.startswith("AC") and f.after is not None:
+                out[Text(f"{c.ident}#{f.field}")] = Touch.ADDED if f.before is None else Touch.REWORDED
+    return out
 
 
-def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk],
-                upstream: tuple[ItemId, ...]) -> list[ReviewItem]:
+def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], ports: tuple[PortChange, ...],
+                tracer: Tracer, upstream: tuple[ItemId, ...]) -> list[ReviewItem]:
     facts = inp.facts_after
     mapping = map_units(after, facts)
     unit_of = {u.path: u for u in (*inp.facts_before.units, *facts.units)}
     linked: dict[Text, set[ComponentId]] = {}
     for link in facts.links:
         linked.setdefault(Text(link.location.path), set()).add(split_criterion(link.target)[0])
+    owner_of = {p.dotted: mapping.component_of.get(p.unit) for p in ports if p.reexport_of is None}
 
     batch: list[tuple[Hunked, Mechanical]] = []
     sources: dict[ComponentId | None, list[Hunked]] = {}
     tests: dict[ComponentId | None, list[Hunked]] = {}
+    callers: dict[Text, list[Follower]] = {}
+    moved: dict[ComponentId | None, dict[tuple[SourcePath, Text], int]] = {}
     for d in inp.diffs:
-        view = _hunked(d, facts, risks.get(Text(d.path)))
+        risk = risks.get(Text(d.path))
         if (why := _mechanical(d)) is not None:
-            batch.append((view, why))
+            batch.append((Hunked(d, risk, tracer.plain(d)), why))
             continue
         unit = unit_of.get(d.path)
-        if unit is not None and unit.role is Role.TEST:
-            owners = sorted(c for c in linked.get(Text(d.path), set()) if c in after) or [None]
-            tests.setdefault(owners[0], []).append(view)
-            continue
-        sources.setdefault(mapping.component_of.get(unit.name) if unit else None, []).append(view)
+        is_test = unit is not None and unit.role is Role.TEST
+        if is_test:
+            owner = (sorted(c for c in linked.get(Text(d.path), set()) if c in after) or [None])[0]
+        else:
+            owner = mapping.component_of.get(unit.name) if unit else None
+        keep: list[HunkView] = []
+        for view in tracer.hunks(d):
+            cause = owner_of.get(view.follows[0], owner) if view.only_follows else owner
+            if cause == owner:
+                keep.append(view)
+                continue
+            callers.setdefault(view.follows[0], []).append(Follower(owner, d.path, view))
+            here = moved.setdefault(owner, {})
+            here[(d.path, view.follows[0])] = here.get((d.path, view.follows[0]), 0) + 1
+        if keep:
+            shown = Hunked(replace(d, hunks=tuple(v.hunk for v in keep)), risk, tuple(keep))
+            (tests if is_test else sources).setdefault(owner, []).append(shown)
 
+    reexporters: dict[Text, list[UnitName]] = {}
+    for p in ports:
+        if p.reexport_of is not None:
+            reexporters.setdefault(p.reexport_of, []).append(p.unit)
     components = sorted({c for c in (*sources, *tests) if c is not None})
     deps = {c: [o for o in components if o != c and any(is_within(u, o) for u in after.uses(c))] for c in components}
     order = list(layer(components, deps.__getitem__).order)
@@ -595,15 +659,19 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk],
         mine_src, mine_tests = tuple(sources.get(cid, ())), tuple(tests.get(cid, ()))
         if not mine_src and not mine_tests:
             continue
+        notes = tuple(InterfaceNote(p, tuple(sorted(set(reexporters.get(p.dotted, ())))), tuple(callers.get(p.dotted, ())))
+                      for p in ports if p.reexport_of is None and owner_of.get(p.dotted) == cid)
+        away = tuple(Moved(path, Count(n), interface, ItemId(f"code:{owner_of.get(interface) or '(none)'}"))
+                     for (path, interface), n in sorted(moved.get(cid, {}).items()))
         if cid is None:
-            body = CodeBody(None, None, None, (), (), (), mine_tests, mine_src)
+            body = CodeBody(None, None, None, (), (), (), mine_tests, mine_src, notes, away)
             title = Text("Code outside any component")
         else:
             c = after[cid]
             constraints = tuple(Text(f"{k}: {after.design.constraints[k].statement.split('. ')[0]}")
                                 for k in after.effective_constraints(cid))
             crit = tuple(replace(evidence_of(Text(cr.id), inp.facts_after), text=cr.text) for cr in c.criteria)
-            body = CodeBody(cid, c.realizes, c.hides, after.needs_of(cid), constraints, crit, mine_tests, mine_src)
+            body = CodeBody(cid, c.realizes, c.hides, after.needs_of(cid), constraints, crit, mine_tests, mine_src, notes, away)
             title = Text(str(cid))
         files = [h for h in (*mine_src, *mine_tests) if h.risk is not None]
         risk = min((h.risk.risk for h in files), key=list(Risk).index, default=Risk.LOW)
@@ -616,7 +684,7 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk],
 
 __all__ = [
     "ArchitectureBody", "BatchBody", "Change", "CodeBody", "ConstraintChange", "ConstraintsBody", "CriterionChange",
-    "DesignBody", "DesignChange", "Digest", "Glossary", "OutsideUse", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
+    "DesignBody", "DesignChange", "Digest", "Follower", "Glossary", "InterfaceNote", "Moved", "OutsideUse", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
     "NeedChange", "OverviewBody", "Panel", "Readiness", "RequirementChange", "ReviewItem", "Rewiring", "Stage", "Tally",
     "build",
 ]

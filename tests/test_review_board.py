@@ -93,8 +93,9 @@ def test_pages_come_in_review_order_and_code_in_build_order():
 @realizes("arch.review.items#AC7")
 def test_hunks_name_their_definition_and_the_criteria_it_proves():
     core = page(review_items.build(board_input()), "code:s.core").body
-    assert core.sources[0].symbols == ("f",)
-    assert core.tests[0].symbols == ("test_f",) and core.tests[0].proves == (("s.core#AC1",),)
+    assert [v.enclosing.name for v in core.sources[0].hunks] == ["f"]
+    (test,) = core.tests[0].hunks
+    assert test.enclosing.name == "test_f" and test.proves == ("s.core#AC1",)
 
 
 @realizes("arch.review.items#AC4")

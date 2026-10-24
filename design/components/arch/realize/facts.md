@@ -14,6 +14,8 @@ status: specified
 - AC5: Every unit shall record its language and the capabilities its adapter analyzed (structure, api, contracts, effects, links), so consumers can tell "absent" from "not analyzed".
 - AC6: Unit names shall be dotted segments defined by each adapter, so imports may cross languages (for example Mojo importing a Python module).
 - AC7: The fact schema shall depend on no other arch component, so an adapter needs only this module.
+- AC8: Facts shall record every definition, public or private, with its lines and its one-line description.
+- AC9: Facts shall record each call site with the lines that the call spans.
 
 ## Rationale
 This is arch's most important internal design rule in the Baldwin and Clark sense: adapters and core

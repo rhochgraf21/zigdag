@@ -5,7 +5,7 @@ from hypothesis import strategies as st
 
 from arch import realizes
 from arch.realize.facts import Capability, Role, SourcePath, UnitName
-from arch.realize.python.extract import extract
+from arch.realize.python.extract import extract, names
 
 SRC = '''
 from __future__ import annotations
@@ -87,3 +87,4 @@ def test_syntax_errors_become_facts_and_claim_nothing():
 @given(st.text())
 def test_extraction_never_raises_and_is_deterministic(text):
     assert facts(text) == facts(text)
+    assert names(SourcePath("src/m.py"), text, UnitName("m")) == names(SourcePath("src/m.py"), text, UnitName("m"))

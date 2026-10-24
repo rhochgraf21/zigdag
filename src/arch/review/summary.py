@@ -174,7 +174,7 @@ def review(inp: ReviewInput) -> Review:
         base=inp.base,
         diff=design_diff,
         diagram=changes(before, after, design_diff),
-        ports=ports,
+        ports=tuple(p for p in ports if p.reexport_of is None),  # a re-exported name changes where it is defined
         new_findings=new,
         fixed_findings=fixed,
         blocking=Count(len(now)),

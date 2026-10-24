@@ -15,6 +15,7 @@ status: specified
 - AC4: After extraction, effects shall be propagated across the project: a symbol has every effect of the project symbols it calls, computed to a fixed point, and each added effect records the call it came through.
 - AC5: The same snapshot shall always yield the same facts.
 - AC6: Realize shall choose an adapter by file pattern, preferring adapters the caller adds, then language-specific ones.
+- AC7: Names shall be resolved only in the files that a caller asks to read.
 
 ## Rationale
 Keeping languages behind a fact schema is what makes the core general. A second adapter (TypeScript)

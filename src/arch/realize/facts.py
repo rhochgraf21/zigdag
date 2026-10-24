@@ -19,6 +19,7 @@ SourceText = str
 CommitId = NewType("CommitId", str)
 VcsLog = NewType("VcsLog", str)  # raw `git log --numstat` output; arch.realize.history reads it
 LineNo = NewType("LineNo", int)
+Column = NewType("Column", int)  # characters from the start of a line
 FileSuffix = NewType("FileSuffix", str)  # e.g. ".py"
 Text = NewType("Text", str)  # display text; facts depend on nothing else in arch, so adapters need only this module
 
@@ -93,6 +94,7 @@ class Import:
     target: UnitName  # the most specific name imported; may be outside the project
     location: SourceLocation
     form: ImportForm = ImportForm.MODULE
+    end_line: LineNo | None = None  # the last line of the import statement
 
 
 class Exposure(enum.Enum):
@@ -143,6 +145,37 @@ class PublicSymbol:
 
 
 @dataclass(frozen=True)
+class Definition:
+    """A function, class, method, field or module value as written, public or not."""
+
+    unit: UnitName
+    name: SymbolName
+    kind: Text  # display only, as for PublicSymbol; "exports" for the list of names a unit exports
+    signature: Text  # display only
+    location: SourceLocation  # its first line, decorators included
+    end_line: LineNo
+    summary: Text | None = None  # the first line of its documentation, or the comment on its line
+
+
+class NameKind(enum.Enum):
+    DEFINITION = "definition"  # the name is the definition itself
+    VALUE = "value"  # the name holds a value of the target type: a typed parameter, `self`, `x = Cls(...)`
+
+
+@dataclass(frozen=True)
+class Reference:
+    """A name in the code that the adapter resolved to a dotted target. `text` is the name as written."""
+
+    unit: UnitName
+    text: Text
+    target: Text
+    kind: NameKind
+    location: SourceLocation
+    column: Column
+    end_column: Column
+
+
+@dataclass(frozen=True)
 class ContractDecl:
     unit: UnitName
     symbol: SymbolName
@@ -171,7 +204,11 @@ class Call:
     unit: UnitName
     symbol: SymbolName
     callee: Text
-    location: SourceLocation
+    location: SourceLocation  # one record per call site
+    end_line: LineNo | None = None  # the last line of the call, arguments included
+
+    def spans(self, line: LineNo) -> bool:
+        return self.location.line <= line <= (self.end_line or self.location.line)
 
 
 @dataclass(frozen=True)
@@ -316,6 +353,11 @@ class PortChange:
     compatibility: Compatibility
     before: Text | None
     after: Text | None
+    reexport_of: Text | None = None  # set when the unit only re-exports a name defined elsewhere (dotted)
+
+    @property
+    def dotted(self) -> Text:
+        return Text(f"{self.unit}.{self.symbol}")
 
 
 @dataclass(frozen=True)
@@ -339,6 +381,8 @@ class Facts:
     changes: tuple[ChangeEvent, ...] = ()  # newest first, as the log lists them
     evidence: tuple[Evidence, ...] = ()  # test outcomes from reports
     mutants: tuple[Mutant, ...] = ()
+    definitions: tuple[Definition, ...] = ()  # every definition, for reading code; `symbols` is the interface
+    references: tuple[Reference, ...] = ()  # only for files someone asked to read (see realize.names)
     _by_name: Mapping[UnitName, Unit] = field(default=None, init=False, repr=False, compare=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -355,7 +399,7 @@ class Facts:
             items = [x for p in parts for x in getattr(p, attr)]
             return tuple(items) if attr in ("changes", "evidence", "mutants") else tuple(sorted(items, key=_sort_key))
         return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases",
-                                         "changes", "evidence", "mutants")))
+                                         "changes", "evidence", "mutants", "definitions", "references")))
 
 
 def _sort_key(fact: object) -> tuple:
@@ -372,16 +416,19 @@ def port_changes(before: Facts, after: Facts) -> tuple[PortChange, ...]:
     out: list[PortChange] = []
     for key in sorted(set(old) | set(new)):
         a, b = old.get(key), new.get(key)
+        s = b or a
+        origin = Text(f"{s.unit}.{s.name}") if (s.unit, s.name) != key else None
         if a is None:
-            out.append(PortChange(*key, PortChangeType.ADDED, Compatibility.COMPATIBLE, None, b.signature))
+            out.append(PortChange(*key, PortChangeType.ADDED, Compatibility.COMPATIBLE, None, b.signature, origin))
         elif b is None:
-            out.append(PortChange(*key, PortChangeType.REMOVED, Compatibility.BREAKING, a.signature, None))
+            out.append(PortChange(*key, PortChangeType.REMOVED, Compatibility.BREAKING, a.signature, None, origin))
         elif a.parameters != b.parameters or a.returns != b.returns:
-            out.append(PortChange(*key, PortChangeType.SIGNATURE, _signature_compatibility(a, b), a.signature, b.signature))
+            out.append(PortChange(*key, PortChangeType.SIGNATURE, _signature_compatibility(a, b), a.signature, b.signature,
+                                  origin))
         if a is not None and b is not None and contracts_old.get(key, ()) != contracts_new.get(key, ()):
             out.append(PortChange(*key, PortChangeType.CONTRACT, Compatibility.NEEDS_REVIEW,
                                   Text("; ".join(contracts_old.get(key, ()))) or None,
-                                  Text("; ".join(contracts_new.get(key, ()))) or None))
+                                  Text("; ".join(contracts_new.get(key, ()))) or None, origin))
     return tuple(out)
 
 
@@ -460,3 +507,7 @@ class Adapter(Protocol):
     def unit_name(self, path: SourcePath, roots: Roots) -> UnitName | None: ...
 
     def extract(self, path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> Facts: ...
+
+    def names(self, path: SourcePath, text: SourceText, unit: UnitName) -> tuple[Reference, ...]:
+        """The names in one file resolved to what they refer to. Asked for only when someone reads the file."""
+        ...

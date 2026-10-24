@@ -5,11 +5,11 @@ solution: Review pages built from the design diff and the code diff, with verdic
 hides: How a change is cut into review pages
 serves: [proportional-review, catch-departures, sound-reasoning]
 uses: [model, realize, check, change, view]
-exports: [summary, assess, items, page, session]
+exports: [summary, assess, items, page, session, explain]
 status: specified
 ---
 ## Acceptance criteria
-- AC1: When a change is reviewed, every changed need, requirement, criterion, decision, constraint, structural change, breaking or uncertain port change and changed file shall appear on exactly one review page.
+- AC1: When a change is reviewed, each changed need, requirement, criterion, decision, constraint, structural change, breaking or uncertain interface change and code hunk shall appear on exactly one review page.
 - AC2: Review pages shall be ordered overview, needs and requirements, architecture, constraints, design decisions, interfaces, then code component by component in build order, so a component is reviewed after what it depends on.
 
 ## Decisions

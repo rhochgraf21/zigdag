@@ -5,12 +5,12 @@ The facade: pick an adapter per file and merge what each extracts. Pure: it sees
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from dataclasses import replace
 
 from arch.realize import evidence, history
-from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Reach, Snapshot, Text
+from arch.realize.facts import Adapter, Effect, EffectUse, Facts, Reach, Reference, Snapshot, SourcePath, Text
 from arch.realize.python import PythonAdapter
 
 BUILT_IN: tuple[Adapter, ...] = (PythonAdapter(),)
@@ -32,6 +32,18 @@ def extract(snapshot: Snapshot, extra: Sequence[Adapter] = ()) -> Facts:
                       for x in evidence.parse_mutmut(path, snapshot.mutation_reports[path])),
     )
     return propagate_effects(Facts.merge([*parts, observed]))
+
+
+def names(snapshot: Snapshot, paths: Iterable[SourcePath], extra: Sequence[Adapter] = ()) -> tuple[Reference, ...]:
+    """The resolved names in the given files, for reading their changes."""
+    adapters = (*extra, *BUILT_IN)
+    out: list[Reference] = []
+    for path in sorted(set(paths) & set(snapshot.files)):
+        for adapter in adapters:
+            if path.endswith(adapter.suffixes) and (unit := adapter.unit_name(path, snapshot.roots)) is not None:
+                out += adapter.names(path, snapshot.files[path], unit)
+                break
+    return tuple(out)
 
 
 def propagate_effects(facts: Facts) -> Facts:
@@ -76,4 +88,4 @@ def propagate_effects(facts: Facts) -> Facts:
     return replace(facts, effects=tuple(sorted((*facts.effects, *added), key=lambda e: (e.location.path, e.location.line, repr(e)))))
 
 
-__all__ = ["extract"]
+__all__ = ["extract", "names"]

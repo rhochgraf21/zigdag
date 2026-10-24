@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import NewType
+
+from arch.review.explain import NameTip
 
 HighlightedHtml = NewType("HighlightedHtml", str)
 CodeLine = NewType("CodeLine", str)  # one line of source as it appears in a diff
@@ -29,15 +33,43 @@ _TOKEN = re.compile(
 )
 
 
-def python(line: CodeLine) -> HighlightedHtml:
-    out, pos = [], 0
-    for m in _TOKEN.finditer(line):
-        out.append(html.escape(line[pos:m.start()]))
-        out.append(f'<span class="t-{m.lastgroup}">{html.escape(m.group())}</span>')
-        pos = m.end()
-    out.append(html.escape(line[pos:]))
-    return HighlightedHtml("".join(out))
+def python(line: CodeLine, names: Sequence[NameTip] = ()) -> HighlightedHtml:
+    tokens = [_Span(m.start(), m.end(), f'<span class="t-{m.lastgroup}">') for m in _TOKEN.finditer(line)]
+    return _render(line, tokens, names)
 
 
-def plain(line: CodeLine) -> HighlightedHtml:
-    return HighlightedHtml(html.escape(line))
+def plain(line: CodeLine, names: Sequence[NameTip] = ()) -> HighlightedHtml:
+    return _render(line, [], names)
+
+
+@dataclass(frozen=True)
+class _Span:
+    start: int
+    end: int
+    open: str
+
+
+def _render(line: str, tokens: list[_Span], names: Sequence[NameTip]) -> HighlightedHtml:
+    """Tokens and explained names as nested spans. A name that would cross a token's edge is left out."""
+    spans = list(tokens)
+    for n in names:
+        span = _Span(n.start, n.end, f'<span class="name" data-tip="{html.escape(n.tip)}">')
+        if n.start < n.end and all(_nests(span, s) for s in spans):
+            spans.append(span)
+    spans.sort(key=lambda s: (s.start, -s.end))
+
+    def emit(start: int, end: int, inner: list[_Span]) -> str:
+        out, pos, i = [], start, 0
+        while i < len(inner):
+            s, j = inner[i], i + 1
+            while j < len(inner) and inner[j].start < s.end:
+                j += 1
+            out += [html.escape(line[pos:s.start]), s.open, emit(s.start, s.end, inner[i + 1:j]), "</span>"]
+            pos, i = s.end, j
+        out.append(html.escape(line[pos:end]))
+        return "".join(out)
+    return HighlightedHtml(emit(0, len(line), spans))
+
+
+def _nests(a: _Span, b: _Span) -> bool:
+    return a.end <= b.start or b.end <= a.start or (b.start <= a.start and a.end <= b.end) or (a.start <= b.start and b.end <= a.end)

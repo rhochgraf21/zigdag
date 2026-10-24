@@ -159,7 +159,19 @@ details summary{cursor:pointer}
 .file-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);border-radius:12px 12px 0 0}
 .fname{font-weight:600;text-decoration:none}a.fname:hover{color:var(--accent);text-decoration:underline}
 .counts{font-size:13px}.reasons{font-size:12.5px;color:var(--chg);cursor:help}
-.hunk-head{padding:7px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--border);background:var(--surface)}
+.hunk-head{padding:10px 14px;font-size:13.5px;color:var(--text);border-top:1px solid var(--border);background:var(--surface);
+  display:grid;gap:6px}
+.where{color:var(--muted)}.where .muted{font-size:13px;margin-top:2px}code.sig{color:var(--text);white-space:pre-wrap}
+.why{display:flex;gap:10px;align-items:baseline;line-height:1.5}
+.why-label{flex:none;min-width:82px;font-size:10.5px;font-weight:650;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--add);padding-top:2px}
+.why.none .why-label{color:var(--chg)}.why.none{color:var(--chg)}
+.why .chip{margin:0 2px}
+.name{border-bottom:1px dotted color-mix(in srgb,currentColor 35%,transparent)}.name:hover{background:var(--accent-soft);border-radius:3px}
+.interface .label{margin-top:16px}.small{font-size:13px}
+.caller{margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.caller-head{padding:8px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13.5px}
+.callout.plain{background:var(--surface-2)}
 .hunk:first-child .hunk-head{border-top:0}
 .hunk{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font:13px/1.55 var(--mono)}
@@ -190,7 +202,7 @@ button.primary{background:var(--accent);color:white}
 .drawer-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:13px}.drawer-row.end{justify-content:flex-end}
 select,textarea{font:inherit;font-size:14px;background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);border-radius:8px;padding:6px 8px}
 textarea{width:100%;resize:vertical}
-#tip{position:fixed;z-index:30;max-width:380px;padding:8px 11px;border-radius:9px;background:var(--text);color:var(--bg);
+#tip{position:fixed;z-index:30;max-width:440px;white-space:pre-line;padding:8px 11px;border-radius:9px;background:var(--text);color:var(--bg);
   font:13.5px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.2);pointer-events:none}
 [data-tip]{cursor:help}a[data-tip],button[data-tip]{cursor:pointer}
 @media (max-width:900px){.topbar{grid-template-columns:1fr}.tdiff,.component .facts{grid-template-columns:1fr}main{padding:20px 16px 120px}

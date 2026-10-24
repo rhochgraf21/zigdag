@@ -213,15 +213,19 @@ def diagram(ws: Workspace, root: ComponentId | None = None, depth: Depth = Depth
 
 def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     since = ws.merge_base(base)
-    before = ws.design_at(since)
-    facts_before = realize.extract(ws.snapshot_at(since))
-    after, facts_after = ws.design(), ws.facts()
+    before, snap_before = ws.design_at(since), ws.snapshot_at(since)
+    after, snap_after = ws.design(), ws.snapshot()
+    facts_before, facts_after = realize.extract(snap_before), realize.extract(snap_after)
     baseline, lexicon = ws.baseline(), ws.config().lexicon()
+    diffs = ws.diffs(since)
+    report_before = run_checks(Graph(before), facts_before, baseline, lexicon)
+    report_after = run_checks(Graph(after), facts_after, baseline, lexicon)
+    # names are resolved only in the files a reviewer will read
+    facts_before = replace(facts_before, references=realize.names(snap_before, [d.old_path or d.path for d in diffs]))
+    facts_after = replace(facts_after, references=realize.names(snap_after, [d.path for d in diffs]))
     return ReviewInput(
         base=Text(base), before=before, after=after, facts_before=facts_before, facts_after=facts_after,
-        report_before=run_checks(Graph(before), facts_before, baseline, lexicon),
-        report_after=run_checks(Graph(after), facts_after, baseline, lexicon),
-        changed=ws.changed_files(since), diffs=ws.diffs(since),
+        report_before=report_before, report_after=report_after, changed=ws.changed_files(since), diffs=diffs,
     )
 
 

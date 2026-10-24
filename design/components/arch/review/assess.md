@@ -9,4 +9,6 @@ status: specified
 ## Acceptance criteria
 - AC1: Each changed file shall get a risk of high, medium or low with the reasons that produced it, by the score documented in the module.
 - AC2: When a component is verified, its linked evidence passes and its ports are unchanged, its files shall score one lower.
+- AC3: A file's risk shall count only the interface changes to names defined in that file.
+- AC4: Every criterion of a component that the change adds shall get evidence.
 
