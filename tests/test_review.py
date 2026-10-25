@@ -153,3 +153,13 @@ def test_unified_diffs_become_hunks_with_line_numbers():
     assert [(l.text, l.new_line) for l in added] == [("    y = x + 1", 2), ("    return y", 3)]
     assert files["src/s/new.py"].shape is FileShape.RENAMED and files["src/s/new.py"].old_path == "src/s/old.py"
     assert files["img.png"].content is Content.BINARY and files["img.png"].shape is FileShape.ADDED
+
+
+@realizes("arch.review.assess#AC5")
+def test_a_change_to_a_design_rule_scores_higher():
+    rule = component(serves="n", hides=None).replace("status:", "publishes: The names everyone uses\nstatus:")
+    changed = {**CODE, "src/s/b.py": "def g() -> Z:\n    return 1\n"}
+    plain = {f.path: f for f in run_review(changed).files}["src/s/b.py"]
+    published = {f.path: f for f in run_review(changed, {**DESIGN, "components/s/b.md": rule}).files}["src/s/b.py"]
+    assert "changes a vocabulary other parts build on" in published.reasons
+    assert published.score == plain.score + 2

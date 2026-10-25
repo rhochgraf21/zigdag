@@ -261,6 +261,7 @@ class InterfaceNote:
     change: PortChange
     reexported_by: tuple[UnitName, ...]
     callers: tuple[Follower, ...]
+    importers: Count = Count(0)  # files outside the component that import the unit defining it
 
 
 @dataclass(frozen=True)
@@ -731,7 +732,9 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], por
         mine_src, mine_tests = tuple(sources.get(cid, ())), tuple(tests.get(cid, ()))
         if not mine_src and not mine_tests:
             continue
-        notes = tuple(InterfaceNote(p, tuple(sorted(set(reexporters.get(p.dotted, ())))), tuple(callers.get(p.dotted, ())))
+        notes = tuple(InterfaceNote(p, tuple(sorted(set(reexporters.get(p.dotted, ())))), tuple(callers.get(p.dotted, ())),
+                                    Count(len({i.unit for i in facts.imports if mapping.target_of(i) == p.unit
+                                               and mapping.component_of.get(i.unit) != cid})))
                       for p in ports if p.reexport_of is None and owner_of.get(p.dotted) == cid)
         away = tuple(Moved(path, Count(n), interface, ItemId(f"code:{owner_of.get(interface) or '(none)'}"))
                      for (path, interface), n in sorted(moved.get(cid, {}).items()))

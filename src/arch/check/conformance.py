@@ -14,13 +14,14 @@ from arch.check.engine import Context, Finding, FindingKey, Kind, Rule, RuleId, 
 from arch.model.graph import is_within, parent_of
 from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
-from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName, needs_description
+from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
 
 _maps: WeakKeyDictionary[Context, UnitMap] = WeakKeyDictionary()
 
 
-def _mapping(ctx: Context) -> UnitMap:
+def mapping_of(ctx: Context) -> UnitMap:
+    """Which component each unit belongs to, worked out once per check."""
     if ctx not in _maps:
         _maps[ctx] = map_units(ctx.graph, ctx.facts or Facts())
     return _maps[ctx]
@@ -30,7 +31,8 @@ def _finding(rule: str, subject: str, key: str, kind: Kind, message: str, hint: 
     return Finding(Subject(subject), RuleId(rule), FindingKey(key), kind, Text(message), Text(hint), location)
 
 
-def _source_units(ctx: Context) -> frozenset[UnitName]:
+def source_units(ctx: Context) -> frozenset[UnitName]:
+    """The units that are code, not tests."""
     return frozenset(u.name for u in ctx.facts.units if u.role is Role.SOURCE) if ctx.facts else frozenset()
 
 
@@ -42,7 +44,7 @@ def parse_errors(ctx: Context) -> Iterator[Finding]:
 
 def boundaries(ctx: Context) -> Iterator[Finding]:
     """An import from component a into component b needs `b` among a's uses, and b visible to a."""
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     seen: dict[tuple[ComponentId, ComponentId], Finding] = {}
     for imp in ctx.facts.imports if ctx.facts else ():
         a = m.component_of.get(imp.unit)
@@ -62,14 +64,14 @@ def boundaries(ctx: Context) -> Iterator[Finding]:
 
 
 def unmapped(ctx: Context) -> Iterator[Finding]:
-    for unit in _mapping(ctx).unmapped:
+    for unit in mapping_of(ctx).unmapped:
         yield _finding("C002", unit.name, "unmapped", Kind.QUESTION, f"{unit.path} belongs to no component",
                        "add a component whose id is a prefix of this module, or move the module")
 
 
 def unbuilt(ctx: Context) -> Iterator[Finding]:
     """Components with no code yet; only the topmost of an unbuilt subtree is reported."""
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     for cid in g.ids():
         parent = parent_of(cid)
         if m.units_in(cid) or (parent is not None and not m.units_in(parent)):
@@ -121,8 +123,8 @@ def failing_evidence(ctx: Context) -> Iterator[Finding]:
 
 def port_types(ctx: Context) -> Iterator[Finding]:
     """Public ports use domain types: no forbidden built-ins at leaf positions (bool is fine as a return)."""
-    g, m = ctx.graph, _mapping(ctx)
-    source = _source_units(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
+    source = source_units(ctx)
     for sym in ctx.facts.symbols if ctx.facts else ():
         cid = m.component_of.get(sym.unit)
         if cid is None or sym.unit not in source or sym.name.rsplit(".", 1)[-1].startswith("__"):
@@ -149,33 +151,6 @@ def port_types(ctx: Context) -> Iterator[Finding]:
                                sym.location)
 
 
-def descriptions(ctx: Context) -> Iterator[Finding]:
-    """Interface names say what they are. A name needs a one-line description when its name and type do not
-    explain it, and the description must say more than the name."""
-    m = _mapping(ctx)
-    source = _source_units(ctx)
-    facts = ctx.facts or Facts()
-    defs = {(d.unit, d.name): d for d in facts.definitions}
-    needed = needs_description(facts)
-    for sym in facts.symbols:
-        cid = m.component_of.get(sym.unit)
-        d = defs.get((sym.unit, sym.name))
-        if cid is None or d is None or sym.unit not in source:
-            continue
-        where = f"{sym.unit}.{sym.name}"
-        if (sym.unit, sym.name) in needed:
-            yield _finding("C014", cid, f"undescribed:{where}", Kind.DEFECT,
-                           f"{where} is part of the interface, and its name and type do not say what it is",
-                           _DESCRIBE, d.location)
-        elif d.restates_name():
-            yield _finding("C015", cid, f"restated:{where}", Kind.QUESTION,
-                           f"the description of {where} only repeats its name and type: {d.summary!r}", _DESCRIBE, d.location)
-
-
-_DESCRIBE = ("add one line that says what the name and type cannot: its purpose, its units or invariants, where the "
-             "value comes from, or what None means (for a function, its docstring; for a field, a comment on its line)")
-
-
 # deal's side-effect markers that cover each effect arch infers (deal.readthedocs.io/basic/side-effects.html)
 _DEAL_MARKERS: dict[Effect, frozenset[str]] = {
     Effect.FS_READ: frozenset({"read", "io"}),
@@ -193,7 +168,7 @@ def declared_effects(ctx: Context) -> Iterator[Finding]:
     """A `@deal.has(...)` (or `@deal.pure`) declaration must cover every effect inferred for that function."""
     if not ctx.facts:
         return
-    m = _mapping(ctx)
+    m = mapping_of(ctx)
     effects: dict[tuple[UnitName, str], list] = {}
     for e in ctx.facts.effects:
         effects.setdefault((e.unit, e.symbol), []).append(e)
@@ -220,7 +195,7 @@ def surviving_mutants(ctx: Context) -> Iterator[Finding]:
     """Mutants the tests did not notice: the tests do not constrain that code. Strict at contracted and verified."""
     if not ctx.facts or not ctx.facts.mutants:
         return
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     unit_at = {u.path: u.name for u in ctx.facts.units}
     by_component: dict[ComponentId, list] = {}
     for mutant in ctx.facts.mutants:
@@ -239,9 +214,9 @@ def surviving_mutants(ctx: Context) -> Iterator[Finding]:
 
 def third_party(ctx: Context) -> Iterator[Finding]:
     """Imports outside the project and the standard library must be allowed by an imports constraint."""
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     seen: set[tuple[ComponentId, str]] = set()
-    source = _source_units(ctx)
+    source = source_units(ctx)
     for imp in ctx.facts.imports if ctx.facts else ():
         a = m.component_of.get(imp.unit)
         if a is None or imp.unit not in source or m.target_of(imp) is not None:
@@ -259,10 +234,10 @@ def third_party(ctx: Context) -> Iterator[Finding]:
 
 def effect_violations(ctx: Context) -> Iterator[Finding]:
     """Effects (direct, or reached through calls) outside what the component's policy allows."""
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     policies: dict[ComponentId, Policy] = {}
     seen: set[tuple[ComponentId, str, str]] = set()
-    source = _source_units(ctx)
+    source = source_units(ctx)
     for e in ctx.facts.effects if ctx.facts else ():
         cid = m.component_of.get(e.unit)
         if cid is None or e.unit not in source:
@@ -286,7 +261,7 @@ def effect_violations(ctx: Context) -> Iterator[Finding]:
 
 
 def _effect_problem(policy: Policy, cid: ComponentId, effect: EffectKind, reach: Reach) -> str | None:
-    verdict = policy.effects.verdict(effect)
+    verdict = policy.effects.verdict(cid, effect)
     if verdict is EffectVerdict.FORBIDDEN:
         return verdict.value
     if verdict is EffectVerdict.NOT_ALLOWED:
@@ -299,7 +274,7 @@ def _effect_problem(policy: Policy, cid: ComponentId, effect: EffectKind, reach:
 
 
 def effects_unanalyzed(ctx: Context) -> Iterator[Finding]:
-    g, m = ctx.graph, _mapping(ctx)
+    g, m = ctx.graph, mapping_of(ctx)
     for cid in g.ids():
         units = [ctx.facts.unit(u) for u, c in m.component_of.items() if c == cid] if ctx.facts else []
         if not units or all(Capability.EFFECTS in u.capabilities for u in units if u):
@@ -323,6 +298,4 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C011"), Station.CODE, Text("public ports use domain types"), port_types),
     Rule(RuleId("C012"), Station.CODE, Text("declared side effects (deal) cover the inferred ones"), declared_effects),
     Rule(RuleId("C013"), Station.EVIDENCE, Text("tests notice changes to the code (mutation)"), surviving_mutants),
-    Rule(RuleId("C014"), Station.INTERFACE, Text("interface names their type does not explain have a description (C015: one that says more "
-                              "than the name)"), descriptions),
 )

@@ -20,8 +20,6 @@ status: specified
 - AC11: When a function declares its side effects with deal (has or pure), conformance shall report each inferred effect that no declared marker covers as an error, and dynamic code as a warning.
 - AC12: When a component's code has surviving mutants, conformance shall report how many survived and where, as a defect at the evidence station.
 - AC13: When an effect cannot be known in a component under an effect constraint, conformance shall report a question.
-- AC14: When an interface name needs a description and has none, conformance shall report a defect at the interface station.
-- AC15: When a description only repeats its name and type, conformance shall report it.
 
 ## Decisions
 ### Describe interface names, not local variables

@@ -3,6 +3,7 @@ kind: component
 realizes: Answer structural questions about the design, covering ancestry, children, uses, visibility, inherited constraints and traceability to needs
 solution: An immutable indexed graph built once per load, with hierarchy taken from dotted ids and references resolved by lexical scope
 hides: Index structures and lookup algorithms
+publishes: The questions any part may ask about the design's structure
 uses: [ids, policy, schema]
 status: specified
 ---

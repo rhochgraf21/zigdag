@@ -8,7 +8,7 @@ evidence, not parts of components, and are never mapped.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId
@@ -16,20 +16,23 @@ from arch.realize.facts import Facts, Import, ImportForm, Role, SymbolName, Unit
 
 
 @dataclass(frozen=True)
-class UnitIndex:
-    """Which units exist and which names they re-export: enough to resolve imports without a design."""
+class UnitMap:
+    """Which component each source unit belongs to, and which unit each import reaches. Before there is a design,
+    every unit is unmapped, and imports still resolve: that is how arch drafts a design from code."""
 
-    known_units: frozenset[UnitName] = frozenset()
-    bound_names: frozenset[tuple[UnitName, SymbolName]] = frozenset()  # (unit, name) it re-exports
+    component_of: Mapping[UnitName, ComponentId]
+    unmapped: tuple[Unit, ...]
+    _units: frozenset[UnitName] = frozenset()
+    _bound: frozenset[tuple[UnitName, SymbolName]] = frozenset()  # (unit, name) it re-exports
 
     @staticmethod
-    def of(facts: Facts) -> UnitIndex:
-        return UnitIndex(frozenset(u.name for u in facts.units), frozenset((a.unit, a.name) for a in facts.aliases))
+    def without_design(facts: Facts) -> UnitMap:
+        return _map(frozenset(), facts)
 
     def target_of(self, imp: Import) -> UnitName | None:
         """The project unit an import reaches. `from p import n` reaches p itself when p binds n."""
         head, _, name = imp.target.rpartition(".")
-        if imp.form is ImportForm.NAME and (UnitName(head), SymbolName(name)) in self.bound_names:
+        if imp.form is ImportForm.NAME and (UnitName(head), SymbolName(name)) in self._bound:
             return UnitName(head)
         return self.resolve(imp.target)
 
@@ -37,30 +40,20 @@ class UnitIndex:
         """The longest prefix of an import target that names a project unit."""
         name = target
         while name:
-            if name in self.known_units:
+            if name in self._units:
                 return name
             name = UnitName(name.rpartition(".")[0])
         return None
-
-
-@dataclass(frozen=True)
-class UnitMap:
-    component_of: Mapping[UnitName, ComponentId]
-    unmapped: tuple[Unit, ...]
-    index: UnitIndex = field(default_factory=UnitIndex)
-
-    def target_of(self, imp: Import) -> UnitName | None:
-        return self.index.target_of(imp)
-
-    def resolve(self, target: UnitName) -> UnitName | None:
-        return self.index.resolve(target)
 
     def units_in(self, cid: ComponentId) -> tuple[UnitName, ...]:
         return tuple(sorted(u for u, c in self.component_of.items() if c == cid or c.startswith(cid + ".")))
 
 
 def map_units(graph: Graph, facts: Facts) -> UnitMap:
-    ids = set(graph.ids())
+    return _map(frozenset(graph.ids()), facts)
+
+
+def _map(ids: frozenset[ComponentId], facts: Facts) -> UnitMap:
     mapped: dict[UnitName, ComponentId] = {}
     unmapped: list[Unit] = []
     for unit in facts.units:
@@ -73,4 +66,5 @@ def map_units(graph: Graph, facts: Facts) -> UnitMap:
             mapped[unit.name] = ComponentId(name)
         else:
             unmapped.append(unit)
-    return UnitMap(mapped, tuple(unmapped), UnitIndex.of(facts))
+    return UnitMap(mapped, tuple(unmapped), frozenset(u.name for u in facts.units),
+                   frozenset((a.unit, a.name) for a in facts.aliases))

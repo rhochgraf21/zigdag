@@ -15,9 +15,9 @@ from arch.check.engine import Report, Severity
 from arch.model.graph import Graph, is_within
 from arch.model.ids import ComponentId, Text
 from arch.model.matrix import matrix_of
-from arch.realize.facts import Facts, MutantOutcome, UnitName
+from arch.realize.facts import Facts, MutantOutcome, Role, UnitName
 from arch.realize.mapping import UnitMap, map_units
-from arch.view.render import JsonValue, Markdown
+from arch.view.render import Count, JsonValue, Markdown
 
 ContextTarget = NewType("ContextTarget", str)  # a component id, module name, or path[:line]
 TokenBudget = NewType("TokenBudget", int)
@@ -133,6 +133,10 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
     head.append(f"**Status:** {c.status.value}")
     paths = sorted(u.path for u in facts.units if u.name in own_units)
     head.append(f"**Code:** {', '.join(paths) if paths else 'none yet'}")
+    reach = blast_radius(facts, m, cid)
+    if reach.files:
+        head.append(f"**Deleting it touches:** {_count(reach.files, 'file')} in {_count(reach.components, 'other component')}"
+                    + (" and tests" if reach.tests else ""))
     own_paths = set(paths)
     mutants = [x for x in facts.mutants if x.path in own_paths]
     decided = [x for x in mutants if x.outcome in (MutantOutcome.KILLED, MutantOutcome.SURVIVED)]
@@ -190,6 +194,28 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
         Section(Text("Used by"), tuple(used_by), Priority.LOWEST),
     ]
     return tuple(s for s in candidates if s.lines)
+
+
+@dataclass(frozen=True)
+class Reach:
+    """What deleting a part would touch: the files outside it that import it, and the components they belong to."""
+
+    files: Count
+    components: Count
+    tests: Count
+
+
+def blast_radius(facts: Facts, m: UnitMap, cid: ComponentId) -> Reach:
+    inside = {u for u, owner in m.component_of.items() if is_within(owner, cid)}
+    roles = {u.name: u.role for u in facts.units}
+    importers = {i.unit for i in facts.imports if m.target_of(i) in inside and i.unit not in inside}
+    sources = {u for u in importers if roles.get(u) is Role.SOURCE}
+    owners = {m.component_of[u] for u in sources if u in m.component_of}
+    return Reach(Count(len(sources)), Count(len(owners)), Count(len(importers) - len(sources)))
+
+
+def _count(n: int, word: str) -> str:
+    return f"{n} {word if n == 1 else word + 's'}"
 
 
 def _port_lines(graph: Graph, facts: Facts, m: UnitMap, cid: ComponentId, contracts: bool = True) -> list[str]:

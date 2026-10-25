@@ -125,13 +125,13 @@ class Workspace:
     root: Path
 
     @property
-    def design_dir(self) -> Path:
+    def _design_dir(self) -> Path:
         return self.root / DESIGN_DIR
 
     def design_files(self) -> Mapping[DesignPath, codec.SourceText]:
         files = {}
-        for path in sorted(self.design_dir.rglob("*.md")):
-            rel = DesignPath(path.relative_to(self.design_dir).as_posix())
+        for path in sorted(self._design_dir.rglob("*.md")):
+            rel = DesignPath(path.relative_to(self._design_dir).as_posix())
             if codec.node_id(rel) is not None:
                 files[rel] = path.read_text(encoding="utf-8")
         return files
@@ -190,13 +190,13 @@ class Workspace:
         """What critics, people and agents noticed, and every answer given, from design/findings and design/responses."""
         files: dict[DesignPath, str] = {}
         for folder in (FINDINGS_DIR, RESPONSES_DIR):
-            for path in sorted((self.design_dir / folder).glob("*.md")):
+            for path in sorted((self._design_dir / folder).glob("*.md")):
                 files[DesignPath(f"{folder}/{path.name}")] = LedgerText(path.read_text(encoding="utf-8"))
         return Ledger.parse(files)
 
     def write_ledger_entry(self, path: DesignPath, text: LedgerText) -> None:
         """Write one ledger file (a finding or a response), replacing it whole."""
-        target = self.design_dir / path
+        target = self._design_dir / path
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".arch-tmp")
         tmp.write_text(text, encoding="utf-8")
@@ -208,7 +208,7 @@ class Workspace:
 
     def design_at(self, revision: Revision) -> Design:
         """The design as committed at a git revision (e.g. HEAD)."""
-        rel = self.design_dir.relative_to(self._git_root()).as_posix()
+        rel = self._design_dir.relative_to(self._git_root()).as_posix()
         listing = self._git("ls-tree", "-r", "--name-only", "--full-name", revision, "--", rel)
         files = {}
         for name in listing.splitlines():
@@ -218,11 +218,11 @@ class Workspace:
         return codec.load(files)
 
     def remove_ledger_entry(self, path: DesignPath) -> None:
-        (self.design_dir / path).unlink(missing_ok=True)
+        (self._design_dir / path).unlink(missing_ok=True)
 
     def ledger_at(self, revision: Revision) -> Ledger:
         """The ledger as committed at a git revision, so a review can show what was raised and answered since."""
-        rel = self.design_dir.relative_to(self._git_root()).as_posix()
+        rel = self._design_dir.relative_to(self._git_root()).as_posix()
         files: dict[DesignPath, LedgerText] = {}
         for folder in (FINDINGS_DIR, RESPONSES_DIR):
             listing = self._git("ls-tree", "-r", "--name-only", "--full-name", revision, "--", f"{rel}/{folder}")
@@ -324,7 +324,7 @@ class Workspace:
 
     def write(self, design_edits: Sequence[DesignEdit], source_edits: Sequence[SourceEdit]) -> None:
         """Write a batch of edits, all or nothing. Refuses if any file changed since it was read."""
-        targets = [(self.design_dir / e.path, e.before, e.after) for e in design_edits]
+        targets = [(self._design_dir / e.path, e.before, e.after) for e in design_edits]
         targets += [(self.root / e.path, e.before, e.after) for e in source_edits]
         self._write(targets)
 
@@ -355,7 +355,7 @@ class Workspace:
 
     def _prune(self, directory: Path) -> None:
         """Remove directories emptied by deletions, up to the design directory."""
-        while directory != self.design_dir and directory.is_dir() and not any(directory.iterdir()):
+        while directory != self._design_dir and directory.is_dir() and not any(directory.iterdir()):
             directory.rmdir()
             directory = directory.parent
 
@@ -363,8 +363,8 @@ class Workspace:
 def create(start: Path) -> Workspace:
     """A workspace for a project that has no design yet, rooted at `start`."""
     ws = Workspace(start.resolve())
-    if any((ws.design_dir / "components").rglob("*.md")):
-        raise AlreadyDesigned(f"{ws.design_dir} already has components; arch init only starts new designs")
+    if any((ws._design_dir / "components").rglob("*.md")):
+        raise AlreadyDesigned(f"{ws._design_dir} already has components; arch init only starts new designs")
     return ws
 
 

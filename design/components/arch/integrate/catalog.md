@@ -3,6 +3,7 @@ kind: component
 realizes: Define every user-facing operation once, with typed inputs and outputs, so all surfaces stay consistent
 solution: A registry of typed operations, each run the same way by the CLI, the MCP server and agent hooks
 hides: How each operation orchestrates the core
+publishes: The operations every surface offers, with their typed inputs and outputs
 uses: [workspace, model, realize, check, change, view, guide, review]
 status: specified
 ---

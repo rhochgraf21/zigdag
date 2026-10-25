@@ -58,11 +58,11 @@ def test_post_edit_reports_blocking_findings_about_the_edited_component(tmp_path
     ws = project(tmp_path, {"src/app/core.py": "import app.other\n", "src/app/other.py": "",
                             "design/components/app/other.md": component(serves="n")})
     payload = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(tmp_path / "src/app/core.py")}})
-    response = agent.handle(agent.HookEvent.POST_EDIT, ws, payload)
+    response = agent.after_edit(ws, payload)
     assert response.exit is agent.HookExit.FEEDBACK and "C001" in response.stderr
     clean = json.dumps({"tool_input": {"file_path": str(tmp_path / "src/app/other.py")}})
-    assert agent.handle(agent.HookEvent.POST_EDIT, ws, clean).exit is agent.HookExit.OK
-    start = agent.handle(agent.HookEvent.SESSION_START, ws, "")
+    assert agent.after_edit(ws, clean).exit is agent.HookExit.OK
+    start = agent.orient(ws)
     assert "arch context" in start.stdout and "core" in start.stdout and len(start.stdout) < 10_000
 
 

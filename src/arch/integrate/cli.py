@@ -133,7 +133,8 @@ def _parser() -> argparse.ArgumentParser:
     ac.add_argument("id")
     ac.add_argument("--realizes", required=True, help="the functional requirement")
     ac.add_argument("--solution", required=True, help="the design parameter")
-    ac.add_argument("--hides", help="the decision it encapsulates")
+    ac.add_argument("--hides", help="the decision it keeps from the other parts")
+    ac.add_argument("--publishes", help="the vocabulary the other parts build against, for a design rule")
     ac.add_argument("--status", default="specified", choices=[s.value for s in Status])
     ac.add_argument("--uses", help="comma-separated references")
     ac.add_argument("--exports", help="comma-separated child names")
@@ -197,7 +198,8 @@ def _operations(args: argparse.Namespace, ws: Workspace) -> list[ops.Operation]:
                 ComponentId(args.id), Text(args.realizes), Text(args.solution),
                 Text(args.hides) if args.hides else None, Status(args.status),
                 tuple(Ref(r) for r in _names(args.uses)), tuple(Ref(r) for r in _names(args.exports)),
-                tuple(NeedId(n) for n in _names(args.serves)), tuple(Text(c) for c in args.criterion))]
+                tuple(NeedId(n) for n in _names(args.serves)), tuple(Text(c) for c in args.criterion),
+                Text(args.publishes) if args.publishes else None)]
         case "add", "need":
             return [ops.AddNeed(NeedId(args.id), Text(args.statement),
                                 Text(args.stakeholder) if args.stakeholder else None, Text(args.signal) if args.signal else None)]
@@ -282,9 +284,11 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
 def _critique(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
     if args.record:
         return catalog.record_critique(ws, AnswerText(ws.read_input(args.record)))
-    mode = catalog.CritiqueMode.REQUEST if args.request else catalog.CritiqueMode.CALIBRATION if args.calibration \
-        else catalog.CritiqueMode.LIST
-    return catalog.critique(ws, ComponentId(args.scope) if args.scope else None, mode)
+    if args.calibration or args.request:
+        args.json = True  # a request is for a critic to read: always JSON
+    if args.calibration:
+        return catalog.critique_calibration(ws)
+    return catalog.critique(ws, ComponentId(args.scope) if args.scope else None)
 
 
 def _review(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
@@ -315,9 +319,9 @@ def _hook(args: argparse.Namespace) -> int:
         ws = catalog.open_project(args.project)
     except catalog.NoProject:
         return 0
-    payload = agent.HookPayload(sys.stdin.read() if event is agent.HookEvent.POST_EDIT else "")
     try:
-        response = agent.handle(event, ws, payload)
+        response = (agent.after_edit(ws, agent.HookPayload(sys.stdin.read())) if event is agent.HookEvent.POST_EDIT
+                    else agent.orient(ws))
     except Exception as e:  # noqa: BLE001
         print(f"arch hook {event.value} failed: {type(e).__name__}: {e}", file=sys.stderr)
         return 0

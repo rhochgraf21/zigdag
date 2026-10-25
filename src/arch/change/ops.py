@@ -63,6 +63,7 @@ class Settable(enum.Enum):
     REALIZES = ("realizes", Kind.COMPONENT)
     SOLUTION = ("solution", Kind.COMPONENT)
     HIDES = ("hides", Kind.COMPONENT)
+    PUBLISHES = ("publishes", Kind.COMPONENT)
     STATUS = ("status", Kind.COMPONENT)
     STATEMENT = ("statement", Kind.NEED)
     STAKEHOLDER = ("stakeholder", Kind.NEED)
@@ -145,6 +146,7 @@ class AddComponent(Operation):
     exports: tuple[Ref, ...] = ()
     serves: tuple[NeedId, ...] = ()
     criteria: tuple[Text, ...] = ()
+    publishes: Text | None = None
 
     def apply_to(self, draft: Draft) -> None:
         if draft.exists(Kind.COMPONENT, self.id):
@@ -153,7 +155,7 @@ class AddComponent(Operation):
         if parent is not None and not draft.exists(Kind.COMPONENT, parent):
             raise Rejected(f"its parent '{parent}' does not exist; add it first")
         fields: dict[str, FieldValue] = {
-            "realizes": self.realizes, "solution": self.solution, "hides": self.hides,
+            "realizes": self.realizes, "solution": self.solution, "hides": self.hides, "publishes": self.publishes,
             "serves": tuple(Ref(n) for n in self.serves), "uses": self.uses, "exports": self.exports,
             "status": Text(self.status.value),
         }

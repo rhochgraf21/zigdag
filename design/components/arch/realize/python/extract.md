@@ -3,21 +3,20 @@ kind: component
 realizes: Extract units, imports, public API, ports, contracts, effect uses and design links from Python source
 solution: A visitor over Python's syntax tree that reads imports, interfaces, contracts and links, and infers effects
 hides: AST traversal and the effect-source table
-uses: [facts]
+uses: [facts, names]
 status: specified
 ---
 ## Acceptance criteria
 - AC1: Public symbols shall be the names in `__all__` if it is defined, else top-level names without a leading underscore.
 - AC2: A function shall have effect E if it calls a known source of E (direct) or a project function with effect E (transitive), computed to a fixed point.
-- AC3: When a call cannot be resolved, its effects shall be charged where the object it is called on was obtained, and only dynamic code such as eval or exec shall yield `unknown`.
+- AC3: When a call cannot be resolved and is not a distinctive pathlib method, its effects shall be charged where the object it is called on was obtained, and only dynamic code such as eval or exec shall yield `unknown`.
 - AC4: Relative imports shall resolve to absolute module paths.
 - AC5: `@deal.has(...)` and `@deal.pre/post/ensure/inv` on public symbols shall become ContractDecl facts.
 - AC6: Every resolvable call shall become a Call fact naming the callee's dotted name, resolving `self.method()`, imported names, and methods on parameters or locals whose class is known from an annotation or a constructor call.
 - AC7: The extractor shall record the parameter, return and class-field types of public symbols, each with its leaf type names, excluding containers and literals.
-- AC8: Names in code shall resolve to their definitions through imports, typed parameters and self.
 - AC9: A member of a private class shall not be part of the interface.
-- AC10: Each use of a local variable shall resolve to the line that set the value it sees.
 - AC11: A module value set to a literal of at most 40 characters shall read as a constant, with its value.
+- AC12: In a unit that uses pathlib, a call to a distinctive pathlib method, such as `.read_text()`, `.rglob()` or `.mkdir()`, shall count as a file effect where it is called, whatever its receiver.
 
 ## Rationale
 Static inference over-approximates in places and misses dynamic dispatch. Reporting `unknown` keeps

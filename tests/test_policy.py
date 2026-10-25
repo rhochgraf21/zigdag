@@ -23,18 +23,21 @@ def test_rules_parse_into_typed_policies_and_report_problems():
 def test_combination_only_tightens():
     loose = EffectRule(frozenset(), frozenset({EffectKind.FS_READ, EffectKind.STDIO}))
     tight = EffectRule(frozenset({EffectKind.TIME}), frozenset({EffectKind.STDIO}))
-    both = EffectRule.combine([loose, tight])
-    assert both.verdict(EffectKind.STDIO) is EffectVerdict.PERMITTED
-    assert both.verdict(EffectKind.FS_READ) is EffectVerdict.NOT_ALLOWED
-    assert both.verdict(EffectKind.TIME) is EffectVerdict.FORBIDDEN
+    c = ComponentId("a.core")
+    both = EffectRule.combine([loose, tight], c)
+    assert both.verdict(c, EffectKind.STDIO) is EffectVerdict.PERMITTED
+    assert both.verdict(c, EffectKind.FS_READ) is EffectVerdict.NOT_ALLOWED
+    assert both.verdict(c, EffectKind.TIME) is EffectVerdict.FORBIDDEN
 
 
 def test_forbids_can_exempt_a_named_subtree():
     from arch.model.ids import ComponentId as C
     policy, problems = Policy.parse({"effects": {"forbid": ["network"], "except_in": ["a.server"]}})
     assert not problems
-    assert policy.for_component(C("a.server.http")).effects.verdict(EffectKind.NETWORK) is EffectVerdict.PERMITTED
-    assert policy.for_component(C("a.core")).effects.verdict(EffectKind.NETWORK) is EffectVerdict.FORBIDDEN
+    assert policy.effects.verdict(C("a.server.http"), EffectKind.NETWORK) is EffectVerdict.PERMITTED
+    assert policy.effects.verdict(C("a.core"), EffectKind.NETWORK) is EffectVerdict.FORBIDDEN
+    combined = Policy.combine([policy], C("a.server.http"))  # exemptions apply when rules are combined too
+    assert combined.effects.verdict(C("a.server.http"), EffectKind.NETWORK) is EffectVerdict.PERMITTED
 
 
 def test_import_rules_allow_by_scope_and_prefix():

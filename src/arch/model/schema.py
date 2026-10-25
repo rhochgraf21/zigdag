@@ -76,7 +76,7 @@ class Component:
     id: ComponentId
     realizes: Text
     solution: Text
-    hides: Text | None
+    hides: Text | None  # a decision it keeps from the other parts (Parnas)
     serves: tuple[NeedId, ...]
     uses: tuple[Ref, ...]
     exports: tuple[Ref, ...]
@@ -84,6 +84,7 @@ class Component:
     criteria: tuple[Criterion, ...]
     decisions: tuple[DecisionEntry, ...]
     location: Location
+    publishes: Text | None = None  # a vocabulary the other parts build against (a design rule)
 
 
 @dataclass(frozen=True)
@@ -142,6 +143,7 @@ FIELDS: Mapping[Kind, Mapping[str, FieldSpec]] = {
         "realizes": FieldSpec(FieldType.TEXT, Presence.REQUIRED),
         "solution": FieldSpec(FieldType.TEXT, Presence.REQUIRED),
         "hides": FieldSpec(FieldType.TEXT),
+        "publishes": FieldSpec(FieldType.TEXT),
         "serves": FieldSpec(FieldType.REFS),
         "uses": FieldSpec(FieldType.REFS),
         "exports": FieldSpec(FieldType.REFS),

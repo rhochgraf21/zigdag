@@ -179,7 +179,10 @@ arch is autonomation: machines catch defects where they are made, and people imp
   a lint, a critic question, a method step, human review.
 - **Meaning is judged by an independent critic**, against a rubric kept as data. arch never calls a
   model; it writes the request and keeps only findings that quote the text. Blind calibration measures the
-  critic against the rubric's own examples.
+  critic against the rubric's own examples. Each question records the rubric version that added it, so a
+  node judged at its current text is asked only the newer questions. A component's request carries its
+  public declarations, so the critic judges the interface as the code declares it, not only as the prose
+  describes it.
 - **Anyone may raise ideas**, people and agents alike. An idea must say what it removes or unifies. Every
   idea is answered, and agents do not raise a declined idea again without new evidence.
 - **Make the right way the easy way.** When the wrong path is cheaper, people and agents take it: `arch

@@ -9,7 +9,7 @@ status: specified
 ## Acceptance criteria
 - AC1: A coupled sibling set shall be a defect at the solution station.
 - AC2: A component with more than nine children shall be a question at the solution station.
-- AC3: A non-root component without `hides` shall be a defect at the solution station.
+- AC3: A non-root component that states neither `hides` nor `publishes` shall be a defect at the solution station.
 - AC4: A use that reaches outside the component's parent (beyond its siblings and their parts) shall be an error unless the parent may use the target.
 - AC5: An `accepts_coupling` entry whose members are no longer coupled shall be a warning.
 - AC6: A decision entry without `Chose:` and `Because:` lines shall be a defect at the solution station.

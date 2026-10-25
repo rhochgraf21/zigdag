@@ -11,4 +11,5 @@ status: specified
 - AC2: When a component is verified, its linked evidence passes and its ports are unchanged, its files shall score one lower.
 - AC3: A file's risk shall count only the interface changes to names defined in that file.
 - AC4: Every criterion of a component that the change adds shall get evidence.
+- AC5: When a changed file belongs to a component that publishes a vocabulary, its risk score shall be 2 higher.
 

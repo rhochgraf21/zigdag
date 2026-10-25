@@ -2,7 +2,7 @@
 kind: component
 realizes: Name things and places in the design, consistently for every other part of the model
 solution: Distinct types for ids, text and locations, with the operations ids need
-hides: How ids are spelled and compared
+publishes: The names of things and places in the design, and how they are compared
 uses: []
 status: specified
 ---

@@ -57,7 +57,6 @@ from arch.view.report import (
     FindingsReport,
     InfoFindings,
     CalibrationReport,
-    CritiqueListing,
     CritiqueRecorded,
     CritiqueRequestView,
     InitReport,
@@ -121,6 +120,7 @@ class Command(enum.Enum):
     RESPOND = "respond"
     FINDINGS = "findings"
     CRITIQUE = "critique"
+    CRITIQUE_CALIBRATION = "critique_calibration"
     CRITIQUE_RECORD = "critique_record"
     INIT = "init"
     NEXT = "next"
@@ -226,24 +226,19 @@ def respond(ws: Workspace, answer: Answer, reason: Text, refs: Sequence[FindingR
     return Result(LedgerWrite(Text(f"{answer.value} {len(identities)} finding{'s' * (len(identities) != 1)}"), response.path))
 
 
-class CritiqueMode(enum.Enum):
-    LIST = "list"  # which nodes wait for a critic
-    REQUEST = "request"  # the request for a critic, as JSON
-    CALIBRATION = "calibration"  # a request about the rubric's own examples, to measure a critic
-
-
-def critique(ws: Workspace, scope: ComponentId | None = None, mode: CritiqueMode = CritiqueMode.LIST) -> Result:
-    """The design text an independent critic must judge, or the request to hand that critic."""
-    if mode is CritiqueMode.CALIBRATION:
-        return Result(CritiqueRequestView(critic.calibration_request()))
+def critique(ws: Workspace, scope: ComponentId | None = None) -> Result:
+    """The design text that waits for an independent critic: a listing for people, the request for the critic."""
     g = _graph(ws)
     _component(g, scope)
     report = run_checks(g, None, ws.ledger(), ws.config().lexicon())
     waiting = tuple(f.subject for f in report.findings if f.rule == "Q001" and not report.is_answered(f)
                     and (scope is None or (f.subject in g and is_within(ComponentId(f.subject), scope))))
-    if mode is CritiqueMode.REQUEST:
-        return Result(CritiqueRequestView(critic.request(g, waiting)))
-    return Result(CritiqueListing(tuple(Text(w) for w in waiting)))
+    return Result(CritiqueRequestView(critic.request(g, waiting, ws.facts(), critic.still_to_ask(g, ws.ledger()))))
+
+
+def critique_calibration(ws: Workspace) -> Result:
+    """A request about the rubric's own examples, with the answers left out, to measure a critic."""
+    return Result(CritiqueRequestView(critic.calibration_request()))
 
 
 def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
@@ -256,7 +251,7 @@ def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
     if parsed.purpose is critic.Purpose.CALIBRATION:
         return Result(CalibrationReport(parsed.critic, critic.score(parsed)))
     g, ledger = _graph(ws), ws.ledger()
-    verdict = critic.judge(parsed, g)
+    verdict = critic.judge(parsed, g, ws.facts(), critic.still_to_ask(g, ledger))
     taken = {n.name for n in ledger.noticed}
     # a finding raised again stays with the earlier one while that is open or settled; raised again after it was
     # answered as fixed, it says the fix did not work, so it is recorded
@@ -541,8 +536,10 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(Command.FINDINGS, Text("List findings and their answers: open ones, ideas waiting for an answer, escapes "
                                      "without a countermeasure, and how often each source's findings are accepted"),
               Access.READS, findings),
-    Operation(Command.CRITIQUE, Text("Which design text waits for an independent critic, and the request to hand it "
-                                     "(or a calibration request about the rubric's own examples)"), Access.READS, critique),
+    Operation(Command.CRITIQUE, Text("Which design text waits for an independent critic; as JSON, the request to hand "
+                                     "it"), Access.READS, critique),
+    Operation(Command.CRITIQUE_CALIBRATION, Text("A request about the rubric's own examples, answers left out, to "
+                                                 "measure a critic"), Access.READS, critique_calibration),
     Operation(Command.CRITIQUE_RECORD, Text("Record a critic's answer: findings it can quote are stored, and the nodes it "
                                             "reviewed count as critiqued until their text changes"),
               Access.WRITES, record_critique),
@@ -550,5 +547,5 @@ OPERATIONS: tuple[Operation, ...] = (
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "Audience", "CritiqueMode", "DiagramFormat", "LedgerRejected", "Listing", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "Audience", "DiagramFormat", "LedgerRejected", "Listing", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

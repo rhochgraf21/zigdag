@@ -109,7 +109,7 @@ Node = Component | Need | Constraint
 
 
 @dataclass(frozen=True)
-class Frontmatter:
+class _Frontmatter:
     """A design file split into its YAML frontmatter and its body, or the problem that stops reading it."""
 
     fields: Mapping[FieldName, object] | None  # None when the frontmatter cannot be read
@@ -117,22 +117,67 @@ class Frontmatter:
     problem: Issue | None = None
 
 
-def frontmatter(path: DesignPath, text: SourceText) -> Frontmatter:
+def _frontmatter(path: DesignPath, text: SourceText) -> _Frontmatter:
     loc = Location(path)
     m = _FRONTMATTER.match(text)
     if not m:
-        return Frontmatter(None, text, Issue(loc, None, Text("missing YAML frontmatter delimited by '---' lines")))
+        return _Frontmatter(None, text, Issue(loc, None, Text("missing YAML frontmatter delimited by '---' lines")))
     try:
         raw = _yaml.load(io.StringIO(m.group(1))) or {}
     except MarkedYAMLError as e:
         mark = e.problem_mark or e.context_mark
         line = LineNo(mark.line + 2) if mark else LineNo(1)
-        return Frontmatter(None, text, Issue(Location(path, line), None, Text(f"invalid YAML: {e.problem or e}")))
+        return _Frontmatter(None, text, Issue(Location(path, line), None, Text(f"invalid YAML: {e.problem or e}")))
     except YAMLError as e:
-        return Frontmatter(None, text, Issue(loc, None, Text(f"invalid YAML: {e}")))
+        return _Frontmatter(None, text, Issue(loc, None, Text(f"invalid YAML: {e}")))
     if not isinstance(raw, dict):
-        return Frontmatter(None, text, Issue(loc, None, Text("frontmatter must be a mapping")))
-    return Frontmatter(raw, SourceText(text[m.end():]))
+        return _Frontmatter(None, text, Issue(loc, None, Text("frontmatter must be a mapping")))
+    return _Frontmatter(raw, SourceText(text[m.end():]))
+
+
+Entry = Mapping[FieldName, Text]  # one item of a list of small mappings, kept on one line
+HeadValue = Text | tuple[Entry, ...] | None  # None, or empty text, leaves the field out
+
+
+@dataclass(frozen=True)
+class Document:
+    """A file in the design's format as plain values: what `document` writes, read back. YAML stays in the codec,
+    so other stores in the same format, such as the findings ledger, never see it."""
+
+    head: Mapping[FieldName, HeadValue]
+    body: SourceText
+    problem: Issue | None = None  # when set, the file could not be read and its head is empty
+
+
+def read_document(path: DesignPath, text: SourceText) -> Document:
+    front = _frontmatter(path, text)
+    if front.fields is None:
+        return Document({}, front.body, front.problem)
+    head: dict[FieldName, HeadValue] = {}
+    for key, value in front.fields.items():
+        plain = _plain(value)
+        if plain is _NOT_PLAIN:
+            return Document({}, front.body, Issue(Location(path), FieldName(str(key)),
+                                                  Text(f"{key} must be text or a list of one-line mappings")))
+        head[FieldName(str(key))] = plain
+    return Document(head, front.body)
+
+
+_NOT_PLAIN = object()
+_SCALARS = (str, int, float)  # a bool is an int too, and reads as its YAML spelling below
+
+
+def _plain(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return Text(str(value).lower())
+    if isinstance(value, _SCALARS):
+        return Text(str(value))
+    if isinstance(value, list) and all(isinstance(e, dict) and all(isinstance(v, _SCALARS) for v in e.values())
+                                       for e in value):
+        return tuple({FieldName(str(k)): Text(str(v)) for k, v in e.items()} for e in value)
+    return _NOT_PLAIN
 
 
 def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue, ...]]:
@@ -141,7 +186,7 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
     if kind is None or ident is None:
         return None, (Issue(loc, None, Text("not a design node path")),)
 
-    front = frontmatter(path, text)
+    front = _frontmatter(path, text)
     if front.fields is None:
         return None, (front.problem,)
     raw, body_start = front.fields, len(text) - len(front.body)
@@ -178,6 +223,7 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
                 realizes=Text(raw["realizes"].strip()),
                 solution=Text(raw["solution"].strip()),
                 hides=opt_text("hides"),
+                publishes=opt_text("publishes"),
                 serves=tuple(NeedId(r) for r in refs("serves")),
                 uses=refs("uses"),
                 exports=refs("exports"),

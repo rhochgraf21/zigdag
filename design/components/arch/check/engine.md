@@ -2,7 +2,8 @@
 kind: component
 realizes: Evaluate rules over a design and facts, producing findings with stable identities and severities
 solution: Rules as pure functions with an id, a scope and a default severity, producing findings whose identity ignores line numbers
-hides: Rule scheduling, scoping and identity computation
+hides: How a finding's identity is computed
+publishes: "The finding model: stations, kinds, sources and the one rule for severity"
 uses: [model.graph, model.ids, model.schema, realize.facts]
 status: specified
 ---

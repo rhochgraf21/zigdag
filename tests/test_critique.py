@@ -5,10 +5,13 @@ import json
 from arch import realizes
 from arch.check import check
 from arch.check import critique as critic
-from arch.check.engine import Subject
+from arch.check.engine import FindingKey, Subject
 from arch.check.ledger import Answer, Ledger, Response, render_response
 from arch.model.ids import ComponentId, Text
 from arch.model.policy import Critique, Policy
+from arch.model.schema import Kind as NodeKind
+from arch.realize import extract
+from arch.realize.facts import Roots, Snapshot, SourcePath
 from tests.conftest import NEED, component, graph
 
 CRITIQUED = "---\nkind: constraint\napplies_to: [s]\nrule:\n  critique: {required: true}\n---\nDesign text is critiqued.\n"
@@ -83,7 +86,7 @@ def test_a_request_gives_only_the_text_and_its_near_context():
     assert piece.text == g.design.sources["components/s/b.md"]
     assert context["parent solution"] == g[ComponentId("s")].solution and "s.a: Do the thing" in context["siblings"]
     doc = json.loads(critic.request(g, (Subject("s.b"),)).to_json())
-    assert {q["part"] for q in doc["questions"]} == {"requirement", "criterion", "solution", "decision"}
+    assert {q["part"] for q in doc["questions"]} == {"requirement", "criterion", "solution", "decision", "interface"}
 
 
 @realizes("arch.check.critique#AC7")
@@ -122,3 +125,43 @@ def test_request_record_and_recritique_from_the_command_line(tmp_path, capsys):
     run("respond", "fixed", "Named the decision.", ref, "--by", "robert")
     (tmp_path / "design/responses").joinpath("declined-s-a-s-a-hides-no-decision.md").unlink(missing_ok=True)
     assert "1 findings recorded" in run("critique", "--record", str(tmp_path / "answer.json"))[1]  # the fix did not hold
+
+
+def stamped(g, subject, version) -> Ledger:
+    """A ledger saying a critic judged `subject` at its current text under rubric `version`."""
+    rule, _, current = critic.wanted(g, subject)
+    identity = (rule, subject, FindingKey(f"{current.rpartition(':v')[0]}:v{version}"))
+    stamp = Response("critiqued", Answer.ANSWERED, Text("fresh-agent"), Text("Judged."), (identity,))
+    return Ledger.parse({stamp.path: render_response(stamp)})
+
+
+@realizes("arch.check.critique#AC9", "arch.check.critique#AC10")
+def test_a_node_judged_under_an_older_rubric_is_asked_only_the_new_questions():
+    g = graph(DESIGN)
+    newer = critic.asked_since(NodeKind.COMPONENT, critic.Version(1))
+    assert newer and all(critic._BY_ID[q].since == 2 for q in newer)
+    assert not critic.asked_since(NodeKind.NEED, critic.Version(1))  # needs got no new questions: not judged again
+    ledger = stamped(g, Subject("s.a"), 1)
+    asked = critic.still_to_ask(g, ledger)
+    assert asked == {Subject("s.a"): newer}
+    doc = json.loads(critic.request(g, (Subject("s.a"),), asked=asked).to_json())
+    assert {q["id"] for q in doc["questions"]} == set(newer) and doc["subjects"][0]["questions"] == list(newer)
+    old = {"subject": "s.a", "question": "hides-no-decision", "quote": "hides: a secret", "message": "No decision."}
+    verdict = critic.judge(answer(["s.a"], [old]), g, asked=asked)
+    assert not verdict.findings and "not asked" in verdict.refused[0]
+    edited = graph({**DESIGN, "components/s/a.md": component(serves="n", hides="another secret")})
+    assert critic.still_to_ask(edited, ledger) == {}  # changed text is judged against every question again
+    assert critic.still_to_ask(g, stamped(g, Subject("s.a"), 2)) == {}  # judged under the current rubric
+
+
+@realizes("arch.check.critique#AC8")
+def test_a_component_with_code_is_judged_with_its_interface():
+    code = {"src/s/__init__.py": "", "src/s/b.py": "def fetch(url: str, cached: bool) -> str:\n    return url\n"}
+    facts = extract(Snapshot({SourcePath(k): v for k, v in code.items()}, Roots((SourcePath("src"),), ())))
+    g = graph(DESIGN)
+    (piece,) = critic.request(g, (Subject("s.b"),), facts).pieces
+    assert "fetch(url: str, cached: bool) -> str" in piece.interface
+    flag = {"subject": "s.b", "question": "interface-flag-picks-behaviour", "quote": "cached: bool",
+            "message": "The flag picks between a cached and a fresh fetch."}
+    assert critic.judge(answer(["s.b"], [flag]), g, facts).findings  # the interface can be quoted
+    assert not critic.judge(answer(["s.b"], [flag]), g).findings  # without the code, the quote is not there

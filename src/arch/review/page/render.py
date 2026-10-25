@@ -82,13 +82,6 @@ def _link(cls: str, href: Href | None, tip: str | None, label: str) -> Fragment:
     return Fragment(f'<span class="{cls}"{_tip(tip)}>{_e(label)}</span>')
 
 
-class Named(enum.Enum):
-    """How a criterion chip is labelled."""
-
-    SHORT = "short"  # AC2: on a page about its component
-    WITH_COMPONENT = "with component"  # assess#AC2: where criteria of several components can meet
-
-
 @dataclass(frozen=True)
 class Refs:
     """Links and hover text for every id on the page."""
@@ -122,9 +115,9 @@ class Refs:
         href = Href("#intent") if "intent" in self.pages else None
         return _link("chip need", href, self.glossary.needs.get(nid), nid)
 
-    def criterion(self, cid: Text, verdict: Text | None = None, named: Named = Named.SHORT) -> Fragment:
-        component, _, short = cid.partition("#")
-        label = f"{short_name(ComponentId(component))}#{short}" if named is Named.WITH_COMPONENT and short else short or cid
+    def criterion(self, cid: Text, verdict: Text | None = None, label: Text | None = None) -> Fragment:
+        """A criterion chip, labelled `AC2` unless the caller names it otherwise."""
+        label = label or Text(cid.partition("#")[2] or cid)
         text = self.glossary.criteria.get(Text(cid))
         tip = " ".join(x for x in (f"{label}: {text}" if text else None, _EVIDENCE_TIPS.get(verdict or "")) if x)
         cls = f" ev-{_e((verdict or '').replace(' ', '-').replace(',', ''))}" if verdict else ""
@@ -443,9 +436,12 @@ def _interface(n: InterfaceNote, refs: Refs) -> str:
         + (refs.component(f.component, short_name(f.component)) if f.component else '<span class="muted">no component</span>')
         + f' · {_file_link(f.path, refs)}</div>{_hunk(f.hunk, f.path, refs)}</div>' for f in n.callers)
     count = (f'<div class="label">{_n(len(n.callers), "caller")} updated to match</div>' if n.callers else "")
+    reach = (f'<div class="muted small">{_n(n.importers, "file")} outside the component '
+             f'{"imports" if n.importers == 1 else "import"} the module that defines it. Deleting or breaking it '
+             f'touches {"it" if n.importers == 1 else "them"}.</div>') if n.importers else ""
     return (f'<div class="card interface"><div class="row-head">{_compat_badge(p.compatibility)}<code>{_e(p.symbol)}</code>'
             f'<span class="muted">{_e(p.type.value.capitalize())}. {_MEANING[p.compatibility]}</span></div>{again}'
-            f"{_text_diff(p.before, p.after)}{count}{callers}</div>")
+            f"{_text_diff(p.before, p.after)}{reach}{count}{callers}</div>")
 
 
 _WHY_LABEL = {Why.TESTS: "Tests", Why.REALIZES: "Realizes", Why.EXERCISED: "Tested by", Why.FOLLOWS: "Follows",
@@ -456,6 +452,12 @@ def _and(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
+def _qualified(cid: Text) -> Text:
+    """`assess#AC2`: where criteria of several components can meet, each says whose it is."""
+    component, _, short = cid.partition("#")
+    return Text(f"{short_name(ComponentId(component))}#{short}")
+
+
 def _criterion_order(cid: Text) -> tuple[str, int]:
     component, _, label = cid.partition("#")
     return component, int(label[2:]) if label[2:].isdigit() else 0
@@ -463,7 +465,7 @@ def _criterion_order(cid: Text) -> tuple[str, int]:
 
 def _reason(r: Reason, refs: Refs) -> str:
     ordered = sorted(r.refs, key=_criterion_order) if r.why in (Why.TESTS, Why.REALIZES, Why.EXERCISED) else list(r.refs)
-    chips = _and([refs.criterion(t, named=Named.WITH_COMPONENT) for t in ordered]) if ordered else ""
+    chips = _and([refs.criterion(t, label=_qualified(t)) for t in ordered]) if ordered else ""
     many = len(r.refs) > 1
     if r.why is Why.TESTS:
         text = f"It tests {chips}, which this change {_e(r.detail)}."

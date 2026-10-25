@@ -187,6 +187,9 @@ class Definition:
     location: SourceLocation  # its first line, decorators included
     end_line: LineNo
     summary: Text | None = None  # the first line of its documentation, or the comment on its line
+    branches_on: tuple[Text, ...] = ()  # for a function: the parameters its conditions test
+    reads: tuple[tuple[Text, tuple[Text, ...]], ...] = ()  # for a function: each parameter, and the attributes read on it
+    whole: tuple[Text, ...] = ()  # for a function: the parameters it uses as a whole (passes on, returns, compares)
 
     def restates_name(self) -> bool:
         """Whether the description says nothing that the signature does not (`path: SourcePath  # the path`)."""

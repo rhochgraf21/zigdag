@@ -33,6 +33,20 @@ def test_an_accepted_finding_is_reported_but_does_not_block():
     assert not again.blocking and all(again.is_answered(f) for f in first.blocking)
 
 
+@realizes("arch.check#AC3")
+def test_a_rule_finding_answered_as_fixed_that_comes_back_blocks_again():
+    first = check(graph(BROKEN))
+    fixed = Response("fixed", Answer.FIXED, Text("robert"), Text("Removed the use."), tuple(f.identity for f in first.blocking))
+    again = check(graph(BROKEN), ledger=ledger_of(fixed))  # the rule still finds it: the fix did not hold
+    assert {f.identity for f in again.blocking} == {f.identity for f in first.blocking}
+    assert all("answered as fixed in responses/fixed.md, and found again" in f.message for f in again.blocking)
+    noticed = Noticed(Finding(Subject("s.a"), RuleId("hides-no-decision"), FindingKey("n1"), Kind.QUESTION,
+                              Text("No decision."), Text("Name it."), source=Source.CRITIC, station=Station.SOLUTION), "n1")
+    settled = Response("fixed-n1", Answer.FIXED, Text("robert"), Text("Named it."), (noticed.finding.identity,))
+    report = check(graph(BROKEN), ledger=ledger_of(noticed, settled))
+    assert report.is_answered(noticed.finding)  # a stored finding stays stored: its fixed answer holds
+
+
 @realizes("arch.check.ledger#AC2")
 def test_answers_to_findings_that_no_longer_occur_are_pointed_out():
     baseline = accepting(check(graph(BROKEN)).blocking, "baseline", Text("arch baseline"), Text("existing"))

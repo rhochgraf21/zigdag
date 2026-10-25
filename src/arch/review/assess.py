@@ -7,7 +7,7 @@ Risk score per changed file (documented so it can be argued with):
   breaking port change +4, port needing review +2, compatible port change +1 (the largest applies)
   new import into another component +2;  new blocking finding in the file or its component +3
   component has failing evidence +2, or no linked evidence +1;  hotspot (most-changed tenth) +1
-  belongs to no component +1;  more than 200 lines changed +1
+  belongs to no component +1;  more than 200 lines changed +1;  part of a design rule (publishes) +2
   component verified with passing evidence and no port change: -1;  test files score 0
   high: 4 or more, medium: 2-3, low: 1 or less
 """
@@ -180,6 +180,9 @@ def _risks(inp: ReviewInput, after: Graph, ports: tuple[PortChange, ...]) -> lis
                for f in new_findings):
             score += 3
             reasons.append(Text("new blocking finding"))
+        if cid is not None and after[cid].publishes is not None:
+            score += 2  # a design rule: everything that builds on its vocabulary feels the change
+            reasons.append(Text("changes a vocabulary other parts build on"))
         if cid is None:
             score += 1
             reasons.append(Text("belongs to no component"))

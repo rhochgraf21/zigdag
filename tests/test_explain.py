@@ -11,7 +11,8 @@ from arch.model.graph import Graph
 from arch.model.ids import DesignPath, Text
 from arch.realize.facts import FileChange, LineNo, NameKind, Role, Roots, Snapshot, SourcePath, UnitName, port_changes
 from arch.realize.history import UnifiedDiff, added_file, parse_diff
-from arch.realize.python.extract import extract, names
+from arch.realize.python.extract import extract
+from arch.realize.python.names import references as names
 from arch.review import items as review_items
 from arch.review.assess import ReviewInput, criteria_evidence, file_risks
 from arch.review.explain import Why
@@ -59,7 +60,7 @@ def test_every_definition_and_call_site_is_recorded():
     assert sites == [(16, 16), (17, 19)]
 
 
-@realizes("arch.realize.python.extract#AC8", "arch.realize#AC7")
+@realizes("arch.realize.python.names#AC1", "arch.realize#AC7")
 def test_names_resolve_through_typed_parameters_only_when_asked():
     refs = {(r.text, r.kind): r.target for r in names(SourcePath("src/m.py"), SAMPLE, UnitName("m")) if r.location.line == 16}
     assert refs[("inp.after", NameKind.DEFINITION)] == "m.Input.after"
@@ -118,7 +119,7 @@ def html_of(inp):
 
 
 @realizes("arch.review.explain#AC4", "arch.review.explain#AC5", "arch.review.items#AC9", "arch.review.explain#AC1",
-          "arch.review.items#AC10")
+          "arch.review.items#AC10", "arch.review.items#AC13")
 def test_a_caller_that_only_follows_an_interface_change_is_shown_with_it():
     items, html = html_of(change(BEFORE, AFTER, parse_diff(FOLLOW)))
     assert not any(i.id == "code:s.shell" for i in items)  # nothing else changed there
@@ -130,6 +131,7 @@ def test_a_caller_that_only_follows_an_interface_change_is_shown_with_it():
     (reason,) = caller.hunk.reasons
     assert reason.why is Why.FOLLOWS and reason.refs == ("s.core.f",)
     assert "1 caller updated to match" in html and "It updates calls to" in html
+    assert note.importers == 1 and "1 file outside the component imports the module that defines it" in html
     (own,) = core.sources[0].hunks
     assert own.unexplained and "No reason given." in html  # the signature change itself: nothing traced
     tallies = {t.label: t.count for t in page(items, "overview").body.tallies}

@@ -18,15 +18,16 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from arch.model.ids import CriterionLabel, FieldName, Ref, Text
+from arch.model.codec.read import HeadValue
 from arch.model.schema import DecisionLabel, Kind, SourceText
 
 FieldValue = Text | tuple[Ref, ...] | None  # None removes the field
-YamlScalar = NewType("YamlScalar", str)
+_YamlScalar = NewType("_YamlScalar", str)
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
 _CRITERION = re.compile(r"^- AC(\d+):")
 _ORDER: Mapping[Kind, tuple[str, ...]] = {
-    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "status"),
+    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "publishes", "serves", "uses", "exports", "status"),
     Kind.NEED: ("kind", "stakeholder", "signal"),
     Kind.CONSTRAINT: ("kind", "applies_to", "rule"),
 }
@@ -35,14 +36,20 @@ _DECISIONS = "Decisions"
 _PLAIN_UNSAFE = re.compile(r"^[-?:,\[\]{}#&*!|>'\"%@`\s]|: | #|\s$|^(true|false|yes|no|on|off|null|~)$|^[0-9.+-]", re.I)
 
 
+# characters JSON leaves as they are that YAML refuses, or reads as a line break, inside quotes
+_UNPRINTABLE = re.compile("[\x7f-\x9f\u2028\u2029\ufffe\uffff]")
+_FLOW_INDICATOR = re.compile(r"[,\[\]{}]")  # these end a plain value inside [...] or {...}
 _yaml = YAML(typ="safe", pure=True)
 
 
-def scalar(value: Text) -> YamlScalar:
-    """A YAML scalar for `value`: plain when it reads back as exactly `value`, else double-quoted."""
-    if value and not _PLAIN_UNSAFE.search(value) and "\n" not in value and _reads_back(value):
-        return YamlScalar(value)
-    return YamlScalar(json.dumps(value, ensure_ascii=False))
+def _scalar(value: Text, flow: bool = False) -> _YamlScalar:
+    """A YAML scalar for `value`: plain when it reads back as exactly `value`, else double-quoted, with the
+    characters YAML refuses to read escaped. Inside a one-line list or mapping (`flow`), fewer values are plain."""
+    if (value and not _PLAIN_UNSAFE.search(value) and "\n" not in value and not (flow and _FLOW_INDICATOR.search(value))
+            and _reads_back(value)):
+        return _YamlScalar(value)
+    quoted = json.dumps(value, ensure_ascii=False)
+    return _YamlScalar(_UNPRINTABLE.sub(lambda m: f"\\u{ord(m.group()):04x}", quoted))
 
 
 def _reads_back(plain: str) -> bool:
@@ -52,10 +59,24 @@ def _reads_back(plain: str) -> bool:
         return False
 
 
-def render(value: FieldValue) -> YamlScalar:
+def _render(value: FieldValue) -> _YamlScalar:
     if isinstance(value, str):
-        return scalar(value)
-    return YamlScalar("[" + ", ".join(scalar(Text(r)) for r in value) + "]")
+        return _scalar(value)
+    return _YamlScalar("[" + ", ".join(_scalar(Text(r), flow=True) for r in value) + "]")
+
+
+def document(head: Sequence[tuple[FieldName, HeadValue]], body: Text) -> SourceText:
+    """A whole file in the design's format, frontmatter then body, from plain values; the codec does all the
+    quoting. Other stores kept in the same format, such as the findings ledger, write through this."""
+    lines = ["---"]
+    for name, value in head:
+        if isinstance(value, str):
+            if value:
+                lines.append(f"{name}: {_scalar(value)}")
+        elif value is not None:
+            lines.append(f"{name}:" if value else f"{name}: []")
+            lines += ["  - {" + ", ".join(f"{k}: {_scalar(v, flow=True)}" for k, v in e.items()) + "}" for e in value]
+    return SourceText("\n".join([*lines, "---", body.strip(), ""]))
 
 
 @dataclass(frozen=True)
@@ -110,7 +131,7 @@ class NodeFile:
                 del self._lines[span[0] : span[1]]
                 self._end -= span[1] - span[0]
             return
-        line = f"{name}: {render(value)}"
+        line = f"{name}: {_render(value)}"
         if span:
             self._lines[span[0] : span[1]] = [line]
             self._end -= span[1] - span[0] - 1

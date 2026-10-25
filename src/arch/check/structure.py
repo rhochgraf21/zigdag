@@ -120,9 +120,11 @@ def missing_secret(ctx: Context) -> Iterator[Finding]:
     g = ctx.graph
     for cid in g.ids():
         c = g[cid]
-        if parent_of(cid) is not None and c.hides is None:
-            yield _finding("S006", cid, "hides", Kind.DEFECT, "states no secret (`hides`)",
-                           "name the design decision this component encapsulates", c.location)
+        if parent_of(cid) is not None and c.hides is None and c.publishes is None:
+            yield _finding("S006", cid, "hides", Kind.DEFECT,
+                           "states neither a decision it hides nor a vocabulary it publishes",
+                           "name the decision it keeps from the other parts (`hides`), or, for a design rule that "
+                           "others build against, what it publishes (`publishes`)", c.location)
 
 
 def missing_criteria(ctx: Context) -> Iterator[Finding]:
@@ -157,7 +159,7 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("S002"), Station.NEEDS, Text("top-level components and needs trace to each other"), untraced),
     Rule(RuleId("S004"), Station.SOLUTION, Text("at most nine children"), span),
     Rule(RuleId("S005"), Station.SOLUTION, Text("children are not coupled"), coupling),
-    Rule(RuleId("S006"), Station.SOLUTION, Text("components state their secret"), missing_secret),
+    Rule(RuleId("S006"), Station.SOLUTION, Text("components state what they hide or publish"), missing_secret),
     Rule(RuleId("S007"), Station.SOLUTION, Text("uses stay within what the parent may use, and are visible"), illegal_uses),
     Rule(RuleId("S009"), Station.REQUIREMENTS, Text("components have acceptance criteria"), missing_criteria),
     Rule(RuleId("S010"), Station.SOLUTION, Text("decision entries say what was chosen and why"), decision_entries),

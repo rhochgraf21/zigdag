@@ -10,3 +10,4 @@ status: specified
 ## Acceptance criteria
 - AC1: Every operation shall behave identically from the CLI and from MCP, with the same inputs, outputs and failure semantics.
 - AC2: arch shall be usable in a repository after a single install command, with no configuration.
+- AC3: When `arch init` has run on a project with no design, the first `arch check` shall pass.

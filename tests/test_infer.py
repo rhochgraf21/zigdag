@@ -60,7 +60,7 @@ def test_import_cycles_are_recorded_and_block_only_a_specified_parent():
     assert [report.severity(f) for f in report.findings if f.rule == "S005"] == [Severity.INFO]  # a draft has not claimed its solution yet
 
 
-@realizes("arch.guide.infer#AC5")
+@realizes("arch.integrate#AC3")
 def test_init_writes_a_design_that_passes_its_first_check(tmp_path, capsys):
     for path, text in {**CODE, "tests/test_x.py": "@realizes('app.core#AC1')\ndef test(): ...\n"}.items():
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)

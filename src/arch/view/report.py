@@ -287,32 +287,19 @@ class PlanReport:
 
 
 @dataclass(frozen=True)
-class CritiqueListing:
-    """The nodes whose text an independent critic has not judged since it last changed."""
-
-    waiting: tuple[Text, ...]
-
-    def to_markdown(self) -> Markdown:
-        if not self.waiting:
-            return Markdown("every node that must be critiqued has been, since it last changed")
-        return Markdown("\n".join([
-            f"{len(self.waiting)} node{'s' * (len(self.waiting) != 1)} wait for an independent critic: "
-            + ", ".join(self.waiting),
-            "next: `arch critique --request > request.json`, hand it to a reviewer that did not write the text "
-            "and has no other context, then `arch critique --record answer.json`"]))
-
-    def to_json(self) -> JsonValue:
-        return {"waiting": list(self.waiting)}
-
-
-@dataclass(frozen=True)
 class CritiqueRequestView:
-    """A critic's request: the rubric and the text to judge. Always JSON, for the critic to read."""
+    """What waits for a critic: for people, which nodes and what to do; for a critic, the request itself."""
 
     request: Request
 
     def to_markdown(self) -> Markdown:
-        return Markdown(self.request.to_json())
+        waiting = [p.subject for p in self.request.pieces]
+        if not waiting:
+            return Markdown("every node that must be critiqued has been, since it last changed")
+        return Markdown("\n".join([
+            f"{len(waiting)} node{'s' * (len(waiting) != 1)} wait for an independent critic: " + ", ".join(waiting),
+            "next: `arch critique --request > request.json`, hand it to a reviewer that did not write the text "
+            "and has no other context, then `arch critique --record answer.json`"]))
 
     def to_json(self) -> JsonValue:
         return json.loads(self.request.to_json())

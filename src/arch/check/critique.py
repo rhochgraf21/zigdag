@@ -8,6 +8,9 @@ keyed by the node's content, so a node is critiqued again whenever its text chan
 
 Calibration uses the same path: each question carries an example it should flag and one it should let
 pass, and an answer about those examples is scored instead of stored.
+
+Each question records the rubric version that added it. A node judged at its current text under an older
+version is asked only the questions added since, so growing the rubric does not mean judging everything again.
 """
 
 from __future__ import annotations
@@ -15,19 +18,22 @@ from __future__ import annotations
 import enum
 import json
 import re
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, replace
 from typing import NewType
 
 from arch.check.engine import Context, Finding, FindingIdentity, FindingKey, Kind, Rule, RuleId, Source, Station, Subject
-from arch.check.ledger import digest_of
+from arch.check.ledger import Answer, Ledger, digest_of
 from arch.model import codec
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, parent_of
 from arch.model.policy import Critique as Requirement
 from arch.model.schema import Kind as NodeKind
+from arch.realize.facts import Facts
+from arch.realize.mapping import map_units
 
-RUBRIC_VERSION = Text("1")  # raise it when questions are added or change meaning: every node is critiqued again
+RUBRIC_VERSION = Text("2")  # the newest question's `since`; raise both when questions are added or change meaning
+Version = NewType("Version", int)
 QuestionId = NewType("QuestionId", str)
 Tally = NewType("Tally", int)  # examples counted in calibration
 AnswerText = NewType("AnswerText", str)  # a critic's answer, as JSON
@@ -43,6 +49,7 @@ class Part(enum.Enum):
     SOLUTION = "solution"  # a component's `solution` and `hides`
     DECISION = "decision"
     CONSTRAINT = "constraint"
+    INTERFACE = "interface"  # a component's public functions, classes and fields, as the code declares them
 
     @property
     def node_kind(self) -> NodeKind:
@@ -58,10 +65,11 @@ class Question:
     because: Text  # the principle behind the question
     flags: Text  # an example it should flag
     passes: Text  # an example it should let pass
+    since: Version = Version(1)  # the rubric version that added it
 
 
-def _q(id: str, part: Part, station: Station, ask: str, because: str, flags: str, passes: str) -> Question:
-    return Question(QuestionId(id), part, station, Text(ask), Text(because), Text(flags), Text(passes))
+def _q(id: str, part: Part, station: Station, ask: str, because: str, flags: str, passes: str, since: int = 1) -> Question:
+    return Question(QuestionId(id), part, station, Text(ask), Text(because), Text(flags), Text(passes), Version(since))
 
 
 RUBRIC: tuple[Question, ...] = (
@@ -139,6 +147,30 @@ RUBRIC: tuple[Question, ...] = (
        "The reason is what lets someone revisit the choice when circumstances change.",
        "Because: it is the better option",
        "Because: reviews happen in pull requests, and text files diff and merge there"),
+    _q("criterion-contradicts-decision", Part.CRITERION, Station.REQUIREMENTS,
+       "Does the criterion contradict a decision recorded on the same part?",
+       "A criterion and a decision that disagree leave the part's behaviour undecided, and one of them is out of date.",
+       "Decision: Chose: charge effects where the object was obtained. AC3: Calls that cannot be resolved shall yield "
+       "unknown.",
+       "Decision: Chose: charge effects where the object was obtained. AC3: When a call cannot be resolved, its effects "
+       "shall be charged where the object was obtained.", since=2),
+    _q("interface-flag-picks-behaviour", Part.INTERFACE, Station.INTERFACE,
+       "Does a function take a flag or a mode that picks between different behaviours?",
+       "A parameter that picks the behaviour hides several functions inside one, and every caller pays for all of them.",
+       "def fetch(url: Url, cached: bool, retry: bool, verbose: bool) -> Page",
+       "def fetch(url: Url, policy: FetchPolicy) -> Page", since=2),
+    _q("interface-order-to-remember", Part.INTERFACE, Station.INTERFACE,
+       "Must a caller call functions in a set order, such as init before run, for them to work?",
+       "An order the caller must remember is an invalid state the types allow. A function can instead return the object "
+       "that does the next step.",
+       "def init() -> None; def connect() -> None; def run(job: Job) -> Result",
+       "def connect(config: Config) -> Session; Session.run(self, job: Job) -> Result", since=2),
+    _q("interface-leaks-storage", Part.INTERFACE, Station.INTERFACE,
+       "Does the interface take or return a storage or library type, such as a database cursor or an ORM row, instead "
+       "of a domain value?",
+       "A storage type in the interface ties every caller to how the data is kept, so the part cannot change it.",
+       "def orders(user: UserId) -> sqlite3.Cursor",
+       "def orders(user: UserId) -> tuple[Order, ...]", since=2),
     _q("constraint-is-function", Part.CONSTRAINT, Station.REQUIREMENTS,
        "Does the constraint limit every solution, or is it a function in disguise that some part should realize?",
        "Constraints bound the design. A function belongs to a component with a solution of its own.",
@@ -151,11 +183,14 @@ INSTRUCTIONS: tuple[Text, ...] = tuple(Text(t) for t in (
     "You are an independent critic. You did not write this text and you have no stake in it.",
     "For each subject, ask every question for its kind of text. Raise a finding only when the answer shows a real "
     "defect. When in doubt, leave it out.",
-    "Every finding must quote the exact words it is about, copied character for character from the subject's text. "
-    "Quote as little as identifies the problem.",
+    "Every finding must quote the exact words it is about, copied character for character from the subject's text "
+    "or interface. Quote as little as identifies the problem.",
     "Write each message as one or two plain sentences: what is wrong, and why it matters. Put a concrete fix in hint.",
     "Do not comment on style, spelling, or anything the questions do not ask.",
     "List every subject you reviewed in reviewed, including the ones with no findings.",
+    "When a subject lists its questions, ask only those: its text was judged against the others before.",
+    "Interface questions look at the subject's interface: the public functions, classes and fields its code declares. "
+    "A subject with no interface listed has none to judge yet.",
     "Answer with JSON only, in the answer format.",
 ))
 ANSWER_FORMAT: Text = Text('{"critic": "<your name>", "rubric": "<the rubric version>", "reviewed": ["<subject>", ...], '
@@ -173,9 +208,46 @@ def required(graph: Graph) -> tuple[Subject, ...]:
                                       *(sorted(design.constraints) if top else ())))
 
 
+def version_for(kind: NodeKind) -> Version:
+    """The rubric version for one kind of node: the newest question asked of it. A node is critiqued again only when
+    its own kind gets new questions."""
+    return max((q.since for q in RUBRIC if q.part.node_kind is kind), default=Version(1))
+
+
+def kind_of(graph: Graph, subject: Subject) -> NodeKind:
+    design = graph.design
+    return NodeKind.NEED if subject in design.needs else NodeKind.CONSTRAINT if subject in design.constraints \
+        else NodeKind.COMPONENT
+
+
 def wanted(graph: Graph, subject: Subject) -> FindingIdentity:
     """The identity of the question "has this text been critiqued since it last changed?" for one node."""
-    return (RuleId("Q001"), subject, FindingKey(f"critique:{digest_of(graph, subject)}:v{RUBRIC_VERSION}"))
+    version = version_for(kind_of(graph, subject))
+    return (RuleId("Q001"), subject, FindingKey(f"critique:{digest_of(graph, subject)}:v{version}"))
+
+
+def asked_since(kind: NodeKind, version: Version) -> tuple[QuestionId, ...]:
+    """The questions added for a kind of node after a version it was already judged with."""
+    return tuple(q.id for q in RUBRIC if q.part.node_kind is kind and q.since > version)
+
+
+def still_to_ask(graph: Graph, ledger: Ledger) -> dict[Subject, tuple[QuestionId, ...]]:
+    """For each node a critic judged at its current text under an older rubric: only the questions added since.
+    A node whose text changed is judged against every question again, so it is not listed."""
+    judged: dict[Subject, Version] = {}
+    for r in ledger.responses:
+        if r.answer is not Answer.ANSWERED:
+            continue
+        for rule, subject, key in r.findings:
+            digest, _, version = key.removeprefix("critique:").rpartition(":v")
+            if rule == "Q001" and version.isdigit() and digest == digest_of(graph, subject):
+                judged[subject] = max(judged.get(subject, Version(0)), Version(int(version)))
+    out = {}
+    for subject, version in judged.items():
+        kind = kind_of(graph, subject)
+        if version < version_for(kind):
+            out[subject] = asked_since(kind, version)
+    return out
 
 
 def critique_wanted(ctx: Context) -> Iterator[Finding]:
@@ -200,6 +272,8 @@ class Piece:
     kind: NodeKind
     text: Text
     context: tuple[tuple[Text, Text], ...] = ()
+    interface: Text = Text("")  # for a component with code: its public functions, classes and fields
+    asked: tuple[QuestionId, ...] = ()  # when set, only these questions: the others were answered for this text
 
 
 class Purpose(enum.Enum):
@@ -213,23 +287,46 @@ class Request:
     purpose: Purpose
 
     def to_json(self) -> AnswerText:
-        kinds = {p.kind for p in self.pieces}
-        questions = [q for q in RUBRIC if q.part.node_kind in kinds]
+        whole = {p.kind for p in self.pieces if not p.asked}  # these subjects are judged against every question
+        some = {q for p in self.pieces for q in p.asked}
+        questions = [q for q in RUBRIC if q.part.node_kind in whole or q.id in some]
         blind = self.purpose is Purpose.CALIBRATION  # the examples are what is judged, so they must not be shown
         doc = {
             "rubric": RUBRIC_VERSION, "purpose": self.purpose.value,
             "instructions": list(INSTRUCTIONS),
             "questions": [{"id": q.id, "part": q.part.value, "ask": q.ask, "because": q.because,
                            **({} if blind else {"flags": q.flags, "passes": q.passes})} for q in questions],
-            "subjects": [{"subject": p.subject, "kind": p.kind.value, "text": p.text, "context": dict(p.context)}
-                         for p in self.pieces],
+            "subjects": [{"subject": p.subject, "kind": p.kind.value, "text": p.text, "context": dict(p.context),
+                          **({"interface": p.interface} if p.interface else {}),
+                          **({"questions": list(p.asked)} if p.asked else {})} for p in self.pieces],
             "answer_format": ANSWER_FORMAT,
         }
         return AnswerText(json.dumps(doc, indent=2, ensure_ascii=False))
 
 
-def request(graph: Graph, subjects: tuple[Subject, ...]) -> Request:
-    return Request(tuple(p for s in subjects if (p := _piece(graph, s)) is not None), Purpose.DESIGN)
+def request(graph: Graph, subjects: tuple[Subject, ...], facts: Facts | None = None,
+            asked: Mapping[Subject, tuple[QuestionId, ...]] | None = None) -> Request:
+    """What a critic needs: each node's text, its near context, its interface when the code is known, and, for a node
+    judged before at its current text, only the questions added since."""
+    interfaces = _interfaces(graph, facts) if facts is not None else {}
+    asked = asked or {}
+    pieces = tuple(replace(p, interface=interfaces.get(p.subject, Text("")), asked=asked.get(p.subject, ()))
+                   for s in subjects if (p := _piece(graph, s)) is not None)
+    return Request(pieces, Purpose.DESIGN)
+
+
+def _interfaces(graph: Graph, facts: Facts) -> dict[Subject, Text]:
+    """Each component's public declarations, as signatures, from the units that belong to it directly."""
+    mapping = map_units(graph, facts)
+    out: dict[Subject, list[str]] = {}
+    for sym in facts.symbols:
+        cid = mapping.component_of.get(sym.unit)
+        if cid is not None:
+            out.setdefault(Subject(cid), []).append(f"{sym.unit}: {sym.signature}")
+    return {k: Text("\n".join(v[:_INTERFACE_LINES])) for k, v in out.items()}
+
+
+_INTERFACE_LINES = 80  # enough to judge an interface; a larger one is a finding in itself
 
 
 def calibration_request() -> Request:
@@ -312,11 +409,12 @@ class Verdict:
     refused: tuple[Text, ...]
 
 
-def judge(answer: CriticAnswer, graph: Graph) -> Verdict:
-    """Accept a finding only if it names a question for that kind of text and quotes words that are in it."""
+def judge(answer: CriticAnswer, graph: Graph, facts: Facts | None = None,
+          asked: Mapping[Subject, tuple[QuestionId, ...]] | None = None) -> Verdict:
+    """Accept a finding only if it names a question asked of that text and quotes words that are in it."""
     if answer.rubric != RUBRIC_VERSION:
         return Verdict((), (), (Text(f"the answer is for rubric {answer.rubric or '?'}, not {RUBRIC_VERSION}"),))
-    pieces = {p.subject: p for p in request(graph, answer.reviewed).pieces}
+    pieces = {p.subject: p for p in request(graph, answer.reviewed, facts, asked).pieces}
     reviewed = tuple(s for s in answer.reviewed if s in pieces)
     refused = [Text(f"{s}: no such design node") for s in answer.reviewed if s not in pieces]
     accepted = []
@@ -340,9 +438,11 @@ def _refusal(r: Raised, pieces: dict[Subject, Piece]) -> str | None:
         return "the rubric has no such question"
     if q.part.node_kind is not piece.kind:
         return f"that question is about a {q.part.value}, and this is a {piece.kind.value}"
+    if piece.asked and q.id not in piece.asked:
+        return "that question was not asked of this subject"
     if not r.message.strip():
         return "the finding says nothing"
-    if not r.quote.strip() or _squash(r.quote) not in _squash(piece.text):
+    if not r.quote.strip() or _squash(r.quote) not in _squash(f"{piece.text}\n{piece.interface}"):
         return f"the quote is not in the text: \"{r.quote}\""
     return None
 
@@ -386,4 +486,4 @@ def score(answer: CriticAnswer) -> tuple[Agreement, ...]:
 
 
 __all__ = ["RUBRIC", "RUBRIC_VERSION", "RULES", "Agreement", "CriticAnswer", "AnswerText", "Part", "Piece", "Purpose",
-           "Question", "QuestionId", "Request", "Tally", "Verdict", "calibration_request", "judge", "repeats", "request", "required", "score", "wanted"]
+           "Question", "QuestionId", "Request", "Tally", "Verdict", "Version", "asked_since", "kind_of", "still_to_ask", "version_for", "calibration_request", "judge", "repeats", "request", "required", "score", "wanted"]

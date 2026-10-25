@@ -5,7 +5,8 @@ from hypothesis import strategies as st
 
 from arch import realizes
 from arch.realize.facts import Capability, Role, SourcePath, UnitName
-from arch.realize.python.extract import extract, names
+from arch.realize.python.extract import extract
+from arch.realize.python.names import references as names
 
 SRC = '''
 from __future__ import annotations

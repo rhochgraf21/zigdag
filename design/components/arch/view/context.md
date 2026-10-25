@@ -11,6 +11,7 @@ status: specified
 - AC2: Neighbouring components shall appear only as their external spec (realizes, port signatures, contracts), never their internals.
 - AC3: When over budget, sections shall be dropped in a fixed priority order and the omission stated in the card.
 - AC4: The card for a component with at most 10 port symbols and 5 uses shall fit in 4k tokens, estimated as characters divided by 4.
+- AC5: A component's card shall say how many files outside it import its code, and in how many components.
 
 ## Decisions
 ### Neighbours by external spec only

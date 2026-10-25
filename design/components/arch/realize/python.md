@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Relate Python code to the design
-solution: An adapter registered for Python files, made of an AST extractor and a scaffold emitter
+solution: An adapter registered for Python files, made of an AST extractor, the name resolver it uses, and a scaffold emitter
 hides: Python language details
 uses: [facts, model.schema]
 exports: []

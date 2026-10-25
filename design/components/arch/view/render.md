@@ -2,7 +2,7 @@
 kind: component
 realizes: Give every view one vocabulary for what it renders
 solution: Markdown and JSON value types, sizes and counts, and the Rendering protocol every report implements
-hides: How each output form is encoded
+publishes: The value types and the rendering protocol every view and report uses
 uses: []
 status: specified
 ---

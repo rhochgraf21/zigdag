@@ -25,6 +25,7 @@ def test_direct_effects_from_resolved_names():
                      ("d", Effect.STDIO), ("d", Effect.FS_WRITE), ("e", Effect.FS_READ)}
 
 
+@realizes("arch.realize.python.extract#AC12")
 def test_pathlib_methods_count_only_where_pathlib_is_used():
     with_pathlib, _ = effects("from pathlib import Path\ndef r(p):\n    return p.read_text()\n")
     without, _ = effects("def r(p):\n    return p.read_text()\n")

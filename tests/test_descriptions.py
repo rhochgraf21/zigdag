@@ -8,7 +8,8 @@ from arch.model import codec
 from arch.model.graph import Graph
 from arch.model.ids import DesignPath
 from arch.realize.facts import NameKind, Role, SourcePath, UnitName, needs_description
-from arch.realize.python.extract import extract, names
+from arch.realize.python.extract import extract
+from arch.realize.python.names import references as names
 from tests.conftest import NEED, component
 
 SRC = '''from typing import NewType
@@ -59,7 +60,7 @@ def test_only_names_their_type_does_not_explain_need_a_description():
     assert symbols["CONFIG_FILE"].kind == "constant" and symbols["CONFIG_FILE"].signature == "CONFIG_FILE = 'arch.toml'"
 
 
-@realizes("arch.check.conformance#AC14", "arch.check.conformance#AC15")
+@realizes("arch.check.quality#AC1", "arch.check.quality#AC2")
 def test_conformance_reports_missing_and_empty_descriptions_more_strictly_as_code_matures():
     def found(status):
         design = codec.load({DesignPath("needs/n.md"): NEED, DesignPath("components/m.md"): component(serves="n", status=status)})
@@ -76,7 +77,7 @@ def test_conformance_reports_missing_and_empty_descriptions_more_strictly_as_cod
     assert found("verified") == contracted
 
 
-@realizes("arch.realize.python.extract#AC10")
+@realizes("arch.realize.python.names#AC2")
 def test_a_local_resolves_to_the_line_that_set_it():
     refs = {(r.text, r.location.line, r.bound_at, r.binding, r.target)
             for r in names(SourcePath("src/m.py"), SRC, UnitName("m")) if r.kind is NameKind.LOCAL}

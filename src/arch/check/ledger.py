@@ -33,7 +33,7 @@ from arch.check.engine import (
 )
 from arch.model import codec
 from arch.model.graph import Graph
-from arch.model.ids import DesignPath, Location, Text
+from arch.model.ids import DesignPath, FieldName, Location, Text
 from arch.model.schema import Kind as NodeKind
 
 EntryName = NewType("EntryName", str)  # a ledger file's name, without folder or suffix
@@ -92,11 +92,11 @@ class Ledger:
             folder, _, file = path.partition("/")
             if folder not in (FINDINGS_DIR, RESPONSES_DIR) or not file.endswith(".md"):
                 continue
-            front = codec.frontmatter(path, files[path])
-            raw, name, body = front.fields, EntryName(file.removesuffix(".md")), Text(front.body.strip())
+            doc = codec.read_document(path, files[path])
+            raw, name, body = doc.head, EntryName(file.removesuffix(".md")), Text(doc.body.strip())
             try:
-                if raw is None:
-                    raise ValueError(front.problem.message)
+                if doc.problem is not None:
+                    raise ValueError(doc.problem.message)
                 if folder == FINDINGS_DIR:
                     noticed.append(_noticed(name, raw, body, path))
                 else:
@@ -112,13 +112,22 @@ class Ledger:
         present = {f.identity for f in findings}
         by_identity = {f.identity: f for f in findings}
         answered: set[FindingIdentity] = set()
+        returned: dict[FindingIdentity, DesignPath] = {}
         extra = list(self.problems)
         for r in self.responses:
             if not r.reason.strip():
                 extra.append(_problem(r.path, "gives no reason", key="reason"))
                 continue
             gone = [i for i in r.findings if i not in present]
-            answered.update(i for i in r.findings if i in present)
+            for i in r.findings:
+                if i not in present:
+                    continue
+                # a rule finds its findings again on every run, so one answered as fixed that a rule still finds
+                # has come back: the fix did not hold, and the finding is open again
+                if r.answer is Answer.FIXED and by_identity[i].source is Source.RULE:
+                    returned[i] = r.path
+                else:
+                    answered.add(i)
             if gone:
                 extra.append(_ledger_finding("L001", r.path, "gone", Kind.IDEA,
                                              f"answers {len(gone)} finding{'s' * (len(gone) != 1)} that no longer occur",
@@ -133,8 +142,10 @@ class Ledger:
                             "and the answer names no countermeasure",
                             "say what changes upstream (a lint, a critic question, a method step, a model change) so "
                             "this is caught where it is made", station=Station.REVIEW))
+        findings = [replace(f, message=Text(f"{f.message} (answered as fixed in {returned[f.identity]}, and found "
+                                            "again)")) if f.identity in returned else f for f in findings]
         return Report(tuple(sorted([*findings, *extra], key=lambda f: (f.subject, f.rule, f.key))), graph,
-                      report.answered | frozenset(answered))
+                      (report.answered | frozenset(answered)) - frozenset(returned))
 
     def answer_for(self, identity: FindingIdentity) -> Response | None:
         return next((r for r in self.responses if identity in r.findings), None)
@@ -164,11 +175,10 @@ def render_noticed(n: Noticed) -> LedgerText:
 
 
 def render_response(r: Response) -> LedgerText:
-    head = [("answer", r.answer.value), ("by", r.by), ("countermeasure", r.countermeasure)]
-    lines = ["---", *(f"{k}: {codec.scalar(Text(v))}" for k, v in head if v), "findings:"]
-    lines += [f"  - {{rule: {codec.scalar(Text(a))}, subject: {codec.scalar(Text(b))}, key: {codec.scalar(Text(c))}}}"
-              for a, b, c in sorted(r.findings)]
-    return LedgerText("\n".join([*lines, "---", r.reason.strip(), ""]))
+    findings = tuple({FieldName("rule"): Text(a), FieldName("subject"): Text(b), FieldName("key"): Text(c)}
+                     for a, b, c in sorted(r.findings))
+    return _render([("answer", r.answer.value), ("by", r.by), ("countermeasure", r.countermeasure),
+                    ("findings", findings)], r.reason)
 
 
 def accepting(findings: Iterable[Finding], name: EntryName, by: Text, reason: Text) -> Response:
@@ -176,12 +186,11 @@ def accepting(findings: Iterable[Finding], name: EntryName, by: Text, reason: Te
     return Response(name, Answer.ACCEPTED, by, reason, tuple(sorted({f.identity for f in findings})))
 
 
-def _render(fields, body: str) -> LedgerText:
-    lines = ["---", *(f"{k}: {codec.scalar(Text(v))}" for k, v in fields if v), "---", body.strip(), ""]
-    return LedgerText("\n".join(lines))
+def _render(fields: Iterable[tuple[str, codec.HeadValue]], body: str) -> LedgerText:
+    return LedgerText(codec.document(tuple((FieldName(k), v) for k, v in fields), Text(body)))
 
 
-def _noticed(name: EntryName, raw: dict, body: Text, path: DesignPath) -> Noticed:
+def _noticed(name: EntryName, raw: Mapping[FieldName, codec.HeadValue], body: Text, path: DesignPath) -> Noticed:
     found_at = raw.get("found_at")
     finding = Finding(
         Subject(str(raw["subject"])), RuleId(str(raw["by"])), FindingKey(name), Kind(raw["kind"]), body,
@@ -192,9 +201,9 @@ def _noticed(name: EntryName, raw: dict, body: Text, path: DesignPath) -> Notice
     return Noticed(finding, name, Digest(str(raw["digest"])) if raw.get("digest") else None)
 
 
-def _response(name: EntryName, raw: dict, body: Text) -> Response:
-    entries = raw.get("findings") or []
-    if not isinstance(entries, list):
+def _response(name: EntryName, raw: Mapping[FieldName, codec.HeadValue], body: Text) -> Response:
+    entries = raw.get("findings") or ()
+    if not isinstance(entries, tuple):
         raise ValueError("findings must be a list")
     identities = tuple((RuleId(str(e["rule"])), Subject(str(e["subject"])), FindingKey(str(e["key"]))) for e in entries)
     countermeasure = raw.get("countermeasure")

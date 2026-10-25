@@ -3,6 +3,7 @@ kind: component
 realizes: Represent what is true of the realization in a language-neutral form
 solution: Typed records of what the code contains and does, the snapshot they come from, and the adapter protocol
 hides: How facts from many files are merged and ordered
+publishes: The fact schema that adapters produce and every other part reads
 uses: []
 status: specified
 ---

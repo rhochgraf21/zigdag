@@ -26,7 +26,7 @@ from arch.model.ids import (
 from arch.model.matrix import layer
 from arch.model.schema import Status
 from arch.realize.facts import Facts, Role, UnitName, UnitShape
-from arch.realize.mapping import UnitIndex
+from arch.realize.mapping import UnitMap
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ def infer(facts: Facts) -> Inference:
     uses: dict[ComponentId, set[ComponentId]] = defaultdict(set)  # absolute targets
     exports: dict[ComponentId, set[Ref]] = defaultdict(set)
     notes: list[Text] = []
-    index = UnitIndex.of(facts)
+    index = UnitMap.without_design(facts)
     for imp in facts.imports:
         if imp.unit not in units or (target := index.target_of(imp)) is None or target not in units:
             continue

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from arch.realize.facts import Facts, FileSuffix, Language, Reference, Role, Roots, SourcePath, SourceText, UnitName
 from arch.realize.python import extract as _extract
+from arch.realize.python import names as _names
 
 
 class PythonAdapter:
@@ -29,4 +30,4 @@ class PythonAdapter:
         return _extract.extract(path, text, unit, role)
 
     def names(self, path: SourcePath, text: SourceText, unit: UnitName) -> tuple[Reference, ...]:
-        return _extract.names(path, text, unit)
+        return _names.references(path, text, unit)

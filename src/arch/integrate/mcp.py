@@ -7,6 +7,7 @@ them into domain types, runs the catalog operation and returns its Markdown. Req
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -119,11 +120,15 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
         return text(catalog.respond(ws(), Answer(answer), Text(reason), [FindingRef(r) for r in refs], Text(by),
                                     Text(countermeasure) if countermeasure else None))
 
-    def critique(scope: str | None = None, mode: str = "list") -> str:
-        """Which design text waits for a critic (mode "list"), the request to hand a critic ("request"), or a
-        request about the rubric's own examples ("calibration"). Give a request to a reviewer that did not write
-        the text and has no other context; record its JSON answer with critique_record."""
-        return text(catalog.critique(ws(), ComponentId(scope) if scope else None, catalog.CritiqueMode(mode)))
+    def critique(scope: str | None = None) -> str:
+        """The request for an independent critic, as JSON: the rubric, and every node that waits. Give it to a
+        reviewer that did not write the text and has no other context; record its answer with critique_record."""
+        result = catalog.critique(ws(), ComponentId(scope) if scope else None)
+        return json.dumps(result.view.to_json(), indent=2, ensure_ascii=False)
+
+    def critique_calibration() -> str:
+        """A request about the rubric's own examples, answers left out, to measure a critic."""
+        return json.dumps(catalog.critique_calibration(ws()).view.to_json(), indent=2, ensure_ascii=False)
 
     def critique_record(answer: str) -> str:
         """Record a critic's JSON answer. Only findings that quote the text exactly are kept."""
@@ -138,7 +143,8 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
             Command.BASELINE: baseline, Command.REVIEW: review, Command.REVIEW_FEEDBACK: review_feedback,
             Command.REVIEW_NOTE: review_note, Command.REVIEW_RECORD: review_record, Command.INIT: init,
             Command.RAISE: raise_, Command.RESPOND: respond, Command.FINDINGS: findings,
-            Command.CRITIQUE: critique, Command.CRITIQUE_RECORD: critique_record}
+            Command.CRITIQUE: critique, Command.CRITIQUE_CALIBRATION: critique_calibration,
+            Command.CRITIQUE_RECORD: critique_record}
 
 
 def server(project: Path) -> MCPServer:

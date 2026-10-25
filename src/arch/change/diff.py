@@ -149,6 +149,7 @@ def _component_fields(a: Component, b: Component) -> Iterator[FieldChange]:
     yield from _compare("serves", ChangeClass.INTENT, a.serves, b.serves)
     yield from _compare("solution", ChangeClass.DESIGN, a.solution, b.solution)
     yield from _compare("hides", ChangeClass.DESIGN, a.hides, b.hides)
+    yield from _compare("publishes", ChangeClass.DESIGN, a.publishes, b.publishes)
     yield from _compare("uses", ChangeClass.STRUCTURE, a.uses, b.uses)
     yield from _compare("exports", ChangeClass.STRUCTURE, a.exports, b.exports)
     yield from _compare("status", ChangeClass.STATUS, a.status, b.status)

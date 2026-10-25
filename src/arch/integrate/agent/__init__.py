@@ -92,13 +92,8 @@ def _agents_md(current: str | None) -> str:
     return (current.rstrip("\n") + "\n\n" if current else "") + block
 
 
-def handle(event: HookEvent, ws: Workspace, payload: HookPayload) -> HookResponse:
-    if event is HookEvent.SESSION_START:
-        return _session_start(ws)
-    return _post_edit(ws, payload)
-
-
-def _session_start(ws: Workspace) -> HookResponse:
+def orient(ws: Workspace) -> HookResponse:
+    """What an agent should know when a session starts: the top of the design, how to work, what blocks."""
     g = Graph(ws.design())
     report = check(g, ws.facts(), ws.ledger())
     top = outline(g, None, Depth(1)).to_markdown()
@@ -110,7 +105,8 @@ def _session_start(ws: Workspace) -> HookResponse:
     return HookResponse(stdout=Text(text[:MAX_SESSION_CONTEXT]))
 
 
-def _post_edit(ws: Workspace, payload: HookPayload) -> HookResponse:
+def after_edit(ws: Workspace, payload: HookPayload) -> HookResponse:
+    """The blocking findings about the file an agent just edited, or about its component; nothing if none."""
     path = claude.edited_path(payload)
     rel = ws.relative(Path(path)) if path else None
     if rel is None:
@@ -139,5 +135,5 @@ def _about(f: Finding, rel: ProjectPath, focus: ComponentId | None) -> bool:
     return focus is not None and is_within(ComponentId(f.subject), focus)
 
 
-__all__ = ["ArchCommand", "HookEvent", "HookExit", "HookPayload", "HookResponse", "Installation", "Product", "handle",
+__all__ = ["ArchCommand", "HookEvent", "HookExit", "HookPayload", "HookResponse", "Installation", "Product", "after_edit", "orient",
            "installation"]

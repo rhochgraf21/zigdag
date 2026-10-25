@@ -82,25 +82,23 @@ class EffectRule:
         return EffectRule(problems.effects(raw.get("forbid"), Text("effects.forbid")), allow, exempt)
 
     @staticmethod
-    def combine(rules: Iterable[EffectRule]) -> EffectRule:
-        """Forbids accumulate; allow-lists intersect, so a descendant can only tighten. Exemptions are kept
-        per rule: they are resolved against the component by `for_component` before combining."""
+    def combine(rules: Iterable[EffectRule], cid: ComponentId) -> EffectRule:
+        """The rules in force on `cid` as one: each rule's exemptions are applied for `cid`, then forbids
+        accumulate and allow-lists intersect, so a descendant can only tighten."""
         forbid: set[EffectKind] = set()
         allow: frozenset[EffectKind] | None = None
         for r in rules:
-            forbid |= r.forbid
+            forbid |= r._forbidden_in(cid)
             if r.allow is not None:
                 allow = r.allow if allow is None else allow & r.allow
         return EffectRule(frozenset(forbid), allow)
 
-    def for_component(self, cid: ComponentId) -> EffectRule:
-        """This rule as it applies to `cid`: without its forbid list inside an exempt subtree."""
-        if any(is_within(cid, e) for e in self.exempt):
-            return EffectRule(frozenset(), self.allow)
-        return EffectRule(self.forbid, self.allow)
+    def _forbidden_in(self, cid: ComponentId) -> frozenset[EffectKind]:
+        return frozenset() if any(is_within(cid, e) for e in self.exempt) else self.forbid
 
-    def verdict(self, effect: EffectKind) -> EffectVerdict:
-        if effect in self.forbid:
+    def verdict(self, cid: ComponentId, effect: EffectKind) -> EffectVerdict:
+        """Whether code in `cid` may have `effect` under this rule, its exemptions included."""
+        if effect in self._forbidden_in(cid):
             return EffectVerdict.FORBIDDEN
         if self.allow is not None and effect not in self.allow:
             return EffectVerdict.NOT_ALLOWED
@@ -284,12 +282,12 @@ class Policy:
         return policy, tuple(problems.messages)
 
     @staticmethod
-    def combine(policies: Iterable[Policy]) -> Policy:
+    def combine(policies: Iterable[Policy], cid: ComponentId) -> Policy:
         ps = list(policies)
         directs = [p.direct_effects for p in ps if p.direct_effects is not None]
         imports = [p.imports for p in ps if p.imports is not None]
         return Policy(
-            effects=EffectRule.combine(p.effects for p in ps),
+            effects=EffectRule.combine((p.effects for p in ps), cid),
             direct_effects=DirectEffects.combine(directs) if directs else None,
             imports=ImportRule.combine(imports) if imports else None,
             port_types=PortTypeRule.combine(p.port_types for p in ps),
@@ -328,11 +326,6 @@ class Policy:
         if self.critique is Critique.REQUIRED:
             lines.append("An independent critic must judge the design text before its stations count as passed.")
         return Text("\n".join(lines) or "No rule here is checked by machine.")
-
-    def for_component(self, cid: ComponentId) -> Policy:
-        """This policy with exemptions resolved for `cid`."""
-        return Policy(self.effects.for_component(cid), self.direct_effects, self.imports, self.port_types, self.budget,
-                      self.critique)
 
     @property
     def restricts_effects(self) -> bool:

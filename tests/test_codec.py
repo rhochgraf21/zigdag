@@ -60,3 +60,16 @@ def test_yaml_errors_report_a_line():
 def test_parsing_never_raises(text):
     codec.parse(DesignPath("components/a.md"), text)
     codec.parse(DesignPath("components/a.md"), "---\n" + text + "\n---\n")
+
+
+@realizes("arch.model.codec#AC4")
+@given(st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=30),
+       st.lists(st.text(max_size=12), max_size=3))
+def test_a_document_written_from_plain_values_reads_back_unchanged(value, keys):
+    from arch.model.ids import FieldName, Text
+    entries = tuple({FieldName("rule"): Text(k), FieldName("key"): Text(value)} for k in keys)
+    text = codec.document(((FieldName("by"), Text(value)), (FieldName("findings"), entries)), Text("Body."))
+    read = codec.read_document(DesignPath("responses/x.md"), text)
+    assert read.problem is None, text
+    assert read.head.get("by") == (value or None)  # empty text leaves the field out
+    assert [dict(e) for e in read.head["findings"] or ()] == [dict(e) for e in entries]
