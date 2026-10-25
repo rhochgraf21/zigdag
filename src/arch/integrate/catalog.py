@@ -349,9 +349,9 @@ def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     before, snap_before = ws.design_at(since), ws.snapshot_at(since)
     after, snap_after = ws.design(), ws.snapshot()
     facts_before, facts_after = realize.extract(snap_before), realize.extract(snap_after)
-    ledger, lexicon = ws.ledger(), ws.config().lexicon()
+    ledger, ledger_before, lexicon = ws.ledger(), ws.ledger_at(since), ws.config().lexicon()
     diffs = ws.diffs(since)
-    report_before = run_checks(Graph(before), facts_before, ledger, lexicon)
+    report_before = run_checks(Graph(before), facts_before, ledger_before, lexicon)
     report_after = run_checks(Graph(after), facts_after, ledger, lexicon)
     # names are resolved only in the files a reviewer will read
     facts_before = replace(facts_before, references=realize.names(snap_before, [d.old_path or d.path for d in diffs]))
@@ -359,6 +359,7 @@ def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     return ReviewInput(
         base=Text(base), design_before=before, design_after=after, facts_before=facts_before, facts_after=facts_after,
         report_before=report_before, report_after=report_after, changed=ws.changed_files(since), diffs=diffs,
+        ledger_before=ledger_before, ledger_after=ledger,
     )
 
 

@@ -3,7 +3,7 @@ kind: component
 realizes: Show a review as a deck of pages a reviewer flips through, deciding each without leaving it
 solution: One self-contained HTML page per review, flipped with the arrow keys, with diagrams and highlighted code diffs
 hides: Page layout and interaction
-uses: [items, session, model.ids, realize.facts, view.diagram, view.render, explain]
+uses: [items, session, model.ids, realize.facts, view.diagram, view.render, explain, check.ledger]
 status: specified
 ---
 ## Acceptance criteria

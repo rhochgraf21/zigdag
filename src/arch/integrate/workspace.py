@@ -217,6 +217,16 @@ class Workspace:
                 files[path] = self._git("show", f"{revision}:{name}")
         return codec.load(files)
 
+    def ledger_at(self, revision: Revision) -> Ledger:
+        """The ledger as committed at a git revision, so a review can show what was raised and answered since."""
+        rel = self.design_dir.relative_to(self._git_root()).as_posix()
+        files: dict[DesignPath, LedgerText] = {}
+        for folder in (FINDINGS_DIR, RESPONSES_DIR):
+            listing = self._git("ls-tree", "-r", "--name-only", "--full-name", revision, "--", f"{rel}/{folder}")
+            for name in listing.splitlines():
+                files[DesignPath(name[len(rel) + 1:])] = LedgerText(self._git("show", f"{revision}:{name}"))
+        return Ledger.parse(files)
+
     def merge_base(self, revision: Revision) -> Revision:
         """Where the current work diverged from `revision`: what a pull request against it would compare with."""
         return Revision(self._git("merge-base", revision, "HEAD").strip())

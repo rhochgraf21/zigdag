@@ -3,7 +3,7 @@ kind: component
 realizes: Divide a change into review pages that a reviewer can decide in order
 solution: A deck of pages, one topic per page, from needs and requirements to the code of each component
 hides: How a change is cut into items and how they are ordered
-uses: [assess, change.diff, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.mapping, view.diagram, view.render, model.codec, explain]
+uses: [assess, change.diff, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.mapping, view.diagram, view.render, model.codec, explain, check.engine, check.ledger]
 status: specified
 ---
 ## Acceptance criteria
@@ -18,4 +18,5 @@ status: specified
 - AC9: A follow-on code change shall be shown with the interface change it follows, on the page of the component that defines that interface.
 - AC10: The overview shall count the code changes that give no reason.
 - AC11: The overview shall count the new or changed interface names that have no description.
+- AC12: The deck shall show every finding raised and every answer given, changed or withdrawn in the change, each answer with its reason and the findings it covers.
 

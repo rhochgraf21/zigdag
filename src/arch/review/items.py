@@ -34,6 +34,9 @@ from arch.realize.facts import (
 )
 from arch.realize.mapping import map_units
 from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, evidence_of, file_risks
+from arch.check.engine import Finding
+from arch.check.engine import Kind as FindingKind
+from arch.check.ledger import Answer, Response
 from arch.review.explain import Doubt, HunkView, Touch, Trace, Tracer
 from arch.view.diagram import Diagram, Edge, Mark, Node
 from arch.view.render import Count
@@ -53,6 +56,7 @@ class Stage(enum.Enum):
     ARCHITECTURE = "architecture"
     CONSTRAINTS = "constraints"
     DESIGN = "design decisions"
+    FINDINGS = "findings & answers"
     INTERFACES = "interfaces"
     CODE = "code"
     BATCH = "mechanical changes"
@@ -202,6 +206,31 @@ class DesignBody:
 
 
 @dataclass(frozen=True)
+class FindingNote:
+    """A finding as it reads now, with how it is answered, if it is."""
+
+    finding: Finding
+    answer: Answer | None
+
+
+@dataclass(frozen=True)
+class AnswerNote:
+    """An answer given, changed or withdrawn in this change, with the findings it covers."""
+
+    response: Response
+    change: Change
+    covers: tuple[FindingNote, ...]
+    gone: Count  # findings it names that no longer occur
+
+
+@dataclass(frozen=True)
+class FindingsBody:
+    raised: tuple[FindingNote, ...]  # findings critics, people and agents recorded in this change
+    answers: tuple[AnswerNote, ...]  # answers given, changed or withdrawn in this change
+    ideas_waiting: Count  # ideas, from anyone, that still have no answer
+
+
+@dataclass(frozen=True)
 class InterfacesBody:
     ports: tuple[PortChange, ...]
     reexports: tuple[PortChange, ...] = ()  # the same changes, seen through units that re-export the names
@@ -268,7 +297,8 @@ class BatchBody:
     files: tuple[tuple[Hunked, Mechanical], ...]
 
 
-ItemBody = OverviewBody | IntentBody | ArchitectureBody | ConstraintsBody | DesignBody | InterfacesBody | CodeBody | BatchBody
+ItemBody = (OverviewBody | IntentBody | ArchitectureBody | ConstraintsBody | DesignBody | FindingsBody | InterfacesBody
+            | CodeBody | BatchBody)
 
 
 @dataclass(frozen=True)
@@ -357,6 +387,11 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     if design.changes:
         pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {_n(len(design.changes), 'component')}"),
                                 design, Risk.MEDIUM))
+    noticed = _findings(inp)
+    if noticed.raised or noticed.answers:
+        lenient = any(a.response.answer in (Answer.ACCEPTED, Answer.DECLINED) for a in noticed.answers)
+        pages.append(ReviewItem(ItemId("findings"), Stage.FINDINGS, _findings_title(noticed), noticed,
+                                Risk.HIGH if lenient else Risk.MEDIUM))
     attention = tuple(p for p in ports if p.compatibility is not Compatibility.COMPATIBLE and p.reexport_of is None)
     if attention:
         breaking = sum(1 for p in attention if p.compatibility is Compatibility.BREAKING)
@@ -597,6 +632,40 @@ def _mechanical(d: FileDiff) -> Mechanical | None:
     return None
 
 
+def _findings(inp: ReviewInput) -> FindingsBody:
+    """What critics, people and agents raised in this change, and the answers given, changed or withdrawn."""
+    before, after = inp.ledger_before, inp.ledger_after
+    now = {f.identity: f for f in inp.report_after.findings}
+    then = {f.identity: f for f in inp.report_before.findings}
+    old_names = {n.name for n in before.noticed}
+    raised = tuple(FindingNote(now.get(n.finding.identity, n.finding), _answer(after, n.finding.identity))
+                   for n in after.noticed if n.name not in old_names)
+    old = {r.name: r for r in before.responses}
+    new = {r.name: r for r in after.responses}
+    answers = []
+    for name in sorted(set(old) | set(new)):
+        a, b = old.get(name), new.get(name)
+        if a == b:
+            continue
+        r = b or a
+        change = Change.ADDED if a is None else Change.REMOVED if b is None else Change.CHANGED
+        covers = tuple(FindingNote(f, _answer(after, i)) for i in r.findings if (f := now.get(i) or then.get(i)) is not None)
+        answers.append(AnswerNote(r, change, covers, Count(sum(1 for i in r.findings if i not in now))))
+    waiting = sum(1 for n in after.noticed if n.finding.kind is FindingKind.IDEA and after.answer_for(n.finding.identity) is None)
+    return FindingsBody(raised, tuple(answers), Count(waiting))
+
+
+def _findings_title(body: FindingsBody) -> Text:
+    parts = ([f"{_n(len(body.answers), 'answer')} given"] if body.answers else []) + \
+            ([f"{_n(len(body.raised), 'finding')} raised"] if body.raised else [])
+    return Text(" and ".join(parts).capitalize())
+
+
+def _answer(ledger, identity) -> Answer | None:
+    r = ledger.answer_for(identity)
+    return r.answer if r is not None else None
+
+
 def _touched(design_diff: DesignDiff, after: Design) -> dict[Text, Touch]:
     """Criteria the change added or reworded, including every criterion of a component it adds."""
     out: dict[Text, Touch] = {}
@@ -687,7 +756,7 @@ def _code_pages(inp: ReviewInput, after: Graph, risks: dict[Text, FileRisk], por
 
 __all__ = [
     "ArchitectureBody", "BatchBody", "Change", "CodeBody", "ConstraintChange", "ConstraintsBody", "CriterionChange",
-    "DesignBody", "DesignChange", "Digest", "Follower", "Glossary", "InterfaceNote", "Moved", "OutsideUse", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
+    "AnswerNote", "DesignBody", "DesignChange", "Digest", "FindingNote", "FindingsBody", "Follower", "Glossary", "InterfaceNote", "Moved", "OutsideUse", "Hunked", "IntentBody", "InterfacesBody", "ItemBody", "ItemId", "Mechanical",
     "NeedChange", "OverviewBody", "Panel", "Readiness", "RequirementChange", "ReviewItem", "Rewiring", "Stage", "Tally",
     "build",
 ]

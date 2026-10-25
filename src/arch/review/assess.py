@@ -20,6 +20,7 @@ from typing import NewType
 
 from arch.change.diff import DesignDiff, NodeChangeType
 from arch.check.engine import Report
+from arch.check.ledger import Ledger
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, is_within, split_criterion
 from arch.model.schema import Design, Kind, Status
@@ -54,6 +55,8 @@ class ReviewInput:
     report_after: Report  # check results after the change
     changed: tuple[FileChange, ...]  # each changed file, with its line counts
     diffs: tuple[FileDiff, ...] = ()  # the actual changes, for reviewing code
+    ledger_before: Ledger = Ledger()  # what had been noticed and answered at that revision
+    ledger_after: Ledger = Ledger()  # what has been noticed and answered after the change
 
 
 @dataclass(frozen=True)

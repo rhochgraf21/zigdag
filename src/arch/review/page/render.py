@@ -23,6 +23,8 @@ from arch.review.items import (
     ConstraintsBody,
     DesignBody,
     Glossary,
+    FindingNote,
+    FindingsBody,
     Hunked,
     IntentBody,
     InterfaceNote,
@@ -32,6 +34,7 @@ from arch.review.items import (
     Readiness,
     ReviewItem,
 )
+from arch.check.ledger import Answer
 from arch.review.explain import Doubt, HunkView, Question, Reason, Why
 from arch.review.page import highlight
 from arch.view.diagram import Diagram, Mark, svg
@@ -174,8 +177,8 @@ def _text_diff(before: str | None, after: str | None) -> str:
 
 def page_html(item: ReviewItem, number: Count, total: Count, note: Text | None, refs: Refs) -> PageHtml:
     renderers = {OverviewBody: _overview, IntentBody: _intent, ArchitectureBody: _architecture,
-                 ConstraintsBody: _constraints, DesignBody: _design, InterfacesBody: _interfaces, CodeBody: _code,
-                 BatchBody: _batch}
+                 ConstraintsBody: _constraints, DesignBody: _design, FindingsBody: _findings, InterfacesBody: _interfaces,
+                 CodeBody: _code, BatchBody: _batch}
     inner = renderers[type(item.body)](item.body, refs)
     note_html = f'<aside class="note"><div class="note-head">Note from the author</div>{_e(note)}</aside>' if note else ""
     return PageHtml(
@@ -311,6 +314,50 @@ def _decision_text(text: str) -> str:
         elif raw.strip():
             lines.append(f"<div>{_e(raw)}</div>")
     return "".join(lines)
+
+
+_ANSWER_WORDS = {Answer.FIXED: ("fixed", "added"), Answer.ACCEPTED: ("accepted", "changed"),
+                 Answer.DECLINED: ("declined", "removed"), Answer.ANSWERED: ("answered", "moved")}
+
+
+def _subject(subject: str, refs: Refs) -> str:
+    if ComponentId(subject) in refs.glossary.components:
+        return refs.component_path(ComponentId(subject))
+    return f"<code>{_e(subject)}</code>"
+
+
+def _finding_note(n: FindingNote, refs: Refs) -> str:
+    f = n.finding
+    answered = f" · {_ANSWER_WORDS[n.answer][0]}" if n.answer else ""
+    quote = f'<blockquote class="quote">{_e(f.evidence)}</blockquote>' if f.evidence else ""
+    escaped = (f'<div class="muted small">Made at {_e(f.station.value)}, noticed at {_e(f.found_at.value)}: an earlier '
+               "check should have caught it.</div>") if f.escaped else ""
+    return (f'<div class="note-row"><div class="row-head"><span class="badge b-changed">{_e(f.kind.value)}</span>'
+            f'{_subject(f.subject, refs)}<span class="muted">{_e(f.station.value)} · {_e(f.source.value)} '
+            f'{_e(f.rule)}{answered}</span></div><div>{_e(f.message)}</div>{quote}{escaped}</div>')
+
+
+def _findings(b: FindingsBody, refs: Refs) -> str:
+    answers = []
+    for a in b.answers:
+        r = a.response
+        word, tone = _ANSWER_WORDS[r.answer]
+        withdrawn = " (withdrawn)" if a.change is Change.REMOVED else ""
+        cm = (f'<div class="label">Countermeasure</div><div>{_e(r.countermeasure)}</div>' if r.countermeasure else "")
+        gone = (f'<div class="muted small">{_n(a.gone, "finding")} it names no longer '
+                f'{"occurs" if a.gone == 1 else "occur"}.</div>') if a.gone else ""
+        covers = "".join(_finding_note(n, refs) for n in a.covers)
+        answers.append(f'<div class="row"><div class="row-head"><span class="badge b-{tone}">{word}{withdrawn}</span>'
+                       f'<span class="muted">by {_e(r.by)}</span></div><div class="label">Reason</div>'
+                       f'<div class="big-fr">{_e(r.reason)}</div>{cm}'
+                       f'<div class="label">{_n(len(r.findings), "finding")} it answers</div>{covers}{gone}</div>')
+    raised = "".join(f'<div class="row">{_finding_note(n, refs)}</div>' for n in b.raised)
+    waiting = (f'<p class="muted">{_n(b.ideas_waiting, "idea")} from anyone still '
+               f'{"waits" if b.ideas_waiting == 1 else "wait"} for an answer.</p>') if b.ideas_waiting else ""
+    return (_lead("These are the findings raised in this change, and the answers given. An answer stops a finding from "
+                  "blocking. Approve if each reason holds.")
+            + (f'<div class="card"><h2>Answers</h2>{"".join(answers)}</div>' if answers else "")
+            + (f'<div class="card"><h2>Raised in this change</h2>{raised}</div>' if raised else "") + waiting)
 
 
 def _design(b: DesignBody, refs: Refs) -> str:

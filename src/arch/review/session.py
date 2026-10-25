@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import NewType
 
+from arch.check.engine import Station
 from arch.model.ids import Text
 from arch.review.items import Digest, ItemId, ReviewItem, Stage
 from arch.view.render import Count, JsonValue, Markdown
@@ -35,6 +36,12 @@ class Category(enum.Enum):
     TEST = "test"  # missing, weak or wrong evidence
     NAMING = "naming"
     OTHER = "other"
+
+    @property
+    def station(self) -> Station:
+        """Where a defect of this category is made, so where an earlier check could have caught it."""
+        return {Category.INTENT: Station.REQUIREMENTS, Category.DESIGN: Station.SOLUTION, Category.BUG: Station.CODE,
+                Category.TEST: Station.EVIDENCE, Category.NAMING: Station.INTERFACE}.get(self, Station.REVIEW)
 
 
 class Weight(enum.Enum):
@@ -164,12 +171,17 @@ class Feedback:
             where = f" at {v.anchor.path}:{v.anchor.line}" if v.anchor else ""
             lines.append(f"{n}. [{v.weight.value}, {v.category.value}] {item.title}{where}")
             lines.append(f"   {v.comment or '(no comment)'}")
-            lines.append(f"   item: {item.id}")
-        lines += ["", "Address each, then run `arch review --serve` (or ask the reviewer) for a fresh look."]
+            lines.append(f"   item: {item.id}; made at the {v.category.station.value} station, so an earlier check missed it")
+        lines += ["", "Address each, then run `arch review --serve` (or ask the reviewer) for a fresh look.",
+                  "Each request escaped every earlier check. Record it with `arch raise defect <subject> \"<request>\" "
+                  "--station <station above> --found-at review --as person --by <reviewer>`, and when it is fixed, answer "
+                  "it with `arch respond fixed` and a `--countermeasure`: what changes upstream so it is caught there next "
+                  "time."]
         return Markdown("\n".join(lines))
 
     def to_json(self) -> JsonValue:
         return [{"item": i.id, "title": i.title, "weight": v.weight.value, "category": v.category.value,
+                 "station": v.category.station.value,
                  "comment": v.comment, "anchor": {"path": v.anchor.path, "line": v.anchor.line} if v.anchor else None}
                 for i, v in self.session.open_requests(self.items)]
 

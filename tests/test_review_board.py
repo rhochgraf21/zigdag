@@ -169,7 +169,7 @@ def test_verdicts_go_stale_and_block_downstream():
     assert s.state(page(changed, "intent"), changed) is ItemState.STALE and not s.open_requests(changed)
 
 
-@realizes("arch.review.session#AC3")
+@realizes("arch.review.session#AC3", "arch.review.session#AC4")
 def test_feedback_lists_blocking_requests_first_and_round_trips():
     items = review_items.build(board_input())
     s = (Session(Text("branch"))
@@ -178,6 +178,7 @@ def test_feedback_lists_blocking_requests_first_and_round_trips():
          .decide(verdict(page(items, "overview"), Decision.APPROVED)))
     text = Feedback(s, items).to_markdown()
     assert text.index("say what, not how") < text.index("rename y") and "[blocking, bug]" in text
+    assert "made at the code station" in text and "--found-at review" in text  # each request is an escape
     assert Session.load(s.dump(), Text("x")) == s and Session.load("not json", Text("x")) == Session(Text("x"))
     assert "Reviewed-by: me" in Record(s, items).to_markdown()
 
@@ -286,3 +287,26 @@ def test_the_legend_shows_only_the_colours_in_use():
     legend = re.search(r'<div class="legend">(.*?)</div>', html).group(1)
     assert "Added" in legend and "Removed" not in legend
     assert page(items, "architecture").title.startswith("2 components changed")
+
+
+@realizes("arch.review.items#AC12")
+def test_findings_raised_and_answers_given_are_reviewed():
+    from dataclasses import replace
+
+    from arch.check.engine import Finding, FindingKey, Kind, RuleId, Source, Station, Subject
+    from arch.check.ledger import Answer, Ledger, Noticed, Response, render_noticed, render_response
+
+    late = Noticed(Finding(Subject("s.core"), RuleId("robert"), FindingKey("adds-a-function"), Kind.DEFECT,
+                           Text("AC2 adds a function."), Text(""), None, Station.REQUIREMENTS, source=Source.PERSON,
+                           evidence=Text("answer twice"), found_at=Station.REVIEW), "adds-a-function")
+    no = Response("declined-it", Answer.DECLINED, Text("claude"), Text("AC2 sets the output of the one function."),
+                  (late.finding.identity,))
+    ledger = Ledger.parse({late.path: render_noticed(late), no.path: render_response(no)})
+    inp = board_input()
+    inp = replace(inp, ledger_after=ledger, report_after=check(Graph(inp.design_after), inp.facts_after, ledger))
+    items = review_items.build(inp)
+    findings = page(items, "findings")
+    assert findings.title == "1 answer given and 1 finding raised" and findings.risk.value == "high"  # a declined defect
+    html = render(items, Session(Text("b")), Text("Review"), Glossary.of(inp.design_after, items, Text("design")))
+    assert "AC2 sets the output of the one function." in html and '<blockquote class="quote">answer twice' in html
+    assert "Made at requirements, noticed at review" in html

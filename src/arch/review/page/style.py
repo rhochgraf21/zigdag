@@ -173,6 +173,8 @@ details summary{cursor:pointer}
 .caller{margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .caller-head{padding:8px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13.5px}
 .callout.plain{background:var(--surface-2)}
+.note-row{padding:8px 0}.note-row+.note-row{border-top:1px dashed var(--border)}
+blockquote.quote{margin:6px 0;padding:4px 12px;border-left:3px solid var(--border-strong);color:var(--muted);font-family:var(--mono);font-size:13px}
 .hunk:first-child .hunk-head{border-top:0}
 .hunk{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font:13px/1.55 var(--mono)}
