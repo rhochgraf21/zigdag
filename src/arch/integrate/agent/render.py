@@ -77,11 +77,15 @@ what it may use, and the criteria that prove it. arch checks the code against it
    descriptions that only repeat the name (C015).
 6. **After changing anything:** `arch check`. Errors block; fix them, or change the design deliberately
    (with a decision entry: `arch add decision`).
-7. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
+7. **Before asking for review, inspect your own output.** Run `arch review <base>` and read it as the reviewer
+   will: every reason, every "No reason given", every question about a description. Fix what you would flag.
+   When the change is something a person must see (a page, a layout), ask them to look at the named things
+   before calling it done. Do not pass a defect downstream.
+8. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
    point them at what matters with `arch review --note <item> "..."` (where you were unsure, what to
    check). Afterwards, `arch review --feedback` lists their open change requests, blocking ones first;
    address each one. You cannot approve items yourself.
-8. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
+9. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
 
 Methods for design work:
 {methods}

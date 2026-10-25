@@ -14,23 +14,30 @@ WRITE_REQUIREMENTS = Method(
     steps=(
         Step(Text("State the functional requirement as verb + object + qualifier, about what must happen, not how: "
                   "\"Compute tax owed for an order under jurisdiction rules\".")),
-        Step(Text("One function per requirement. If it joins two actions with \"and\", it is two requirements; "
-                  "split it, usually into two components or two criteria.")),
+        Step(Text("One function per requirement. If it joins two actions with \"and\", it is two requirements, and "
+                  "each needs its own solution: split them into two components (or two children of this one). "
+                  "Never into two criteria: a criterion pins down its requirement's function, it does not add one.")),
         Step(Text("Write acceptance criteria in EARS form, each decidable by a test: ubiquitous (\"The <part> "
                   "shall ...\"), event (\"When <trigger>, the <part> shall ...\"), state (\"While <state>, ...\"), "
                   "unwanted behaviour (\"If <condition>, then the <part> shall ...\"), optional (\"Where <feature>, "
                   "...\").")),
         Step(Text("Replace every vague word (fast, simple, robust, user-friendly, scalable) with a number or an "
                   "observable condition.")),
+        Step(Text("Check each criterion against the requirement. It may set the trigger, the condition, the output "
+                  "or the range of the requirement's function. If it says the part \"shall\" do something the "
+                  "requirement does not name, it is a new requirement: give it a component of its own. If it limits "
+                  "how the part may be built (no network, no external files), it is a constraint.")),
         Step(Text("Add the criteria, then link each to the test or contract that will check it."),
              (AbstractOp.ADD_CRITERION, AbstractOp.SET_FIELD)),
     ),
     exit_criteria=(
         Text("Each requirement is a single function, free of solution terms"),
         Text("Each criterion contains \"shall\", names its trigger or condition, and is measurable"),
+        Text("Every criterion is about its requirement's function; none adds a function or limits how it is built"),
     ),
     self_check=(
         Step(Text("For each criterion, name the test that would fail if it were violated; if you cannot, rewrite it.")),
+        Step(Text("Read the requirement, then each criterion alone. If a criterion surprises you, it adds a function.")),
         Step(Text("Run the check; statement rules flag compound, vague and non-EARS statements."), (AbstractOp.CHECK,)),
     ),
     example=WorkedExample(
