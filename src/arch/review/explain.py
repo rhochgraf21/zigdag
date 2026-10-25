@@ -26,6 +26,7 @@ from arch.realize.facts import (
     PortChangeType,
     Role,
     SourcePath,
+    needs_description,
 )
 
 _ALIAS_DEPTH = 8
@@ -65,6 +66,21 @@ class Reason:
     via: Text | None = None  # for a test that reaches the code through other calls: what the test calls
 
 
+class Doubt(enum.Enum):
+    """What a reviewer should check about a definition's description."""
+
+    STALE = "stale"  # its signature changed and its description did not
+    UNDESCRIBED = "undescribed"  # a new or changed interface name that its name and type do not explain
+
+
+@dataclass(frozen=True)
+class Question:
+    """Something a reviewer should check about one definition's description."""
+
+    doubt: Doubt
+    name: Text  # the definition, qualified within its unit
+
+
 @dataclass(frozen=True)
 class NameTip:
     """What a name on a line refers to, by its position in the line."""
@@ -92,6 +108,7 @@ class HunkView:
     follows: tuple[Text, ...]  # interfaces (dotted) whose calls it updates
     standing: Standing
     names: tuple[tuple[NameTip, ...], ...]  # per line of the hunk
+    questions: tuple[Question, ...] = ()  # about the descriptions of the definitions it changes
 
     @property
     def only_follows(self) -> bool:
@@ -170,6 +187,7 @@ class Tracer:
             self.links.setdefault((link.unit, link.symbol), []).append(link.target)
         self.is_test = {k: roles.get(k[0]) is Role.TEST for k in self.links}
         self.exercised = self._exercised(trace)
+        self.undescribed = needs_description(trace.facts_after)
 
     def hunks(self, diff: FileDiff) -> tuple[HunkView, ...]:
         """Each hunk explained. A new file is cut at its top-level definitions, so each gets its own reason."""
@@ -215,7 +233,22 @@ class Tracer:
         reasons = (Reason(Why.IMPORTS),) if changed and housekeeping else self._reasons(touched, follows, path)
         return HunkView(h, Enclosing(Text(enclosing.name), enclosing.signature, enclosing.summary) if enclosing else None,
                         reasons, proves, tuple(follows),
-                        Standing.FOLLOW_ON if changed and follows and covered else Standing.OWN, self._names(h, path, old_path))
+                        Standing.FOLLOW_ON if changed and follows and covered else Standing.OWN, self._names(h, path, old_path),
+                        self._questions(touched))
+
+    def _questions(self, touched: list[Definition]) -> tuple[Question, ...]:
+        out: list[Question] = []
+        for d in touched:
+            now = self.after.by_dotted.get(f"{d.unit}.{d.name}")
+            was = self.before.by_dotted.get(f"{d.unit}.{d.name}")
+            if now is None:
+                continue  # removed
+            changed = was is None or was.signature != now.signature
+            if was is not None and changed and was.summary is not None and was.summary == now.summary:
+                out.append(Question(Doubt.STALE, Text(now.name)))
+            elif changed and (now.unit, now.name) in self.undescribed:
+                out.append(Question(Doubt.UNDESCRIBED, Text(now.name)))
+        return tuple(dict.fromkeys(out))
 
     def _reasons(self, touched: list[Definition], follows: list[Text], path: str) -> tuple[Reason, ...]:
         criteria = self.trace.criteria
@@ -289,7 +322,10 @@ class Tracer:
         return tuple(out)
 
     def _tip(self, side: Side, ref) -> NameTip | None:
-        d = side.by_dotted.get(side.resolve(ref.target))
+        d = side.by_dotted.get(side.resolve(ref.target)) if ref.target else None
+        if ref.kind is NameKind.LOCAL:
+            made_by = f"\n{d.signature}" + (f"\n{d.summary}" if d.summary else "") if d is not None else ""
+            return NameTip(ref.column, ref.end_column, Text(f"Set on line {ref.bound_at}: {ref.binding}{made_by}"))
         if d is None:
             return None
         about = f"\n{d.summary}" if d.summary else ""
@@ -307,4 +343,4 @@ def _touch(touches: Iterable[Touch]) -> Text:
     return Text("added" if kinds == {Touch.ADDED} else "reworded" if kinds == {Touch.REWORDED} else "added or reworded")
 
 
-__all__ = ["Enclosing", "HunkView", "NameTip", "Reason", "Standing", "Touch", "Trace", "Tracer", "Why"]
+__all__ = ["Doubt", "Enclosing", "HunkView", "NameTip", "Question", "Reason", "Standing", "Touch", "Trace", "Tracer", "Why"]

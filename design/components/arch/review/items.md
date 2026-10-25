@@ -17,4 +17,5 @@ status: specified
 - AC8: When a component's uses change, the after diagram shall mark that component as changed.
 - AC9: A follow-on code change shall be shown with the interface change it follows, on the page of the component that defines that interface.
 - AC10: The overview shall count the code changes that give no reason.
+- AC11: The overview shall count the new or changed interface names that have no description.
 

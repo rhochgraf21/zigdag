@@ -105,9 +105,11 @@ class Operation:
     name: ClassVar[OpName]
 
     def apply_to(self, draft: Draft) -> None:
+        """Make this edit in the draft. Raises Rejected, and changes nothing, when its precondition fails."""
         raise NotImplementedError
 
     def describe(self) -> Text:
+        """The edit in a few words, as `arch apply` lists it: "add component a.b"."""
         raise NotImplementedError
 
     def to_json(self) -> JsonObject:

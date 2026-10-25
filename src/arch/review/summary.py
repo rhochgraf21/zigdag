@@ -159,8 +159,8 @@ def _quote(text: Text | None) -> str:
 
 
 def review(inp: ReviewInput) -> Review:
-    design_diff = diff(inp.before, inp.after)
-    before, after = Graph(inp.before), Graph(inp.after)
+    design_diff = diff(inp.design_before, inp.design_after)
+    before, after = Graph(inp.design_before), Graph(inp.design_after)
     source = {u.name for u in inp.facts_after.units if u.role is Role.SOURCE}
     ports = tuple(p for p in port_changes(inp.facts_before, inp.facts_after) if p.unit in source)
 
@@ -178,7 +178,7 @@ def review(inp: ReviewInput) -> Review:
         new_findings=new,
         fixed_findings=fixed,
         blocking=Count(len(now)),
-        criteria=criteria_evidence(design_diff, inp.after, inp.facts_after),
+        criteria=criteria_evidence(design_diff, inp.design_after, inp.facts_after),
         files=file_risks(inp, after, ports),
     )
 

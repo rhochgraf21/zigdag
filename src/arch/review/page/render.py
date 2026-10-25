@@ -32,7 +32,7 @@ from arch.review.items import (
     Readiness,
     ReviewItem,
 )
-from arch.review.explain import HunkView, Reason, Why
+from arch.review.explain import Doubt, HunkView, Question, Reason, Why
 from arch.review.page import highlight
 from arch.view.diagram import Diagram, Mark, svg
 from arch.view.render import Count
@@ -440,6 +440,14 @@ def _reason(r: Reason, refs: Refs) -> str:
     return f'<div class="why{cls}"><span class="why-label">{_WHY_LABEL[r.why]}</span><span>{text}</span></div>'
 
 
+def _question(q: Question) -> str:
+    name = f"<code>{_e(q.name)}</code>"
+    text = (f"The signature of {name} changed, but its description did not. Is the description still true?"
+            if q.doubt is Doubt.STALE else
+            f"{name} is part of the interface, and its name and type do not say what it is. It has no description.")
+    return f'<div class="why ask"><span class="why-label">Check</span><span>{text}</span></div>'
+
+
 def _hunk(v: HunkView, path: SourcePath, refs: Refs) -> str:
     color = highlight.python if path.endswith(".py") else highlight.plain
     rows = []
@@ -453,7 +461,7 @@ def _hunk(v: HunkView, path: SourcePath, refs: Refs) -> str:
         where = f'<div class="where">In <code class="sig">{_e(v.enclosing.signature)}</code>{about}</div>'
     else:
         where = '<div class="where">At module level</div>'
-    reasons = "".join(_reason(r, refs) for r in v.reasons)
+    reasons = "".join(_reason(r, refs) for r in v.reasons) + "".join(_question(q) for q in v.questions)
     return f'<div class="hunk"><div class="hunk-head">{where}{reasons}</div><table>{"".join(rows)}</table></div>'
 
 

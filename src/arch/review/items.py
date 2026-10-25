@@ -34,7 +34,7 @@ from arch.realize.facts import (
 )
 from arch.realize.mapping import map_units
 from arch.review.assess import CriterionEvidence, FileRisk, ReviewInput, Risk, criteria_evidence, evidence_of, file_risks
-from arch.review.explain import HunkView, Touch, Trace, Tracer
+from arch.review.explain import Doubt, HunkView, Touch, Trace, Tracer
 from arch.view.diagram import Diagram, Edge, Mark, Node
 from arch.view.render import Count
 
@@ -333,15 +333,15 @@ def _listing(*parts: tuple[int, str]) -> str:
 
 
 def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
-    design_diff = diff(inp.before, inp.after)
-    before, after = Graph(inp.before), Graph(inp.after)
+    design_diff = diff(inp.design_before, inp.design_after)
+    before, after = Graph(inp.design_before), Graph(inp.design_after)
     source = {u.name for u in inp.facts_after.units if u.role is Role.SOURCE}
     ports = tuple(p for p in port_changes(inp.facts_before, inp.facts_after) if p.unit in source)
     risks = {r.path: r for r in file_risks(inp, after, ports)}
-    evidence = {c.criterion: c.verdict for c in criteria_evidence(design_diff, inp.after, inp.facts_after)}
+    evidence = {c.criterion: c.verdict for c in criteria_evidence(design_diff, inp.design_after, inp.facts_after)}
 
     pages: list[ReviewItem] = []
-    intent = _intent(design_diff, inp.before, inp.after, evidence)
+    intent = _intent(design_diff, inp.design_before, inp.design_after, evidence)
     if intent.needs or intent.requirements:
         pages.append(ReviewItem(ItemId("intent"), Stage.INTENT,
                                 Text(_listing((len(intent.needs), "need"), (len(intent.requirements), "requirement")) + " changed"),
@@ -349,11 +349,11 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     arch = _architecture(design_diff, before, after)
     if arch.panels:
         pages.append(ReviewItem(ItemId("architecture"), Stage.ARCHITECTURE, _architecture_title(arch), arch, Risk.HIGH))
-    constraints = _constraints(design_diff, inp.before, inp.after)
+    constraints = _constraints(design_diff, inp.design_before, inp.design_after)
     if constraints.constraints:
         pages.append(ReviewItem(ItemId("constraints"), Stage.CONSTRAINTS,
                                 Text(f"{_n(len(constraints.constraints), 'constraint')} changed"), constraints, Risk.HIGH))
-    design = _design(design_diff, inp.before, inp.after)
+    design = _design(design_diff, inp.design_before, inp.design_after)
     if design.changes:
         pages.append(ReviewItem(ItemId("design"), Stage.DESIGN, Text(f"Design decisions in {_n(len(design.changes), 'component')}"),
                                 design, Risk.MEDIUM))
@@ -370,7 +370,7 @@ def build(inp: ReviewInput) -> tuple[ReviewItem, ...]:
     mapping = map_units(after, inp.facts_after)
     units = (*inp.facts_before.units, *inp.facts_after.units)
     tracer = Tracer(Trace(
-        inp.facts_before, inp.facts_after, _touched(design_diff, inp.after), ports,
+        inp.facts_before, inp.facts_after, _touched(design_diff, inp.design_after), ports,
         frozenset(ComponentId(c.ident) for c in design_diff.changes
                   if c.kind is Kind.COMPONENT and c.type is NodeChangeType.ADDED),
         {u.path: mapping.component_of[u.name] for u in units if u.name in mapping.component_of}))
@@ -391,9 +391,12 @@ def _overview(inp: ReviewInput, design_diff: DesignDiff, pages: list[ReviewItem]
     def tally(n: Count, noun: str, verb: str) -> Tally:
         return Tally(Text(f"{noun if n == 1 else noun + 's'} {verb}"), n)
 
-    unexplained = Count(sum(1 for p in pages if isinstance(p.body, CodeBody) for v in p.body.views() if v.unexplained))
+    views = [v for p in pages if isinstance(p.body, CodeBody) for v in p.body.views()]
+    unexplained = Count(sum(1 for v in views if v.unexplained))
+    undescribed = Count(len({q.name for v in views for q in v.questions if q.doubt is Doubt.UNDESCRIBED}))
     tallies = (
         tally(unexplained, "change", "with no reason given"),
+        tally(undescribed, "new or changed interface name", "without a description"),
         tally(count("need", NodeChangeType.ADDED), "need", "added"),
         tally(count("need", NodeChangeType.CHANGED), "need", "changed"),
         tally(count("component", NodeChangeType.ADDED), "component", "added"),

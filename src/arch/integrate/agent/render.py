@@ -69,13 +69,19 @@ what it may use, and the criteria that prove it. arch checks the code against it
    `--dry-run` first: `arch add`, `arch set`, `arch link`, `arch unlink`, `arch move`, `arch remove`, or a
    JSON batch with `arch apply`. Keep design changes in the same commit as the code they describe.
 4. **Link tests to criteria** with `@realizes("component#ACn")` from `arch`.
-5. **After changing anything:** `arch check`. Errors block; fix them, or change the design deliberately
+5. **Describe the interface names you add or change.** Give each exported function, class and field one line
+   (a docstring, or a comment at the end of a field's line). Say what its name and type cannot: its purpose,
+   its units or invariants, where the value comes from, or what `None` means. Skip it when the type already
+   says it (`path: SourcePath`). Do not comment local variables: name them well instead. People read these
+   lines when they point at a name in review. `arch check --all` lists names that need one (C014) and
+   descriptions that only repeat the name (C015).
+6. **After changing anything:** `arch check`. Errors block; fix them, or change the design deliberately
    (with a decision entry: `arch add decision`).
-6. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
+7. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
    point them at what matters with `arch review --note <item> "..."` (where you were unsure, what to
    check). Afterwards, `arch review --feedback` lists their open change requests, blocking ones first;
    address each one. You cannot approve items yourself.
-7. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
+8. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
 
 Methods for design work:
 {methods}

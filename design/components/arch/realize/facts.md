@@ -16,6 +16,7 @@ status: specified
 - AC7: The fact schema shall depend on no other arch component, so an adapter needs only this module.
 - AC8: Facts shall record every definition, public or private, with its lines and its one-line description.
 - AC9: Facts shall record each call site with the lines that the call spans.
+- AC10: An interface name shall need a description when its name and type do not explain it and it inherits none from a base method.
 
 ## Rationale
 This is arch's most important internal design rule in the Baldwin and Clark sense: adapters and core

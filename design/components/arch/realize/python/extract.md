@@ -16,6 +16,8 @@ status: specified
 - AC7: The extractor shall record the parameter, return and class-field types of public symbols, each with its leaf type names, excluding containers and literals.
 - AC8: Names in code shall resolve to their definitions through imports, typed parameters and self.
 - AC9: A member of a private class shall not be part of the interface.
+- AC10: Each use of a local variable shall resolve to the line that set the value it sees.
+- AC11: A module value set to a short literal shall read as a constant, with its value.
 
 ## Rationale
 Static inference over-approximates in places and misses dynamic dispatch. Reporting `unknown` keeps

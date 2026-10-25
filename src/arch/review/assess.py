@@ -46,8 +46,8 @@ class ReviewInput:
     """Everything a review compares: the design, the code facts and the check results, before and after."""
 
     base: Text  # the revision the change is compared with
-    before: Design  # the design at that revision
-    after: Design  # the design as the change leaves it
+    design_before: Design  # the design at that revision
+    design_after: Design  # the design as the change leaves it
     facts_before: Facts  # what the code at that revision contains
     facts_after: Facts  # what the code contains after the change
     report_before: Report  # check results at that revision

@@ -224,7 +224,7 @@ def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     facts_before = replace(facts_before, references=realize.names(snap_before, [d.old_path or d.path for d in diffs]))
     facts_after = replace(facts_after, references=realize.names(snap_after, [d.path for d in diffs]))
     return ReviewInput(
-        base=Text(base), before=before, after=after, facts_before=facts_before, facts_after=facts_after,
+        base=Text(base), design_before=before, design_after=after, facts_before=facts_before, facts_after=facts_after,
         report_before=report_before, report_after=report_after, changed=ws.changed_files(since), diffs=diffs,
     )
 
@@ -239,7 +239,7 @@ def review_board(ws: Workspace, base: Revision = Revision("HEAD")) -> Result:
     branch = ws.branch()
     inp = _review_input(ws, base)
     items = review_items.build(inp)
-    glossary = review_items.Glossary.of(inp.after, items, Text(workspace.DESIGN_DIR))
+    glossary = review_items.Glossary.of(inp.design_after, items, Text(workspace.DESIGN_DIR))
     return Result(Board(items, ws.session(branch), Text(f"Review of {branch} against {base}"), glossary,
                         ProjectRoot(str(ws.root)), ws.config().editor))
 

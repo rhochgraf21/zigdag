@@ -74,7 +74,7 @@ def deck(inp=None):
     """Pages and the glossary that explains their ids."""
     inp = inp or board_input()
     items = review_items.build(inp)
-    return items, Glossary.of(inp.after, items, Text("design"))
+    return items, Glossary.of(inp.design_after, items, Text("design"))
 
 
 @realizes("arch.review#AC1", "arch.review#AC2", "arch.review.items#AC1")

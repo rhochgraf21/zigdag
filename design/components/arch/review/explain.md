@@ -16,4 +16,7 @@ status: specified
 - AC7: Each name in a changed line that resolves to a definition shall carry the signature and description of that definition.
 - AC8: When every changed line is an import or part of the list of exported names, the change shall say that it only changes imports.
 - AC9: A new file shall be explained one top-level definition at a time.
+- AC10: When a changed definition's signature changed and its description did not, the change shall ask whether the description is still true.
+- AC11: When a new or changed interface name needs a description and has none, the change shall say so.
+- AC12: Each local variable in a changed line shall carry the line that set it.
 

@@ -7,6 +7,7 @@ other component consumes them and never reads source code itself.
 from __future__ import annotations
 
 import enum
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import NewType, Protocol
@@ -133,15 +134,46 @@ class Parameter:
     optionality: Optionality = Optionality.REQUIRED
 
 
+def words(text: Text) -> frozenset[Text]:
+    """The words of an identifier or a phrase, in lower case and singular, so `design_edits` and `DesignEdit` match."""
+    return frozenset(Text(_singular(w.lower())) for w in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", text))
+
+
+def _singular(word: str) -> str:
+    if len(word) <= 3 or not word.endswith("s") or word.endswith(("ss", "us", "is")):
+        return word
+    if word.endswith("ies"):
+        return word[:-3] + "y"  # entries
+    if word.endswith(("xes", "ches", "shes", "sses", "zes")):
+        return word[:-2]  # suffixes, matches, classes
+    return word[:-1]
+
+
+# words that join others without adding meaning, in names (`to_html`) and in descriptions (`the path`)
+_FILLER = words("a an the of for to from in on at by with and or is are be as its it this that get has make new")
+
+
 @dataclass(frozen=True)
 class PublicSymbol:
     unit: UnitName
     name: SymbolName
-    kind: Text  # display only, e.g. "function", "method", "class", "field", "value"
+    kind: Text  # "function", "method", "class", "field", "value", or "constant" (a value whose literal is shown)
     signature: Text  # display only
     location: SourceLocation
     parameters: tuple[Parameter, ...] = ()
     returns: TypeRef | None = None  # for a field, its type
+
+    def explained_by_type(self) -> bool:
+        """Whether the name only repeats what its types say (`path: SourcePath`, `unit(name: UnitName) -> Unit`),
+        so a description would add nothing. A constant is explained by its value; a class never by its name."""
+        if self.kind == "constant":
+            return True
+        if self.kind == "class":
+            return False
+        refs = (self.returns, *(p.type for p in self.parameters))
+        said = frozenset().union(*(words(leaf) for ref in refs if ref is not None for leaf in ref.leaves))
+        own = words(self.name.rsplit(".", 1)[-1]) - _FILLER
+        return bool(own) and own <= said
 
 
 @dataclass(frozen=True)
@@ -156,10 +188,15 @@ class Definition:
     end_line: LineNo
     summary: Text | None = None  # the first line of its documentation, or the comment on its line
 
+    def restates_name(self) -> bool:
+        """Whether the description says nothing that the signature does not (`path: SourcePath  # the path`)."""
+        return self.summary is not None and words(self.summary) - _FILLER <= words(self.signature)
+
 
 class NameKind(enum.Enum):
     DEFINITION = "definition"  # the name is the definition itself
-    VALUE = "value"  # the name holds a value of the target type: a typed parameter, `self`, `x = Cls(...)`
+    VALUE = "value"  # the name holds a value of the target type: a typed parameter, `self`
+    LOCAL = "local"  # a local variable; the target is what produced its value, if the adapter could tell
 
 
 @dataclass(frozen=True)
@@ -173,6 +210,8 @@ class Reference:
     location: SourceLocation
     column: Column
     end_column: Column
+    bound_at: LineNo | None = None  # for a local: the line that set the value this use sees
+    binding: Text | None = None  # for a local: that line as written
 
 
 @dataclass(frozen=True)
@@ -400,6 +439,30 @@ class Facts:
             return tuple(items) if attr in ("changes", "evidence", "mutants") else tuple(sorted(items, key=_sort_key))
         return Facts(*(gather(a) for a in ("units", "imports", "symbols", "contracts", "links", "errors", "effects", "calls", "aliases",
                                          "changes", "evidence", "mutants", "definitions", "references")))
+
+
+def needs_description(facts: Facts) -> frozenset[tuple[UnitName, SymbolName]]:
+    """Interface names that their name and type do not explain, and that have no description of their own or
+    from the base-class method they implement. Bases are matched by name: `Link(Operation)` implements
+    `Operation.apply_to`."""
+    defs = {(d.unit, d.name): d for d in facts.definitions}
+    described_methods = {d.name for d in facts.definitions if d.summary and d.kind == "method"}
+    source = {u.name for u in facts.units if u.role is Role.SOURCE}  # tests have no interface
+    out = set()
+    for s in facts.symbols:
+        if s.unit not in source:
+            continue
+        d = defs.get((s.unit, s.name))
+        owner, _, member = s.name.rpartition(".")
+        if d is None or d.summary is not None or member.startswith("__") or s.explained_by_type():
+            continue
+        cls = defs.get((s.unit, SymbolName(owner))) if owner else None
+        if cls is not None and "(" in cls.signature:
+            bases = {b.strip().rsplit(".", 1)[-1].split("[")[0] for b in cls.signature.split("(", 1)[1].rstrip(")").split(",")}
+            if any(f"{base}.{member}" in described_methods for base in bases):
+                continue
+        out.add((s.unit, s.name))
+    return frozenset(out)
 
 
 def _sort_key(fact: object) -> tuple:

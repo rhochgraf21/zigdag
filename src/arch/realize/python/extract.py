@@ -11,6 +11,7 @@ import ast
 import io
 import re
 import tokenize
+from dataclasses import dataclass
 
 from arch.realize.facts import (
     Alias,
@@ -74,7 +75,7 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
     contracts: list[ContractDecl] = []
     links: list[DesignLink] = []
     definitions: list[Definition] = []
-    comments = _trailing_comments(text)
+    comments = _Comments(text)
 
     exported = _dunder_all(tree)
     public_names: set[str] = set()
@@ -98,7 +99,8 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
             symbols.append(PublicSymbol(unit, SymbolName(qual), Text("field"), Text(f"{qual}: {ast.unparse(node.annotation)}"),
                                         at(node), (), _type_ref(node.annotation)))
         elif isinstance(node, ast.Assign | ast.AnnAssign) and public and top and name != "__all__":
-            symbols.append(PublicSymbol(unit, SymbolName(qual), Text("value"), Text(name), at(node)))
+            kind, signature = _value(node, name)
+            symbols.append(PublicSymbol(unit, SymbolName(qual), kind, signature, at(node)))
         for dec in getattr(node, "decorator_list", ()):
             if (kind := _contract_kind(dec, deal_names)) is not None:
                 call_args = dec.args if isinstance(dec, ast.Call) else []
@@ -108,7 +110,8 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
             for target in _realizes_targets(dec):
                 links.append(DesignLink(unit, SymbolName(qual), Text(target), at(dec)))
 
-    effects, calls = _effects_and_calls(tree, unit, package, at)
+    names = _bindings(tree, unit, package)
+    effects, calls = _effects_and_calls(tree, unit, names, at)
     doc = ast.get_docstring(tree)
     summary = Text(next((line.strip() for line in doc.splitlines() if line.strip()), "")) if doc else None
     shape = UnitShape.PACKAGE if path.endswith("__init__.py") else UnitShape.MODULE
@@ -120,7 +123,7 @@ def extract(path: SourcePath, text: SourceText, unit: UnitName, role: Role) -> F
         links=tuple(links),
         effects=effects,
         calls=calls,
-        aliases=tuple(_aliases(tree, unit, package, at)),
+        aliases=tuple(_aliases(tree, unit, names, at)),
         definitions=tuple(definitions),
     )
 
@@ -181,7 +184,7 @@ def _definitions(tree: ast.Module):
     yield from walk(tree.body, "")
 
 
-def _definition(node: ast.AST, qual: str, unit: UnitName, path: SourcePath, comments: dict[int, str]) -> Definition:
+def _definition(node: ast.AST, qual: str, unit: UnitName, path: SourcePath, comments: _Comments) -> Definition:
     """Where a definition starts and ends, how it reads, and the first line of what it says about itself."""
     start = min([node.lineno, *(d.lineno for d in getattr(node, "decorator_list", ()))])
     end = LineNo(node.end_lineno or node.lineno)
@@ -189,28 +192,50 @@ def _definition(node: ast.AST, qual: str, unit: UnitName, path: SourcePath, comm
         kind, signature = _signature(node, qual)
         doc = ast.get_docstring(node)
         summary = next((line.strip() for line in doc.splitlines() if line.strip()), None) if doc else None
-    else:
+    elif "." in qual or qual == "__all__":
         annotation = f": {ast.unparse(node.annotation)}" if isinstance(node, ast.AnnAssign) else ""
-        kind = "field" if "." in qual else "exports" if qual == "__all__" else "value"
-        signature = f"{qual}{annotation}"
+        kind, signature = ("field" if "." in qual else "exports"), f"{qual}{annotation}"
+        summary = comments.get(node.lineno) or comments.get(end)
+    else:
+        kind, signature = _value(node, qual)
         summary = comments.get(node.lineno) or comments.get(end)
     return Definition(unit, SymbolName(qual), Text(kind), Text(signature), SourceLocation(path, LineNo(start)), end,
                       Text(summary) if summary else None)
 
 
-def _trailing_comments(text: str) -> dict[int, str]:
-    """line -> the comment that ends it, for comments that follow code on the same line."""
-    out: dict[int, str] = {}
-    code_lines: set[int] = set()
-    try:
-        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.COMMENT and tok.start[0] in code_lines:
-                out[tok.start[0]] = tok.string.lstrip("#").strip()
-            elif tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT):
-                code_lines.add(tok.start[0])
-    except (tokenize.TokenError, SyntaxError, ValueError):  # UnicodeDecodeError is a ValueError
-        pass
-    return out
+_SHORT_LITERAL = 40  # characters: a value this short reads at a glance
+
+
+def _value(node: ast.Assign | ast.AnnAssign, name: str) -> tuple[Text, Text]:
+    """A module value as it reads: a short literal is shown, and makes it a constant; a type alias shows its form."""
+    value = node.value
+    annotation = f": {ast.unparse(node.annotation)}" if isinstance(node, ast.AnnAssign) else ""
+    if isinstance(value, ast.Constant) and isinstance(value.value, str | int | float | bool) and value.value is not None:
+        literal = repr(value.value)
+        if len(literal) <= _SHORT_LITERAL:
+            return Text("constant"), Text(f"{name}{annotation} = {literal}")
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name | ast.Attribute) and ast.unparse(value.func).endswith("NewType"):
+        return Text("value"), Text(f"{name} = {ast.unparse(value)}")
+    return Text("value"), Text(f"{name}{annotation}")
+
+
+class _Comments:
+    """The comment at the end of a line, read only for the lines asked about (tokenizing whole files is slow)."""
+
+    def __init__(self, text: str) -> None:
+        self.lines = _LINE_END.split(text)
+
+    def get(self, line: int) -> str | None:
+        if not 0 < line <= len(self.lines) or "#" not in self.lines[line - 1]:
+            return None
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(self.lines[line - 1]).readline))
+        except (tokenize.TokenError, SyntaxError, ValueError):  # a line inside a longer statement; UnicodeDecodeError too
+            return None
+        code = any(t.type not in (tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
+                                  tokenize.ENDMARKER) for t in tokens)
+        comment = next((t.string for t in tokens if t.type == tokenize.COMMENT), None)
+        return comment.lstrip("#").strip() if code and comment else None
 
 
 def _dunder_all(tree: ast.Module) -> frozenset[str] | None:
@@ -326,8 +351,7 @@ def _bindings(tree: ast.Module, unit: UnitName, package: UnitName) -> dict[str, 
     return names
 
 
-def _effects_and_calls(tree: ast.Module, unit: UnitName, package: UnitName, at):
-    module_names = _bindings(tree, unit, package)
+def _effects_and_calls(tree: ast.Module, unit: UnitName, module_names: dict[str, str], at):
     uses_pathlib = any(v == "pathlib" or v.startswith("pathlib.") for v in module_names.values())
     effects: dict[tuple[SymbolName, Effect], EffectUse] = {}
     calls: dict[tuple[SymbolName, str, int], Call] = {}
@@ -430,12 +454,15 @@ def _references(tree: ast.Module, unit: UnitName, package: UnitName, path: Sourc
     """Each name on one line that resolves to a dotted target: imported or defined names, attributes of
     typed parameters and of `self`, and the parameters themselves (as values of their type)."""
     module_names = _bindings(tree, unit, package)
+    for node in tree.body:  # module values are names too, for reading (calls and effects do not need them)
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        module_names.update({t.id: f"{unit}.{t.id}" for t in targets if isinstance(t, ast.Name) and t.id not in module_names})
 
     def column(line: int, offset: int) -> Column:
         text = lines[line - 1] if 0 < line <= len(lines) else ""
         return Column(offset if text.isascii() else len(text.encode()[:offset].decode(errors="ignore")))
 
-    def emit(nodes, local: dict[str, str]):
+    def emit(nodes, local: dict[str, str], bound: dict[str, list[_Binding]] | None = None):
         scope, values = {**module_names, **local}, set(local)
         for root in nodes:
             for node in ast.walk(root):
@@ -445,6 +472,12 @@ def _references(tree: ast.Module, unit: UnitName, package: UnitName, path: Sourc
                             if isinstance(target, ast.Name):
                                 scope[target.id], _ = typ, values.add(target.id)
                 if not (isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load)):
+                    continue
+                if isinstance(node, ast.Name) and bound and (b := _binding_at(bound.get(node.id, ()), node.lineno)):
+                    if b.line != node.lineno:  # set on the same line: nothing to add
+                        start, end = column(node.lineno, node.col_offset), column(node.lineno, node.end_col_offset or 0)
+                        yield Reference(unit, Text(node.id), Text(b.source or ""), NameKind.LOCAL,
+                                        SourceLocation(path, LineNo(node.lineno)), start, end, LineNo(b.line), Text(b.text))
                     continue
                 if node.end_lineno != node.lineno or (target := _dotted(node, scope)) is None:
                     continue
@@ -468,7 +501,8 @@ def _references(tree: ast.Module, unit: UnitName, package: UnitName, path: Sourc
             elif a.annotation is not None and (typ := _annotation_type(a.annotation, module_names)):
                 local[a.arg] = typ
         yield from emit(signature_parts(fn), {})
-        yield from emit([*fn.body, *fn.args.defaults, *(d for d in fn.args.kw_defaults if d is not None)], local)
+        bound = _local_bindings(fn, lines, {**module_names, **local})
+        yield from emit([*fn.body, *fn.args.defaults, *(d for d in fn.args.kw_defaults if d is not None)], local, bound)
 
     for node in tree.body:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -482,6 +516,54 @@ def _references(tree: ast.Module, unit: UnitName, package: UnitName, path: Sourc
                     yield from emit([item], {})
         elif not isinstance(node, ast.Import | ast.ImportFrom):
             yield from emit([node], {})
+
+
+_BINDING_CHARS = 100  # of the setting line shown when a local is pointed at
+
+
+@dataclass(frozen=True)
+class _Binding:
+    line: int
+    text: str  # the line that sets the value, as written
+    source: str | None  # the dotted name of what was called to produce it
+
+
+def _local_bindings(fn: ast.FunctionDef | ast.AsyncFunctionDef, lines: list[str], scope: dict[str, str]):
+    """Each local name -> the lines that set it, in order: assignments, loop and `with` targets, comprehensions."""
+    out: dict[str, list[_Binding]] = {}
+
+    def add(target: ast.AST, at: ast.AST, value: ast.AST | None, last: ast.AST | None = None) -> None:
+        """`last` is the node that ends the setting part: for a loop, its iterable, not its body."""
+        line = at.lineno
+        text = lines[line - 1].strip() if line <= len(lines) else ""
+        if (getattr(last or at, "end_lineno", None) or line) > line or len(text) > _BINDING_CHARS:
+            text = text[:_BINDING_CHARS].rstrip() + " …"
+        source = _dotted(value.func, scope) if isinstance(value, ast.Call) else None
+        for n in ast.walk(target):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                out.setdefault(n.id, []).append(_Binding(line, text, source))
+
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                add(t, node, node.value)
+        elif isinstance(node, ast.AnnAssign | ast.NamedExpr) and node.value is not None:
+            add(node.target, node, node.value)
+        elif isinstance(node, ast.For | ast.AsyncFor):
+            add(node.target, node, None, node.iter)
+        elif isinstance(node, ast.With | ast.AsyncWith):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    add(item.optional_vars, node, item.context_expr, node.items[-1].context_expr)
+        elif isinstance(node, ast.comprehension):
+            add(node.target, node.target, None)
+    return {k: sorted(v, key=lambda b: b.line) for k, v in out.items()}
+
+
+def _binding_at(bindings, line: int) -> _Binding | None:
+    """The binding a use on `line` sees: the last one at or before it (loops aside, which is enough to read by)."""
+    before = [b for b in bindings if b.line <= line]
+    return before[-1] if before else None
 
 
 def _annotation_type(annotation: ast.expr, names: dict[str, str]) -> str | None:
@@ -510,9 +592,8 @@ def _open_mode(node: ast.Call, offset: int = 1) -> Effect:
     return Effect.FS_WRITE  # unknown mode: assume the stronger effect
 
 
-def _aliases(tree: ast.Module, unit: UnitName, package: UnitName, at):
+def _aliases(tree: ast.Module, unit: UnitName, names: dict[str, str], at):
     """Names this module binds at the top level by importing them from elsewhere; public if in __all__."""
-    names = _bindings(tree, unit, package)
     exported = _dunder_all(tree) or frozenset()
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):

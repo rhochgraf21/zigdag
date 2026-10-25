@@ -15,7 +15,7 @@ from arch.model.graph import is_within, parent_of
 from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
 from arch.model.schema import Status
-from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName
+from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName, needs_description
 from arch.realize.mapping import UnitMap, map_units
 
 _maps: WeakKeyDictionary[Context, UnitMap] = WeakKeyDictionary()
@@ -150,6 +150,35 @@ def port_types(ctx: Context) -> Iterator[Finding]:
                                f"{where} exposes `{slot}: {ref.text}`, which uses bare {', '.join(bare)}",
                                "use a domain type (NewType, enum, value object) or an alias that names the concept",
                                sym.location)
+
+
+def descriptions(ctx: Context) -> Iterator[Finding]:
+    """Interface names say what they are. A name needs a one-line description when its name and type do not
+    explain it, and the description must say more than the name. Tightens as the component matures."""
+    g, m = ctx.graph, _mapping(ctx)
+    source = _source_units(ctx)
+    facts = ctx.facts or Facts()
+    defs = {(d.unit, d.name): d for d in facts.definitions}
+    needed = needs_description(facts)
+    for sym in facts.symbols:
+        cid = m.component_of.get(sym.unit)
+        d = defs.get((sym.unit, sym.name))
+        if cid is None or d is None or sym.unit not in source:
+            continue
+        status = g[cid].status
+        sev = Severity.ERROR if status is Status.VERIFIED else Severity.WARNING if status is Status.CONTRACTED else Severity.INFO
+        where = f"{sym.unit}.{sym.name}"
+        if (sym.unit, sym.name) in needed:
+            yield _finding("C014", cid, f"undescribed:{where}", sev,
+                           f"{where} is part of the interface, and its name and type do not say what it is",
+                           _DESCRIBE, d.location)
+        elif d.restates_name():
+            yield _finding("C015", cid, f"restated:{where}", sev,
+                           f"the description of {where} only repeats its name and type: {d.summary!r}", _DESCRIBE, d.location)
+
+
+_DESCRIBE = ("add one line that says what the name and type cannot: its purpose, its units or invariants, where the "
+             "value comes from, or what None means (for a function, its docstring; for a field, a comment on its line)")
 
 
 # deal's side-effect markers that cover each effect arch infers (deal.readthedocs.io/basic/side-effects.html)
@@ -301,4 +330,6 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId("C011"), Text("public ports use domain types"), port_types),
     Rule(RuleId("C012"), Text("declared side effects (deal) cover the inferred ones"), declared_effects),
     Rule(RuleId("C013"), Text("tests notice changes to the code (mutation)"), surviving_mutants),
+    Rule(RuleId("C014"), Text("interface names their type does not explain have a description (C015: one that says more "
+                              "than the name)"), descriptions),
 )

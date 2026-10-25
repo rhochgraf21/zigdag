@@ -55,8 +55,10 @@ def propagate_effects(facts: Facts) -> Facts:
     for e in facts.effects:
         direct.setdefault(key(e.unit, e.symbol), set()).add(e.effect)
     calls: dict[str, list] = {}
+    first: dict[tuple[str, str], object] = {}  # one record per caller and callee: the first call site
     for c in facts.calls:
-        calls.setdefault(key(c.unit, c.symbol), []).append(c)
+        if first.setdefault((key(c.unit, c.symbol), c.callee), c) is c:
+            calls.setdefault(key(c.unit, c.symbol), []).append(c)
     defined = set(direct) | set(calls)
     aliases = {key(a.unit, a.name): a.target for a in facts.aliases}
 

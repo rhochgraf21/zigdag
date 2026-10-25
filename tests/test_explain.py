@@ -114,7 +114,7 @@ def page(items, page_id):
 
 def html_of(inp):
     items = review_items.build(inp)
-    return items, render(items, Session(Text("b")), Text("Review"), Glossary.of(inp.after, items, Text("design")))
+    return items, render(items, Session(Text("b")), Text("Review"), Glossary.of(inp.design_after, items, Text("design")))
 
 
 @realizes("arch.review.explain#AC4", "arch.review.explain#AC5", "arch.review.items#AC9", "arch.review.explain#AC1",
@@ -170,7 +170,7 @@ def test_new_code_cites_the_criteria_and_component_it_serves():
     source = {r.why: r for r in body.sources[0].hunks[0].reasons}
     assert source[Why.EXERCISED].refs == ("s.cache#AC1",)  # its test calls get()
     assert source[Why.NEW_COMPONENT].refs == ("s.cache",)
-    evidence = {e.criterion: e.verdict for e in criteria_evidence(design_diff(inp.before, inp.after), inp.after, inp.facts_after)}
+    evidence = {e.criterion: e.verdict for e in criteria_evidence(design_diff(inp.design_before, inp.design_after), inp.design_after, inp.facts_after)}
     assert evidence["s.cache#AC1"] == "linked, no report"
 
 
@@ -219,6 +219,38 @@ def test_a_change_to_imports_and_exports_only_says_so():
     assert [r.why for r in view.reasons] == [Why.IMPORTS] and not view.unexplained
 
 
+DESCRIBED = {**BEFORE, "src/s/core.py": 'def f(x: X) -> Y:\n    """Combine things."""\n    return x\n'}
+DESCRIBED_AFTER = {**BEFORE, "src/s/core.py": ('def f(x: X, y: X) -> Y:\n    """Combine things."""\n    total = x\n'
+                                              '    return total\n\n\ndef g(z: X) -> Y:\n    return z\n')}
+DESCRIBED_DIFF = UnifiedDiff("""diff --git a/src/s/core.py b/src/s/core.py
+--- a/src/s/core.py
++++ b/src/s/core.py
+@@ -1,3 +1,8 @@
+-def f(x: X) -> Y:
++def f(x: X, y: X) -> Y:
+     \"\"\"Combine things.\"\"\"
+-    return x
++    total = x
++    return total
++
++
++def g(z: X) -> Y:
++    return z
+""")
+
+
+@realizes("arch.review.explain#AC10", "arch.review.explain#AC11", "arch.review.explain#AC12", "arch.review.items#AC11")
+def test_changes_ask_about_descriptions_and_show_where_locals_are_set():
+    items, html = html_of(change(DESCRIBED, DESCRIBED_AFTER, parse_diff(DESCRIBED_DIFF)))
+    (view,) = page(items, "code:s.core").body.sources[0].hunks
+    assert {(q.doubt.value, q.name) for q in view.questions} == {("stale", "f"), ("undescribed", "g")}
+    assert "The signature of <code>f</code> changed, but its description did not." in html
+    assert "<code>g</code> is part of the interface, and its name and type do not say what it is." in html
+    assert '<span class="name" data-tip="Set on line 3: total = x">total</span>' in html
+    tallies = {t.label: t.count for t in page(items, "overview").body.tallies}
+    assert tallies["new or changed interface name without a description"] == 1
+
+
 # a re-exported name changes where it is defined, not where it is re-exported
 
 REEXPORT_BEFORE = {"src/s/__init__.py": "", "src/s/core.py": "class C:\n    x: X\n",
@@ -234,7 +266,7 @@ def test_a_file_is_not_charged_for_names_it_only_reexports():
                                  FileChange(SourcePath("src/s/shell.py"), LineNo(1), LineNo(1))))
     ports = port_changes(inp.facts_before, inp.facts_after)
     assert {(p.unit, p.reexport_of) for p in ports} == {("s.core", None), ("s.shell", "s.core.C.x")}
-    risks = {r.path: r.reasons for r in file_risks(inp, Graph(inp.after), ports)}
+    risks = {r.path: r.reasons for r in file_risks(inp, Graph(inp.design_after), ports)}
     assert "1 interface change that needs review" in risks["src/s/core.py"]
     assert not any("interface" in r for r in risks["src/s/shell.py"])
 

@@ -14,6 +14,7 @@ status: specified
 - AC5: A hook run outside an arch project, or one that fails, shall exit quietly so it never breaks the agent.
 - AC6: After an edit, the hook shall report only blocking findings about the edited file or its component, through Claude Code's documented feedback channel (exit 2, stderr).
 - AC7: The generic AGENTS.md section shall work with any agent.
+- AC8: The core skill shall tell agents to describe the interface names they add or change, and not to comment local variables.
 
 ## Rationale
 The difference between a tool you have to remember and a tool that is just there. Why packaging lives

@@ -166,6 +166,7 @@ details summary{cursor:pointer}
 .why-label{flex:none;min-width:82px;font-size:10.5px;font-weight:650;text-transform:uppercase;letter-spacing:.07em;
   color:var(--add);padding-top:2px}
 .why.none .why-label{color:var(--chg)}.why.none{color:var(--chg)}
+.why.ask .why-label{color:var(--accent)}
 .why .chip{margin:0 2px}
 .name{border-bottom:1px dotted color-mix(in srgb,currentColor 35%,transparent)}.name:hover{background:var(--accent-soft);border-radius:3px}
 .interface .label{margin-top:16px}.small{font-size:13px}
