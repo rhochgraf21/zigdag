@@ -74,7 +74,9 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
     def edit(operations: list[dict[str, Any]], dry_run: bool = False) -> str:
         """Apply design operations atomically. Each is an object like {"op": "link", "component": "a.b",
         "relation": "uses", "target": "c"}; ops: add_component, add_need, add_criterion, remove_criterion,
-        add_decision, set, link, unlink, move, remove."""
+        set_criterion, add_decision, set, link, unlink, move, remove, split. To give a second function its own
+        part, use split: {"op": "split", "component": "a.b", "labels": ["AC3"], "into": "a.b.c", "realizes": "...",
+        "solution": "...", "hides": "..."}; it moves the criteria and re-links their tests."""
         parsed = [ops.from_json(o) for o in operations]
         return text(catalog.edit(ws(), parsed, EditMode.DRY_RUN if dry_run else EditMode.WRITE))
 

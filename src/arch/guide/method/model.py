@@ -32,6 +32,7 @@ class AbstractOp(enum.Enum):
     LINK = "add a reference (uses, exports, serves)"
     UNLINK = "remove a reference"
     MOVE = "move or rename a component"
+    SPLIT = "give a second function its own component, with its criteria and their tests"
     REMOVE = "remove a node"
     CRITIQUE = "have design text judged by an independent critic"
     RAISE = "record a defect, a question or an idea"

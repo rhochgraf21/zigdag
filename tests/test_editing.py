@@ -151,3 +151,29 @@ def test_diff_classifies_changes_and_detects_moves():
     assert shell["decision 'Shell first'"] is ChangeClass.DESIGN
     reformatted = design({**DESIGN, "components/s/shell.md": DESIGN["components/s/shell.md"].replace("uses: [core.api]", "uses: [ core.api ]")})
     assert diff(before, reformatted).empty
+
+
+@realizes("arch.change.ops#AC6", "arch.change.ops#AC7")
+def test_split_gives_a_second_function_its_own_part_and_relinks_its_tests():
+    from arch.change.ops import Split
+    from arch.model.ids import CriterionLabel
+
+    files = {DesignPath("needs/n.md"): NEED, DesignPath("components/s.md"): component(serves="n"),
+             DesignPath("components/s/review.md"): component(serves="n", criteria=3)}
+    code = {SourcePath("src/s/__init__.py"): "",
+            SourcePath("tests/test_r.py"): "@realizes('s.review#AC1')\ndef a(): ...\n\n@realizes('s.review#AC3')\ndef b(): ...\n"}
+    snap = Snapshot(code, Roots(("src",), ("tests",)))
+    links = realize.extract(snap).links
+    split = Split(ComponentId("s.review"), (CriterionLabel("AC3"),), ComponentId("s.feedback"),
+                  Text("Tell the author which change requests are still open"), Text("A list built from the verdicts"),
+                  Text("How requests are ranked"))
+    r = apply(codec.load(files), [split], snap, links)
+    assert r.outcome is Outcome.APPLIED, r.reason
+    review, feedback = r.after.components["s.review"], r.after.components["s.feedback"]
+    assert [c.id for c in review.criteria] == ["s.review#AC1", "s.review#AC2"]  # the others keep their labels
+    assert [c.id for c in feedback.criteria] == ["s.feedback#AC1"] and feedback.serves == ("n",)  # a top-level part
+    (edit,) = r.source_edits
+    assert "@realizes('s.feedback#AC1')" in edit.after and "@realizes('s.review#AC1')" in edit.after
+    everything = Split(ComponentId("s.review"), tuple(CriterionLabel(f"AC{i}") for i in (1, 2, 3)), ComponentId("s.x"),
+                       Text("Do it"), Text("A part"))
+    assert apply(codec.load(files), [everything], snap, links).outcome is Outcome.REJECTED

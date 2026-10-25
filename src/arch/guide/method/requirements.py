@@ -16,7 +16,8 @@ WRITE_REQUIREMENTS = Method(
                   "\"Compute tax owed for an order under jurisdiction rules\".")),
         Step(Text("One function per requirement. If it joins two actions with \"and\", it is two requirements, and "
                   "each needs its own solution: split them into two components (or two children of this one). "
-                  "Never into two criteria: a criterion pins down its requirement's function, it does not add one.")),
+                  "Never into two criteria: a criterion pins down its requirement's function, it does not add one."),
+             (AbstractOp.SPLIT,)),
         Step(Text("Write acceptance criteria in EARS form, each decidable by a test: ubiquitous (\"The <part> "
                   "shall ...\"), event (\"When <trigger>, the <part> shall ...\"), state (\"While <state>, ...\"), "
                   "unwanted behaviour (\"If <condition>, then the <part> shall ...\"), optional (\"Where <feature>, "

@@ -46,6 +46,7 @@ class OpName(enum.Enum):
     UNLINK = "unlink"
     MOVE = "move"
     REMOVE = "remove"
+    SPLIT = "split"
 
 
 class Relation(enum.Enum):
@@ -467,8 +468,60 @@ class Remove(Operation):
         return Text(f"remove {self.kind.value} {self.node}" + (" (cascade)" if self.mode is Removal.CASCADE else ""))
 
 
+@dataclass(frozen=True)
+class Split(Operation):
+    """Give a second function its own part: move the criteria that pin it down into a new component, and point
+    every test that proves them at their new ids. One step, as cheap as adding a criterion, so it gets done."""
+
+    name: ClassVar[OpName] = OpName.SPLIT
+    component: ComponentId
+    labels: tuple[CriterionLabel, ...]
+    into: ComponentId  # a new child of the component, or a new sibling of it
+    realizes: Text
+    solution: Text
+    hides: Text | None = None
+    uses: tuple[Ref, ...] = ()
+
+    def apply_to(self, draft: Draft) -> None:
+        before = draft.graph()
+        if self.component not in before:
+            raise Rejected(f"no component '{self.component}'")
+        if self.into in before:
+            raise Rejected(f"component '{self.into}' already exists")
+        parent = parent_of(self.into)
+        if parent not in (self.component, parent_of(self.component)):
+            raise Rejected(f"'{self.into}' must be a child or a sibling of {self.component}")
+        source = before[self.component]
+        texts = {split_criterion(cr.id)[1]: cr.text for cr in source.criteria}
+        missing = [str(label) for label in self.labels if label not in texts]
+        if not self.labels or missing:
+            raise Rejected(f"{self.component} has no criterion {', '.join(missing)}" if missing else "name the criteria to move")
+        if len(set(self.labels)) == len(texts):
+            raise Rejected(f"that would leave {self.component} with no criteria; to move the whole part, use move")
+        top_level = parent is not None and parent_of(parent) is None and parent != self.component
+        AddComponent(self.into, self.realizes, self.solution, self.hides, source.status, self.uses,
+                     serves=source.serves if top_level else ()).apply_to(draft)
+        new, old = draft.file(Kind.COMPONENT, self.into), draft.file(Kind.COMPONENT, self.component)
+        relabel = {}
+        for label in self.labels:
+            relabel[label] = new.add_criterion(texts[label])
+            old.remove_criterion(label)
+        draft.put(Kind.COMPONENT, self.into, new)
+        draft.put(Kind.COMPONENT, self.component, old)
+        for link in draft.links():
+            comp, label = split_criterion(link.target)
+            if comp == self.component and label in relabel:
+                draft.rewrite_link(link, Text(f"{self.into}#{relabel[label]}"))
+        moved = ", ".join(f"{label} -> {relabel[label]}" for label in self.labels)
+        draft.note(Text(f"moved {moved} to {self.into}; its code still lives where it was: move it to module {self.into}"))
+
+    def describe(self) -> Text:
+        return Text(f"split {', '.join(self.labels)} of {self.component} into {self.into}")
+
+
 OPERATIONS: Mapping[OpName, type[Operation]] = {
-    op.name: op for op in (AddComponent, AddNeed, AddCriterion, RemoveCriterion, SetCriterion, AddDecision, SetField, Link, Unlink, Move, Remove)
+    op.name: op for op in (AddComponent, AddNeed, AddCriterion, RemoveCriterion, SetCriterion, AddDecision, SetField, Link,
+                           Unlink, Move, Remove, Split)
 }
 _ENUM_FIELDS = {"status": Status, "field": Settable, "relation": Relation, "kind": Kind, "mode": Removal}
 
@@ -507,5 +560,5 @@ def from_json(raw: JsonObject) -> Operation:
 
 __all__ = [
     "AddComponent", "AddCriterion", "AddDecision", "AddNeed", "Draft", "JsonObject", "Link", "Move", "OpName",
-    "Operation", "Rejected", "Relation", "Remove", "RemoveCriterion", "Removal", "SetCriterion", "SetField", "Settable", "Unlink", "from_json",
+    "Operation", "Rejected", "Relation", "Remove", "RemoveCriterion", "Removal", "SetCriterion", "SetField", "Settable", "Split", "Unlink", "from_json",
 ]

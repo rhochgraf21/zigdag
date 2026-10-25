@@ -12,3 +12,5 @@ status: specified
 - AC3: Removing a component that has children or inbound uses shall be refused unless the operation says `cascade`.
 - AC4: Setting a field back to its old value, and unlinking what was linked, shall restore the file byte for byte (git is the undo for everything else).
 - AC5: Each operation shall apply itself to a Draft protocol defined here, so operations never handle files or transactions.
+- AC6: When a split moves criteria into a new component, every test linked to them shall link to their new ids.
+- AC7: If a split would leave its component with no criteria, then the split shall be rejected.

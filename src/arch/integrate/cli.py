@@ -168,6 +168,13 @@ def _parser() -> argparse.ArgumentParser:
     mv = editing("move", "Rename or re-parent a component, rewriting references")
     mv.add_argument("component")
     mv.add_argument("to")
+    sp = editing("split", "Give a second function its own component: move criteria into a new part, re-linking their tests")
+    sp.add_argument("criteria", help="component#AC2,AC3: the criteria that pin down the second function")
+    sp.add_argument("--into", required=True, help="the new component: a child or a sibling of the one split")
+    sp.add_argument("--realizes", required=True, help="what the new part must do")
+    sp.add_argument("--solution", required=True, help="how it does it")
+    sp.add_argument("--hides", help="the decision it keeps from the others")
+    sp.add_argument("--uses", help="comma-separated references")
     rm = editing("remove", "Remove a component, need or acceptance criterion")
     rkinds = rm.add_subparsers(dest="what", required=True, metavar="what")
     for kind in ("component", "need"):
@@ -213,6 +220,11 @@ def _operations(args: argparse.Namespace, ws: Workspace) -> list[ops.Operation]:
             return [cls(ComponentId(args.component), ops.Relation(args.relation), Ref(args.target))]
         case "move", _:
             return [ops.Move(ComponentId(args.component), ComponentId(args.to))]
+        case "split", _:
+            component, _, labels = args.criteria.partition("#")
+            return [ops.Split(ComponentId(component), tuple(CriterionLabel(x) for x in _names(labels)),
+                              ComponentId(args.into), Text(args.realizes), Text(args.solution),
+                              Text(args.hides) if args.hides else None, tuple(Ref(r) for r in _names(args.uses)))]
         case "remove", "criterion":
             return [ops.RemoveCriterion(ComponentId(args.component), CriterionLabel(args.label))]
         case "remove", kind:
@@ -231,7 +243,7 @@ def _operations(args: argparse.Namespace, ws: Workspace) -> list[ops.Operation]:
     raise ops.Rejected(f"unknown editing command {args.cmd}")
 
 
-EDITING = frozenset({"add", "set", "link", "unlink", "move", "remove", "apply"})
+EDITING = frozenset({"add", "set", "link", "unlink", "move", "remove", "split", "apply"})
 
 
 def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:

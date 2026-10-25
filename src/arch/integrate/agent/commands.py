@@ -28,6 +28,7 @@ COMMANDS: Mapping[AbstractOp, Text] = {
     AbstractOp.LINK: Text("arch link <component> uses|exports|serves <target>"),
     AbstractOp.UNLINK: Text("arch unlink <component> uses|exports|serves <target>"),
     AbstractOp.MOVE: Text("arch move <component> <new-id>"),
+    AbstractOp.SPLIT: Text('arch split <component>#AC2,AC3 --into <new-id> --realizes "..." --solution "..." --hides "..."'),
     AbstractOp.REMOVE: Text("arch remove component|need <id> [--cascade]"),
     AbstractOp.CRITIQUE: Text("arch critique [component] [--request | --record answer.json]"),
     AbstractOp.RAISE: Text('arch raise defect|question|idea <subject> "..." --station <station> --evidence "..." --by <you>'),
