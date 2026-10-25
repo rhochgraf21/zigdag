@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from arch import realizes
-from arch.check import Baseline, check
+from arch.check import check
+from arch.check.ledger import Ledger, accepting, render_response
+from arch.model.ids import Text
 from arch.guide.method import MethodName
 from arch.guide.next import ActionKind, next_actions
 from tests.conftest import NEED, component, graph
@@ -28,8 +30,9 @@ def test_actions_are_ranked_deterministically_and_say_how():
     assert next_actions(G, check(G)) == actions
 
 
-def test_baselined_findings_and_scope_are_respected():
+def test_answered_findings_and_scope_are_respected():
     report = check(G)
-    baselined = check(G, baseline=Baseline.of(report.findings))
-    assert all(a.because.rule != "S001" for a in next_actions(G, baselined))
+    answer = accepting(report.blocking, "baseline", Text("arch baseline"), Text("existing"))
+    answered = check(G, ledger=Ledger.parse({answer.path: render_response(answer)}))
+    assert all(a.because.rule != "S001" for a in next_actions(G, answered))
     assert {a.subject for a in next_actions(G, report, "s.c")} <= {"s.c", "s.c.deep"}

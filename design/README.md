@@ -24,10 +24,8 @@ solution: <design parameter: how, at this level>          # the DP
 hides:    <the decision it encapsulates (Parnas secret)>
 uses:     [<siblings or exported parts it may depend on>]  # = design-matrix row = allowed imports
 exports:  [<children visible outside it>]                  # default: none
-accepts_coupling: [[<child>, <child>]]                     # couplings kept on purpose (with a decision)
 serves:   [<needs>]                                        # top level; children inherit
-status:   draft | specified | contracted | verified        # checks tighten as this rises
-suppress: {RULE: reason}                                   # accepted findings, with the reason
+status:   draft | specified | contracted | verified        # the stations this part claims to have passed
 ```
 
 The body holds acceptance criteria (`- ACn:` lines in EARS form, linked from tests with
@@ -47,20 +45,35 @@ in code; arch reads them back.
 | What to do next | `arch next [component]` |
 | How the design changed | `arch diff [revision]` |
 | Whether design and code agree | `arch check [--all]` |
+| What is open, and how it was answered | `arch findings [--ideas \| --escapes \| --all]` |
+
+## Findings, stations and answers
+
+Every finding is made at a **station**: needs, requirements, solution, interface, code, evidence or
+review. A status claims stations: `specified` claims needs, requirements and solution; `contracted` adds
+the interface; `verified` adds evidence. Form, code and review always count. A defect a rule finds at a
+claimed station is an error; anything else there is a warning; the rest is information. A status rises
+only when nothing is open at the stations it newly claims.
+
+Rules find their findings again on every run. Critics, people and agents record theirs with `arch raise`
+(`findings/`). Anyone answers any finding with `arch respond`, always with a reason (`responses/`):
+fixed, accepted (real, kept for now: existing debt, coupling kept on purpose), declined, or answered.
+An answered finding stops blocking, and the answer is reviewed like any other design change. A finding
+noticed later than the station that made it is an escape: its answer must name a countermeasure, so the
+next one is caught where it is made.
 
 ## Open questions
 
 1. **Acceptance criteria as lines or nodes?** Lines in the component body (current) are compact;
    separate nodes would allow richer links (one criterion to many tests) at the cost of many more files.
 2. **Non-code coupling.** `uses` covers code dependencies only. Shared databases, timing and ordering
-   couple components too. A field of its own, or always an `accepts_coupling` entry with a decision?
+   couple components too. A field of its own, or a finding someone raises and answers with a decision?
 3. **Budget composition.** Child budgets ≤ parent is checked; latency along call chains is not yet
    specified.
 4. **Cross-repository composition.** How a parent design references a versioned sub-design from another
    repo (the multi-repo / Terraform-module story). Leaning toward `uses: [pkg:billing@2]`, against
    that package's published external spec.
-5. **EARS strictness.** `S103` is a warning even at `contracted`; should it become an error there?
-6. **CLI library.** Standard-library argparse for now (no dependency; hidden behind `integrate.cli`).
-7. **Second adapter.** TypeScript (semantic) proves the fact schema is neutral; Mojo via tree-sitter
+5. **CLI library.** Standard-library argparse for now (no dependency; hidden behind `integrate.cli`).
+6. **Second adapter.** TypeScript (semantic) proves the fact schema is neutral; Mojo via tree-sitter
    (structural) is the exciting one. Both wait until the Python path is proven.
-8. **Name.** `arch` collides with `/usr/bin/arch` and with the `arch` package on PyPI (see DESIGN.md §13).
+7. **Name.** `arch` collides with `/usr/bin/arch` and with the `arch` package on PyPI (see DESIGN.md §13).

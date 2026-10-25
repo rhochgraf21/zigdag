@@ -13,6 +13,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from arch.change import ops
+from arch.check.engine import FindingRef, Source, Station, Subject
+from arch.check.engine import Kind as FindingKind
+from arch.check.ledger import Answer
 from arch.integrate import agent, catalog
 from arch.integrate.agent.claude import BadSettings
 from arch.integrate.catalog import Command, ContextTarget, Depth, Revision, TokenBudget, Workspace
@@ -74,6 +77,29 @@ def _parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("plan", help=summary[Command.PLAN])
     pl.add_argument("targets", nargs="*", help="components about to change")
     sub.add_parser("baseline", help=summary[Command.BASELINE])
+    stations = [st.value for st in Station]
+    ra = sub.add_parser("raise", help=summary[Command.RAISE])
+    ra.add_argument("kind", choices=[k.value for k in FindingKind], help="defect, question or idea")
+    ra.add_argument("subject", help="what it is about: a component, need or constraint id, or a unit or file")
+    ra.add_argument("message", help="what you noticed, in one or two plain sentences")
+    ra.add_argument("--station", required=True, choices=stations, help="where the defect was made, or where the idea applies")
+    ra.add_argument("--by", required=True, help="who noticed it: your agent name, or your name")
+    ra.add_argument("--as", dest="source", default=Source.AGENT.value,
+                    choices=[x.value for x in Source if x is not Source.RULE], help="what kind of noticer you are")
+    ra.add_argument("--evidence", help="the exact words or line it is about, quoted")
+    ra.add_argument("--found-at", choices=stations, help="where you noticed it, when later than where it was made")
+    ra.add_argument("--hint", default="", help="what would fix or improve it")
+    rs = sub.add_parser("respond", help=summary[Command.RESPOND])
+    rs.add_argument("answer", choices=[a.value for a in Answer])
+    rs.add_argument("reason", help="why, in plain words; reviewed like any other change")
+    rs.add_argument("refs", nargs="+", help="findings, as RULE@SUBJECT#KEY (see `arch findings`)")
+    rs.add_argument("--by", required=True, help="who answers")
+    rs.add_argument("--countermeasure", help="for an escape: what changed upstream so it is caught where it is made")
+    fl = sub.add_parser("findings", help=summary[Command.FINDINGS])
+    which = fl.add_mutually_exclusive_group()
+    which.add_argument("--ideas", action="store_true", help="ideas waiting for an answer")
+    which.add_argument("--escapes", action="store_true", help="findings noticed later than the station that made them")
+    which.add_argument("--all", action="store_true", help="every finding, answered or not")
     ag = sub.add_parser("agent", help="Install arch's skills and hooks for a coding agent")
     ag.add_argument("action", choices=["install"])
     ag.add_argument("--agent", default=agent.Product.CLAUDE_CODE.value, choices=[p.value for p in agent.Product])
@@ -222,6 +248,13 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
         "diff": lambda: catalog.diff(ws, Revision(args.base)),
         "review": lambda: _review(args, ws),
         "baseline": lambda: catalog.baseline(ws),
+        "raise": lambda: catalog.raise_(ws, Subject(args.subject), FindingKind(args.kind), Station(args.station), Text(args.message),
+                                        Text(args.by), Source(args.source), Text(args.evidence) if args.evidence else None,
+                                        Station(args.found_at) if args.found_at else None, Text(args.hint)),
+        "respond": lambda: catalog.respond(ws, Answer(args.answer), Text(args.reason), [FindingRef(r) for r in args.refs],
+                                           Text(args.by), Text(args.countermeasure) if args.countermeasure else None),
+        "findings": lambda: catalog.findings(ws, catalog.Listing.IDEAS if args.ideas else catalog.Listing.ESCAPES
+                                             if args.escapes else catalog.Listing.ALL if args.all else catalog.Listing.OPEN),
     }
     return runners[args.cmd]()
 

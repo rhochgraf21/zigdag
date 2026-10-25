@@ -72,14 +72,6 @@ class DecisionEntry:
 
 
 @dataclass(frozen=True)
-class Suppression:
-    """A finding the authors decided to accept on this node, with their reason (`suppress:` in frontmatter)."""
-
-    rule: Text
-    reason: Text | None  # None: no reason given, which is itself reported
-
-
-@dataclass(frozen=True)
 class Component:
     id: ComponentId
     realizes: Text
@@ -88,12 +80,10 @@ class Component:
     serves: tuple[NeedId, ...]
     uses: tuple[Ref, ...]
     exports: tuple[Ref, ...]
-    accepts_coupling: tuple[tuple[Ref, ...], ...]  # sets of children whose coupling is accepted
     status: Status
     criteria: tuple[Criterion, ...]
     decisions: tuple[DecisionEntry, ...]
     location: Location
-    suppressions: tuple[Suppression, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,7 +93,6 @@ class Need:
     stakeholder: Text | None
     signal: Text | None
     location: Location
-    suppressions: tuple[Suppression, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,7 +116,6 @@ class Design:
 class FieldType(enum.Enum):
     TEXT = "text"
     REFS = "list of references"
-    REF_SETS = "list of lists of at least two child names"
     ENUM = "enum"
     MAPPING = "mapping"
 
@@ -157,14 +145,11 @@ FIELDS: Mapping[Kind, Mapping[str, FieldSpec]] = {
         "serves": FieldSpec(FieldType.REFS),
         "uses": FieldSpec(FieldType.REFS),
         "exports": FieldSpec(FieldType.REFS),
-        "accepts_coupling": FieldSpec(FieldType.REF_SETS),
         "status": _enum(Status, Presence.REQUIRED),
-        "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.NEED: {
         "stakeholder": FieldSpec(FieldType.TEXT),
         "signal": FieldSpec(FieldType.TEXT),
-        "suppress": FieldSpec(FieldType.MAPPING),
     },
     Kind.CONSTRAINT: {
         "applies_to": FieldSpec(FieldType.REFS, Presence.REQUIRED),
@@ -188,8 +173,6 @@ def validate_fields(kind: Kind, raw: RawFrontmatter, location: Location) -> tupl
         ok = {
             FieldType.TEXT: isinstance(value, str) and value.strip() != "",
             FieldType.REFS: isinstance(value, list) and all(isinstance(v, str) and v for v in value),
-            FieldType.REF_SETS: isinstance(value, list)
-            and all(isinstance(s, list) and len(s) >= 2 and all(isinstance(v, str) and v for v in s) for s in value),
             FieldType.ENUM: isinstance(value, str) and value in spec.choices,
             FieldType.MAPPING: isinstance(value, Mapping),
         }[spec.type]

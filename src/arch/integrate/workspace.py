@@ -17,7 +17,8 @@ from typing import NewType
 
 from arch import realize
 from arch.change import DesignEdit, SourceEdit
-from arch.check import Baseline, BaselineText, Lexicon, Term
+from arch.check import Ledger, Lexicon, Term
+from arch.check.ledger import FINDINGS_DIR, RESPONSES_DIR, LedgerText
 from arch.model import codec
 from arch.model.ids import DesignPath, Text
 from arch.model.schema import Design
@@ -185,18 +186,21 @@ class Workspace:
     def facts(self) -> Facts:
         return realize.extract(self.snapshot())
 
-    @property
-    def baseline_path(self) -> Path:
-        return self.design_dir / "baseline"
+    def ledger(self) -> Ledger:
+        """What critics, people and agents noticed, and every answer given, from design/findings and design/responses."""
+        files: dict[DesignPath, str] = {}
+        for folder in (FINDINGS_DIR, RESPONSES_DIR):
+            for path in sorted((self.design_dir / folder).glob("*.md")):
+                files[DesignPath(f"{folder}/{path.name}")] = LedgerText(path.read_text(encoding="utf-8"))
+        return Ledger.parse(files)
 
-    def baseline(self) -> Baseline:
-        path = self.baseline_path
-        return Baseline.parse(BaselineText(path.read_text(encoding="utf-8"))) if path.is_file() else Baseline()
-
-    def write_baseline(self, baseline: Baseline) -> None:
-        tmp = self.baseline_path.with_suffix(".arch-tmp")
-        tmp.write_text(baseline.render(), encoding="utf-8")
-        os.replace(tmp, self.baseline_path)
+    def write_ledger_entry(self, path: DesignPath, text: LedgerText) -> None:
+        """Write one ledger file (a finding or a response), replacing it whole."""
+        target = self.design_dir / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".arch-tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, target)
 
     def read_input(self, path: Path) -> SourceText:
         """A file named on the command line (e.g. a batch of operations), relative to the working directory."""

@@ -105,7 +105,7 @@ def test_surviving_mutants_are_strict_at_higher_maturity():
                         mutation_reports={SourcePath("mutants/src/s/a.py.meta"): MUTMUT_META})
         facts = realize.extract(snap)
         return [f for f in check(design, facts).findings if f.rule == "C013"], context(design, facts, check(design, facts), "s.a")
-    for status, severity in (("specified", "info"), ("contracted", "warning"), ("verified", "error")):
+    for status, severity in (("specified", "info"), ("contracted", "info"), ("verified", "error")):  # evidence is claimed at verified
         found, card = run_at(status)
         assert [(f.severity.value, f.message) for f in found] == [(severity, "2 of 4 mutants survived (in clamp)")]
     assert "**Mutation:** 2 of 4 mutants killed" in card.to_markdown()

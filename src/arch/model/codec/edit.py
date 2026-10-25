@@ -20,15 +20,14 @@ from ruamel.yaml.error import YAMLError
 from arch.model.ids import CriterionLabel, FieldName, Ref, Text
 from arch.model.schema import DecisionLabel, Kind, SourceText
 
-FieldValue = Text | tuple[Ref, ...] | tuple[tuple[Ref, ...], ...] | None  # None removes the field
+FieldValue = Text | tuple[Ref, ...] | None  # None removes the field
 YamlScalar = NewType("YamlScalar", str)
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
 _CRITERION = re.compile(r"^- AC(\d+):")
 _ORDER: Mapping[Kind, tuple[str, ...]] = {
-    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "accepts_coupling", "status",
-                     "suppress"),
-    Kind.NEED: ("kind", "stakeholder", "signal", "suppress"),
+    Kind.COMPONENT: ("kind", "realizes", "solution", "hides", "serves", "uses", "exports", "status"),
+    Kind.NEED: ("kind", "stakeholder", "signal"),
     Kind.CONSTRAINT: ("kind", "applies_to", "rule"),
 }
 _CRITERIA = "Acceptance criteria"
@@ -56,8 +55,6 @@ def _reads_back(plain: str) -> bool:
 def render(value: FieldValue) -> YamlScalar:
     if isinstance(value, str):
         return scalar(value)
-    if value and isinstance(value[0], tuple):
-        return YamlScalar("[" + ", ".join("[" + ", ".join(scalar(Text(r)) for r in group) + "]" for group in value) + "]")
     return YamlScalar("[" + ", ".join(scalar(Text(r)) for r in value) + "]")
 
 

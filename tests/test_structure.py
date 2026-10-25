@@ -3,6 +3,8 @@ from __future__ import annotations
 from arch import realizes
 from arch.check import check
 from arch.check.engine import Severity
+from arch.check.ledger import Ledger, accepting, render_response
+from arch.model.ids import Text
 from tests.conftest import NEED, component, graph
 
 BASE = {"needs/n.md": NEED, "components/s.md": component(serves="n")}
@@ -16,22 +18,12 @@ COUPLED = {"components/s/a.md": component(uses="b", serves="n"), "components/s/b
 
 
 @realizes("arch.check.structure#AC1")
-def test_coupling_is_an_error_unless_the_parent_accepts_it():
+def test_coupling_is_a_solution_defect_until_it_is_answered():
     assert ("S005", "s", Severity.ERROR) in findings(COUPLED)
-    accepted = findings({**COUPLED, "components/s.md": component(serves="n", accepts="a, b")})
-    assert ("S005", "s", Severity.WARNING) in accepted
-    assert ("S005", "s", Severity.ERROR) not in accepted
-
-
-@realizes("arch.check.structure#AC5")
-def test_stale_acceptance_is_reported():
-    files = {
-        "components/s.md": component(serves="n", accepts="a, b"),
-        "components/s/a.md": component(serves="n"),
-        "components/s/b.md": component(serves="n"),
-    }
-    stale = [f for f in check(graph({**BASE, **files})).findings if f.key.startswith("stale:")]
-    assert [f.severity for f in stale] == [Severity.WARNING]
+    coupling = next(f for f in check(graph({**BASE, **COUPLED})).findings if f.rule == "S005")
+    kept = accepting([coupling], "keep-coupling", Text("robert"), Text("Both parse one format; see the decision."))
+    report = check(graph({**BASE, **COUPLED}), ledger=Ledger.parse({kept.path: render_response(kept)}))
+    assert report.is_answered(coupling) and not report.blocking
 
 
 @realizes("arch.check.structure#AC6")
@@ -39,7 +31,7 @@ def test_decision_entries_need_chose_and_because():
     good = "## Decisions\n### Use X\n- Chose: X\n- Because: it is simplest\n"
     bad = "## Decisions\n### Use Y\nWe like Y.\n"
     assert not any(r == "S010" for r, _, _ in findings({"components/s/a.md": component(serves="n", body=good)}))
-    assert ("S010", "s.a", Severity.WARNING) in findings({"components/s/a.md": component(serves="n", body=bad)})
+    assert ("S010", "s.a", Severity.ERROR) in findings({"components/s/a.md": component(serves="n", body=bad)})
 
 
 @realizes("arch.check.structure#AC4")
@@ -73,7 +65,7 @@ def test_uses_must_be_visible():
 
 @realizes("arch.check.structure#AC3", "arch.check#AC5")
 def test_secret_severity_scales_with_maturity():
-    for status, sev in (("draft", Severity.INFO), ("specified", Severity.WARNING), ("contracted", Severity.ERROR)):
+    for status, sev in (("draft", Severity.INFO), ("specified", Severity.ERROR), ("contracted", Severity.ERROR)):
         assert ("S006", "s.a", sev) in findings({"components/s/a.md": component(hides=None, status=status, serves="n")})
 
 

@@ -11,7 +11,7 @@ import enum
 from dataclasses import dataclass
 from typing import NewType
 
-from arch.check.engine import Finding, Report, Severity
+from arch.check.engine import Finding, Report, Severity, Station
 from arch.guide.method import AbstractOp, MethodName
 from arch.model.graph import Graph
 from arch.model.ids import ComponentId, Text, is_within
@@ -56,12 +56,14 @@ class Action:
 def next_actions(graph: Graph, report: Report, scope: ComponentId | None = None,
                  limit: ActionLimit = ActionLimit(10)) -> tuple[Action, ...]:
     actions = [a for f in report.findings if (a := _action(f, report)) is not None and _in_scope(graph, a, scope)]
-    actions.sort(key=lambda a: (list(ActionKind).index(a.kind), _depth(graph, a.subject), a.subject, a.because.rule))
+    # upstream stations first: a defect where work starts spoils everything built on it
+    actions.sort(key=lambda a: (list(ActionKind).index(a.kind), list(Station).index(a.because.station),
+                                _depth(graph, a.subject), a.subject, a.because.rule))
     return tuple(actions[:limit])
 
 
 def _action(f: Finding, report: Report) -> Action | None:
-    if report.is_baselined(f):
+    if report.is_answered(f):
         return None
     guidance = _GUIDANCE.get(f.rule)
     about_statements = f.rule.startswith(_STATEMENT_RULES_PREFIX)

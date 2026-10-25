@@ -10,11 +10,10 @@ import sys
 from collections.abc import Iterator
 from weakref import WeakKeyDictionary
 
-from arch.check.engine import Context, Finding, FindingKey, Rule, RuleId, Severity, Subject, by_maturity
+from arch.check.engine import Context, Finding, FindingKey, Kind, Rule, RuleId, Station, Subject
 from arch.model.graph import is_within, parent_of
 from arch.model.ids import ComponentId, CriterionId, Text, split_criterion
 from arch.model.policy import EffectKind, EffectVerdict, PackageName, Policy
-from arch.model.schema import Status
 from arch.realize.facts import Capability, Effect, Facts, MutantOutcome, Reach, Role, UnitName, needs_description
 from arch.realize.mapping import UnitMap, map_units
 
@@ -27,8 +26,8 @@ def _mapping(ctx: Context) -> UnitMap:
     return _maps[ctx]
 
 
-def _finding(rule: str, subject: str, key: str, severity: Severity, message: str, hint: str, location=None) -> Finding:
-    return Finding(Subject(subject), RuleId(rule), FindingKey(key), severity, Text(message), Text(hint), location)
+def _finding(rule: str, subject: str, key: str, kind: Kind, message: str, hint: str, location=None) -> Finding:
+    return Finding(Subject(subject), RuleId(rule), FindingKey(key), kind, Text(message), Text(hint), location)
 
 
 def _source_units(ctx: Context) -> frozenset[UnitName]:
@@ -37,7 +36,7 @@ def _source_units(ctx: Context) -> frozenset[UnitName]:
 
 def parse_errors(ctx: Context) -> Iterator[Finding]:
     for e in ctx.facts.errors if ctx.facts else ():
-        yield _finding("C000", e.path, "parse", Severity.ERROR, f"could not be analyzed: {e.message}",
+        yield _finding("C000", e.path, "parse", Kind.DEFECT, f"could not be analyzed: {e.message}",
                        "fix the syntax error; nothing in this file is checked until then", e.location)
 
 
@@ -57,14 +56,14 @@ def boundaries(ctx: Context) -> Iterator[Finding]:
             if declared else
             ("which is not among its uses", f"add it to the uses of {a} (if its parent may use it), or remove the import")
         )
-        seen[(a, b)] = _finding("C001", a, f"import:{b}", Severity.ERROR,
+        seen[(a, b)] = _finding("C001", a, f"import:{b}", Kind.DEFECT,
                                 f"{imp.unit} imports {target} (component {b}), {why}", hint, imp.location)
     yield from seen.values()
 
 
 def unmapped(ctx: Context) -> Iterator[Finding]:
     for unit in _mapping(ctx).unmapped:
-        yield _finding("C002", unit.name, "unmapped", Severity.WARNING, f"{unit.path} belongs to no component",
+        yield _finding("C002", unit.name, "unmapped", Kind.QUESTION, f"{unit.path} belongs to no component",
                        "add a component whose id is a prefix of this module, or move the module")
 
 
@@ -76,8 +75,7 @@ def unbuilt(ctx: Context) -> Iterator[Finding]:
         if m.units_in(cid) or (parent is not None and not m.units_in(parent)):
             continue
         c = g[cid]
-        sev = by_maturity(c.status, draft=Severity.INFO, specified=Severity.INFO, contracted=Severity.ERROR)
-        yield _finding("C003", cid, "no-code", sev, "has no code yet", f"create the module {cid}", c.location)
+        yield _finding("C003", cid, "no-code", Kind.DEFECT, "has no code yet", f"create the module {cid}", c.location)
 
 
 def links(ctx: Context) -> Iterator[Finding]:
@@ -91,7 +89,7 @@ def links(ctx: Context) -> Iterator[Finding]:
             problem = f"{comp} has no acceptance criterion {ac}"
         else:
             continue
-        yield _finding("C004", f"{link.unit}.{link.symbol}", f"link:{link.target}", Severity.ERROR,
+        yield _finding("C004", f"{link.unit}.{link.symbol}", f"link:{link.target}", Kind.DEFECT,
                        f"links to {link.target}, but {problem}", "fix the id in @realizes(...)", link.location)
 
 
@@ -102,8 +100,7 @@ def evidence(ctx: Context) -> Iterator[Finding]:
         c = g[cid]
         for cr in c.criteria:
             if cr.id not in linked:
-                sev = by_maturity(c.status, draft=Severity.INFO, specified=Severity.INFO, contracted=Severity.ERROR)
-                yield _finding("C005", cid, f"evidence:{cr.id}", sev, f"{cr.id.partition('#')[2]} has no linked test or contract",
+                yield _finding("C005", cid, f"evidence:{cr.id}", Kind.DEFECT, f"{cr.id.partition('#')[2]} has no linked test or contract",
                                f'add @realizes("{cr.id}") to a test or contract that checks it', cr.location)
 
 
@@ -117,7 +114,7 @@ def failing_evidence(ctx: Context) -> Iterator[Finding]:
         if result is not None and result.outcome.fails:
             comp, _ = split_criterion(link.target)
             subject = comp if comp in ctx.graph else Subject(link.target)
-            yield _finding("C010", subject, f"failing:{link.target}:{result.test}", Severity.ERROR,
+            yield _finding("C010", subject, f"failing:{link.target}:{result.test}", Kind.DEFECT,
                            f"{link.target} is not met: {result.test} {result.outcome.value} (in {result.report})",
                            "fix the code or the test; the criterion counts as unmet until it passes", link.location)
 
@@ -141,12 +138,12 @@ def port_types(ctx: Context) -> Iterator[Finding]:
                           rule.forbid if field else rule.forbid - rule.allow_in_returns))
         for slot, ref, forbidden in slots:
             if ref is None:
-                yield _finding("C011", cid, f"untyped:{where}:{slot}", Severity.WARNING,
+                yield _finding("C011", cid, f"untyped:{where}:{slot}", Kind.QUESTION,
                                f"{where} has no type for `{slot}`", "annotate it with a domain type", sym.location)
                 continue
             bare = sorted(leaf for leaf in ref.leaves if leaf in forbidden)
             if bare:
-                yield _finding("C011", cid, f"bare:{where}:{slot}", Severity.ERROR,
+                yield _finding("C011", cid, f"bare:{where}:{slot}", Kind.DEFECT,
                                f"{where} exposes `{slot}: {ref.text}`, which uses bare {', '.join(bare)}",
                                "use a domain type (NewType, enum, value object) or an alias that names the concept",
                                sym.location)
@@ -154,8 +151,8 @@ def port_types(ctx: Context) -> Iterator[Finding]:
 
 def descriptions(ctx: Context) -> Iterator[Finding]:
     """Interface names say what they are. A name needs a one-line description when its name and type do not
-    explain it, and the description must say more than the name. Tightens as the component matures."""
-    g, m = ctx.graph, _mapping(ctx)
+    explain it, and the description must say more than the name."""
+    m = _mapping(ctx)
     source = _source_units(ctx)
     facts = ctx.facts or Facts()
     defs = {(d.unit, d.name): d for d in facts.definitions}
@@ -165,15 +162,13 @@ def descriptions(ctx: Context) -> Iterator[Finding]:
         d = defs.get((sym.unit, sym.name))
         if cid is None or d is None or sym.unit not in source:
             continue
-        status = g[cid].status
-        sev = Severity.ERROR if status is Status.VERIFIED else Severity.WARNING if status is Status.CONTRACTED else Severity.INFO
         where = f"{sym.unit}.{sym.name}"
         if (sym.unit, sym.name) in needed:
-            yield _finding("C014", cid, f"undescribed:{where}", sev,
+            yield _finding("C014", cid, f"undescribed:{where}", Kind.DEFECT,
                            f"{where} is part of the interface, and its name and type do not say what it is",
                            _DESCRIBE, d.location)
         elif d.restates_name():
-            yield _finding("C015", cid, f"restated:{where}", sev,
+            yield _finding("C015", cid, f"restated:{where}", Kind.QUESTION,
                            f"the description of {where} only repeats its name and type: {d.summary!r}", _DESCRIBE, d.location)
 
 
@@ -211,11 +206,11 @@ def declared_effects(ctx: Context) -> Iterator[Finding]:
             how = "directly" if e.reach is Reach.DIRECT else f"via {e.via}"
             where = f"{decl.unit}.{decl.symbol}"
             if e.effect is Effect.UNKNOWN:
-                yield _finding("C012", cid, f"declared:{where}:unknown", Severity.WARNING,
+                yield _finding("C012", cid, f"declared:{where}:unknown", Kind.QUESTION,
                                f"{where} declares {declared} but uses dynamic code ({how})",
                                "remove the dynamic code, or widen the declaration", e.location)
             elif not _DEAL_MARKERS[e.effect] & markers:
-                yield _finding("C012", cid, f"declared:{where}:{e.effect.value}", Severity.ERROR,
+                yield _finding("C012", cid, f"declared:{where}:{e.effect.value}", Kind.DEFECT,
                                f"{where} declares {declared} but has effect {e.effect.value} ({how})",
                                f"remove the effect, or declare one of: {', '.join(sorted(_DEAL_MARKERS[e.effect]))}",
                                e.location)
@@ -236,11 +231,9 @@ def surviving_mutants(ctx: Context) -> Iterator[Finding]:
         survived = [x for x in mutants if x.outcome is MutantOutcome.SURVIVED]
         if not survived:
             continue
-        status = g[cid].status
-        sev = Severity.ERROR if status is Status.VERIFIED else Severity.WARNING if status is Status.CONTRACTED else Severity.INFO
         functions = ", ".join(sorted({x.symbol for x in survived}))
         decided = sum(1 for x in mutants if x.outcome in (MutantOutcome.KILLED, MutantOutcome.SURVIVED))
-        yield _finding("C013", cid, "mutants", sev, f"{len(survived)} of {decided} mutants survived (in {functions})",
+        yield _finding("C013", cid, "mutants", Kind.DEFECT, f"{len(survived)} of {decided} mutants survived (in {functions})",
                        "add tests or contracts that fail when that code changes", g[cid].location)
 
 
@@ -259,7 +252,7 @@ def third_party(ctx: Context) -> Iterator[Finding]:
             continue
         if not rule.allows(a, PackageName(imp.target)):
             seen.add((a, top))
-            yield _finding("C006", a, f"third-party:{top}", Severity.ERROR,
+            yield _finding("C006", a, f"third-party:{top}", Kind.DEFECT,
                            f"{imp.unit} imports third-party '{imp.target}', which no constraint allows here",
                            "add it to the dependency allowlist (with a decision entry), or remove it", imp.location)
 
@@ -279,14 +272,14 @@ def effect_violations(ctx: Context) -> Iterator[Finding]:
         if e.effect is Effect.UNKNOWN:
             if policy.restricts_effects and (cid, "unknown", e.symbol) not in seen:
                 seen.add((cid, "unknown", e.symbol))
-                yield _finding("C009", cid, f"unknown:{e.unit}.{e.symbol}", Severity.WARNING,
+                yield _finding("C009", cid, f"unknown:{e.unit}.{e.symbol}", Kind.QUESTION,
                                f"{e.unit}.{e.symbol} uses dynamic code ({how}), so its effects cannot be checked",
                                "avoid eval/exec/dynamic imports here, or move them to a shell component", e.location)
             continue
         problem = _effect_problem(policy, cid, EffectKind(e.effect.value), e.reach)
         if problem and (cid, e.effect.value, problem) not in seen:
             seen.add((cid, e.effect.value, problem))
-            yield _finding("C008", cid, f"effect:{e.effect.value}", Severity.ERROR,
+            yield _finding("C008", cid, f"effect:{e.effect.value}", Kind.DEFECT,
                            f"{e.unit}.{e.symbol} has effect {e.effect.value} ({how}), which {problem}",
                            "move the effect behind a shell component and pass data in, or change the constraint "
                            "(with a decision entry)", e.location)
@@ -312,24 +305,24 @@ def effects_unanalyzed(ctx: Context) -> Iterator[Finding]:
         if not units or all(Capability.EFFECTS in u.capabilities for u in units if u):
             continue
         if g.effective_policy(cid).restricts_effects:
-            yield _finding("C007", cid, "effects", Severity.INFO, "effect constraints apply, but effects were not analyzed",
+            yield _finding("C007", cid, "effects", Kind.QUESTION, "effect constraints apply, but effects were not analyzed",
                            "the adapter could not analyze effects for some of this component's code", g[cid].location)
 
 
 RULES: tuple[Rule, ...] = (
-    Rule(RuleId("C000"), Text("source files can be analyzed"), parse_errors),
-    Rule(RuleId("C001"), Text("imports stay within declared, visible uses"), boundaries),
-    Rule(RuleId("C002"), Text("every source unit belongs to a component"), unmapped),
-    Rule(RuleId("C003"), Text("components have code"), unbuilt),
-    Rule(RuleId("C004"), Text("design links point at real components and criteria"), links),
-    Rule(RuleId("C005"), Text("acceptance criteria have linked evidence"), evidence),
-    Rule(RuleId("C006"), Text("third-party imports are allowed by a constraint"), third_party),
-    Rule(RuleId("C007"), Text("effect constraints are analyzable"), effects_unanalyzed),
-    Rule(RuleId("C008"), Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
-    Rule(RuleId("C010"), Text("linked tests pass"), failing_evidence),
-    Rule(RuleId("C011"), Text("public ports use domain types"), port_types),
-    Rule(RuleId("C012"), Text("declared side effects (deal) cover the inferred ones"), declared_effects),
-    Rule(RuleId("C013"), Text("tests notice changes to the code (mutation)"), surviving_mutants),
-    Rule(RuleId("C014"), Text("interface names their type does not explain have a description (C015: one that says more "
+    Rule(RuleId("C000"), Station.FORM, Text("source files can be analyzed"), parse_errors),
+    Rule(RuleId("C001"), Station.CODE, Text("imports stay within declared, visible uses"), boundaries),
+    Rule(RuleId("C002"), Station.CODE, Text("every source unit belongs to a component"), unmapped),
+    Rule(RuleId("C003"), Station.INTERFACE, Text("components have code"), unbuilt),
+    Rule(RuleId("C004"), Station.FORM, Text("design links point at real components and criteria"), links),
+    Rule(RuleId("C005"), Station.INTERFACE, Text("acceptance criteria have linked evidence"), evidence),
+    Rule(RuleId("C006"), Station.CODE, Text("third-party imports are allowed by a constraint"), third_party),
+    Rule(RuleId("C007"), Station.CODE, Text("effect constraints are analyzable"), effects_unanalyzed),
+    Rule(RuleId("C008"), Station.CODE, Text("effects stay within what constraints allow (C009: effects that cannot be known)"), effect_violations),
+    Rule(RuleId("C010"), Station.CODE, Text("linked tests pass"), failing_evidence),
+    Rule(RuleId("C011"), Station.CODE, Text("public ports use domain types"), port_types),
+    Rule(RuleId("C012"), Station.CODE, Text("declared side effects (deal) cover the inferred ones"), declared_effects),
+    Rule(RuleId("C013"), Station.EVIDENCE, Text("tests notice changes to the code (mutation)"), surviving_mutants),
+    Rule(RuleId("C014"), Station.INTERFACE, Text("interface names their type does not explain have a description (C015: one that says more "
                               "than the name)"), descriptions),
 )

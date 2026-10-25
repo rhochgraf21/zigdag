@@ -14,6 +14,8 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from arch.change import ops
+from arch.check.engine import FindingRef, Kind, Source, Station, Subject
+from arch.check.ledger import Answer
 from arch.integrate import catalog
 from arch.integrate.catalog import (
     Command,
@@ -98,10 +100,31 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
     def init(dry_run: bool = False) -> str:
         return text(catalog.init(catalog.new_project(project), EditMode.DRY_RUN if dry_run else EditMode.WRITE))
 
+    def raise_(kind: str, subject: str, message: str, station: str, by: str, evidence: str | None = None,
+               found_at: str | None = None, hint: str = "") -> str:
+        """Record what you noticed while working, in your own work or in others': kind is defect, question or
+        idea; station is where it was made (needs, requirements, solution, interface, code, evidence, review).
+        Quote the exact words or line in evidence. An idea must say what it removes or unifies, and what it costs.
+        Read `findings` for the subject first, and do not raise again what was declined without new evidence."""
+        return text(catalog.raise_(ws(), Subject(subject), Kind(kind), Station(station), Text(message), Text(by),
+                                   Source.AGENT, Text(evidence) if evidence else None,
+                                   Station(found_at) if found_at else None, Text(hint)))
+
+    def respond(answer: str, reason: str, refs: list[str], by: str, countermeasure: str | None = None) -> str:
+        """Answer findings: fixed, accepted, declined or answered, with a reason. refs are RULE@SUBJECT#KEY as
+        `findings` lists them. For an escape, also name the countermeasure."""
+        return text(catalog.respond(ws(), Answer(answer), Text(reason), [FindingRef(r) for r in refs], Text(by),
+                                    Text(countermeasure) if countermeasure else None))
+
+    def findings(listing: str = "open") -> str:
+        """Findings and their answers: open, ideas, escapes or all."""
+        return text(catalog.findings(ws(), catalog.Listing(listing)))
+
     return {Command.CHECK: check, Command.CONTEXT: context, Command.OUTLINE: outline, Command.MATRIX: matrix,
             Command.PLAN: plan, Command.NEXT: next_, Command.DIAGRAM: diagram, Command.EDIT: edit, Command.DIFF: diff,
             Command.BASELINE: baseline, Command.REVIEW: review, Command.REVIEW_FEEDBACK: review_feedback,
-            Command.REVIEW_NOTE: review_note, Command.REVIEW_RECORD: review_record, Command.INIT: init}
+            Command.REVIEW_NOTE: review_note, Command.REVIEW_RECORD: review_record, Command.INIT: init,
+            Command.RAISE: raise_, Command.RESPOND: respond, Command.FINDINGS: findings}
 
 
 def server(project: Path) -> MCPServer:

@@ -151,7 +151,7 @@ def with_effects(diagram: Diagram, graph: Graph, facts: Facts, report: Report) -
     """Colour each node by what its code does: pure, effectful within its constraints, or violating them."""
     m = map_units(graph, facts)
     source = {u.name: u for u in facts.units if u.role is Role.SOURCE}
-    violating = {f.subject for f in report.findings if f.rule in ("C008", "C012") and not report.is_baselined(f)}
+    violating = {f.subject for f in report.findings if f.rule in ("C008", "C012") and not report.is_answered(f)}
 
     def classify(cid: ComponentId) -> EffectClass:
         units = [u for u, c in m.component_of.items() if is_within(c, cid) and u in source]

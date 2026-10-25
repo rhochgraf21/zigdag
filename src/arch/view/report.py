@@ -11,10 +11,11 @@ from dataclasses import dataclass
 
 from arch.change import ApplyResult, Outcome
 from arch.change.diff import DesignDiff
-from arch.check.engine import Finding, Report, Severity
+from arch.check.engine import Finding, Kind, Report, Severity, Source, ref_of
+from arch.check.ledger import Answer, Ledger
 from arch.guide.next import Action
 from arch.guide.plan import Plan
-from arch.model.ids import Text
+from arch.model.ids import DesignPath, Text
 from arch.view.render import Count, JsonValue, Markdown, Rendering
 
 __all__ = ["Rendering"]  # re-exported for the catalog
@@ -29,15 +30,17 @@ class EditMode(enum.Enum):
     DRY_RUN = "dry run"
 
 
-def _finding_line(f: Finding, baselined: bool = False) -> str:
+def _finding_line(f: Finding, answered: bool = False) -> str:
     where = f" ({f.location})" if f.location else ""
-    mark = " (baselined)" if baselined else ""
+    mark = " (answered)" if answered else ""
     return f"{f.severity.value:7} {f.rule} {f.subject}: {f.message}{where}{mark}\n        hint: {f.hint}"
 
 
 def _finding_json(f: Finding) -> JsonValue:
-    return {"rule": f.rule, "subject": f.subject, "severity": f.severity.value, "message": f.message,
-            "hint": f.hint, "location": str(f.location) if f.location else None}
+    return {"ref": ref_of(f.identity), "rule": f.rule, "subject": f.subject, "severity": f.severity.value,
+            "kind": f.kind.value, "station": f.station.value, "source": f.source.value, "message": f.message,
+            "hint": f.hint, "location": str(f.location) if f.location else None, "evidence": f.evidence,
+            "found_at": f.found_at.value if f.found_at else None}
 
 
 def _counts(findings: tuple[Finding, ...]) -> str:
@@ -53,15 +56,93 @@ class FindingsReport:
     def to_markdown(self) -> Markdown:
         everything = self.info is InfoFindings.LISTED
         shown = [f for f in self.report.findings
-                 if everything or (f.severity is not Severity.INFO and not self.report.is_baselined(f))]
+                 if everything or (f.severity is not Severity.INFO and not self.report.is_answered(f))]
         hidden = len(self.report.findings) - len(shown)
-        base = len(self.report.baselined)
-        tail = (f"; {base} baselined, not blocking" if base else "") + (" (--all to list the rest)" if hidden else "")
-        lines = [_finding_line(f, self.report.is_baselined(f)) for f in shown]
-        return Markdown("\n".join([*lines, _counts(self.report.findings) + tail]))
+        answered = sum(1 for f in self.report.findings if self.report.is_answered(f))
+        tail = (f"; {answered} answered, not blocking" if answered else "") + (" (--all to list the rest)" if hidden else "")
+        lines = [_finding_line(f, self.report.is_answered(f)) for f in shown]
+        open_ = tuple(f for f in self.report.findings if not self.report.is_answered(f))
+        return Markdown("\n".join([*lines, _counts(open_) + tail]))
 
     def to_json(self) -> JsonValue:
-        return [{**_finding_json(f), "baselined": self.report.is_baselined(f)} for f in self.report.findings]
+        return [{**_finding_json(f), "answered": self.report.is_answered(f)} for f in self.report.findings]
+
+
+class Listing(enum.Enum):
+    OPEN = "open"  # defects and questions without an answer
+    IDEAS = "ideas"  # ideas waiting for an answer
+    ESCAPES = "escapes"  # findings noticed later than the station that made them
+    ALL = "all"
+
+
+@dataclass(frozen=True)
+class FindingsListing:
+    """Findings with their answers, and how often each source's findings were taken up."""
+
+    report: Report
+    ledger: Ledger
+    listing: Listing = Listing.OPEN
+
+    def rows(self) -> tuple[Finding, ...]:
+        def wanted(f: Finding) -> bool:
+            match self.listing:
+                case Listing.OPEN:  # what someone raised always shows; rules' findings once their station counts
+                    return (f.kind is not Kind.IDEA and not self.report.is_answered(f)
+                            and (f.source is not Source.RULE or f.severity is not Severity.INFO))
+                case Listing.IDEAS:
+                    return f.kind is Kind.IDEA and f.source is not Source.RULE and not self.report.is_answered(f)
+                case Listing.ESCAPES:
+                    return f.escaped
+            return True
+        return tuple(f for f in self.report.findings if wanted(f))
+
+    def uptake(self) -> dict[Text, tuple[Count, Count]]:
+        """Per source of stored findings: (answered as fixed or accepted, answered at all)."""
+        out: dict[Text, tuple[int, int]] = {}
+        for n in self.ledger.noticed:
+            r = self.ledger.answer_for(n.finding.identity)
+            if r is None:
+                continue
+            key = Text(f"{n.finding.source.value} {n.finding.rule}")
+            taken, total = out.get(key, (0, 0))
+            out[key] = (taken + (r.answer in (Answer.FIXED, Answer.ACCEPTED)), total + 1)
+        return {k: (Count(a), Count(b)) for k, (a, b) in sorted(out.items())}
+
+    def to_markdown(self) -> Markdown:
+        lines = []
+        for f in self.rows():
+            r = self.ledger.answer_for(f.identity)
+            escaped = f" (made at {f.station.value}, noticed at {f.found_at.value})" if f.escaped else ""
+            lines.append(f"{f.kind.value:8} {f.station.value:12} {ref_of(f.identity)}{escaped}\n         {f.message}")
+            if f.evidence:
+                lines.append(f"         quote: \"{f.evidence}\"")
+            if r is not None:
+                lines.append(f"         {r.answer.value} by {r.by}: {r.reason.splitlines()[0] if r.reason else ''}")
+        if not lines:
+            lines.append(f"no {self.listing.value} findings")
+        uptake = self.uptake()
+        if uptake:
+            lines.append("taken up, by source: " + "; ".join(f"{k} {a} of {b}" for k, (a, b) in uptake.items()))
+        return Markdown("\n".join(lines))
+
+    def to_json(self) -> JsonValue:
+        return {"findings": [{**_finding_json(f), "answer": (r.answer.value if (r := self.ledger.answer_for(f.identity)) else None),
+                              "escaped": f.escaped} for f in self.rows()],
+                "uptake": {k: {"taken": a, "answered": b} for k, (a, b) in self.uptake().items()}}
+
+
+@dataclass(frozen=True)
+class LedgerWrite:
+    """A finding recorded, or an answer given."""
+
+    summary: Text
+    path: DesignPath
+
+    def to_markdown(self) -> Markdown:
+        return Markdown(f"{self.summary}\n  wrote design/{self.path}")
+
+    def to_json(self) -> JsonValue:
+        return {"summary": self.summary, "path": f"design/{self.path}"}
 
 
 @dataclass(frozen=True)
@@ -80,9 +161,10 @@ class InitReport:
         done = "would draft" if self.edit.mode is EditMode.DRY_RUN else "drafted"
         lines = [f"{done} {self.components} components (status draft) from the code"]
         if self.cycles:
-            lines.append(f"{len(self.cycles)} import cycles accepted for review: " + "; ".join(", ".join(c) for c in self.cycles))
+            lines.append(f"{len(self.cycles)} import cycles found, to resolve before their parents are specified: "
+                         + "; ".join(", ".join(c) for c in self.cycles))
         if self.baselined:
-            lines.append(f"{self.baselined} remaining errors recorded in design/baseline, so only new ones block")
+            lines.append(f"{self.baselined} remaining errors accepted in design/responses/baseline.md, so only new ones block")
         lines += [f"note: {n}" for n in self.notes]
         lines += ["next: add needs (`arch add need`), state what each top-level part realizes, then `arch check`"]
         return Markdown("\n".join(lines))

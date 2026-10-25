@@ -100,7 +100,7 @@ def handle(event: HookEvent, ws: Workspace, payload: HookPayload) -> HookRespons
 
 def _session_start(ws: Workspace) -> HookResponse:
     g = Graph(ws.design())
-    report = check(g, ws.facts(), ws.baseline())
+    report = check(g, ws.facts(), ws.ledger())
     top = outline(g, None, Depth(1)).to_markdown()
     blocking = len(report.blocking)
     text = (f"This project's design is kept by arch in design/. Top level:\n{top}\n\n"
@@ -117,7 +117,7 @@ def _post_edit(ws: Workspace, payload: HookPayload) -> HookResponse:
         return HookResponse()
     g = Graph(ws.design())
     facts = ws.facts()
-    report = check(g, facts, ws.baseline())
+    report = check(g, facts, ws.ledger())
     focus = _component_of(g, facts, rel)
     related = [f for f in report.blocking if _about(f, rel, focus)]
     if not related:

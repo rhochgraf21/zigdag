@@ -144,7 +144,6 @@ class AddComponent(Operation):
     exports: tuple[Ref, ...] = ()
     serves: tuple[NeedId, ...] = ()
     criteria: tuple[Text, ...] = ()
-    accepts_coupling: tuple[tuple[Ref, ...], ...] = ()
 
     def apply_to(self, draft: Draft) -> None:
         if draft.exists(Kind.COMPONENT, self.id):
@@ -155,7 +154,7 @@ class AddComponent(Operation):
         fields: dict[str, FieldValue] = {
             "realizes": self.realizes, "solution": self.solution, "hides": self.hides,
             "serves": tuple(Ref(n) for n in self.serves), "uses": self.uses, "exports": self.exports,
-            "accepts_coupling": self.accepts_coupling, "status": Text(self.status.value),
+            "status": Text(self.status.value),
         }
         node = NodeFile.new(Kind.COMPONENT, fields)
         for text in self.criteria:
@@ -389,7 +388,7 @@ class Move(Operation):
 
 
 def _rewrite_names_in_parents(draft: Draft, before: Graph, src: ComponentId, dst: ComponentId) -> None:
-    """Keep the moved component's export and accepted couplings when its parent stays; else drop them."""
+    """Keep the moved component's export when its parent stays; else drop it."""
     old_parent, new_parent = parent_of(src), parent_of(dst)
     if old_parent is None:
         return
@@ -397,12 +396,9 @@ def _rewrite_names_in_parents(draft: Draft, before: Graph, src: ComponentId, dst
     c = before[old_parent]
     same_parent = old_parent == new_parent
     exports = tuple(new_name if same_parent and e == old_name else e for e in c.exports if same_parent or e != old_name)
-    groups = tuple(g for g in (tuple(new_name if same_parent and r == old_name else r for r in grp
-                                     if same_parent or r != old_name) for grp in c.accepts_coupling) if len(g) >= 2)
-    if exports != c.exports or groups != c.accepts_coupling:
+    if exports != c.exports:
         node = draft.file(Kind.COMPONENT, old_parent)
         node.set_field(Relation.EXPORTS.value, exports)
-        node.set_field("accepts_coupling", groups)
         draft.put(Kind.COMPONENT, old_parent, node)
     if not same_parent and old_name in c.exports and new_parent is not None:
         Link(new_parent, Relation.EXPORTS, new_name).apply_to(draft)
@@ -460,7 +456,6 @@ class Remove(Operation):
             p = g[parent]
             node = draft.file(Kind.COMPONENT, parent)
             node.set_field(Relation.EXPORTS.value, tuple(e for e in p.exports if e != name))
-            node.set_field("accepts_coupling", tuple(grp for grp in (tuple(r for r in g_ if r != name) for g_ in p.accepts_coupling) if len(grp) >= 2))
             draft.put(Kind.COMPONENT, parent, node)
         _rewrite_constraints(draft, lambda c: None if is_within(c, cid) else c)
         for c in sorted((c for c in g.ids() if is_within(c, cid)), key=len, reverse=True):
@@ -500,8 +495,6 @@ def from_json(raw: JsonObject) -> Operation:
                 args[key] = _ENUM_FIELDS[key](value)
             except ValueError:
                 raise Rejected(f"{name}: invalid {key} '{value}'") from None
-        elif key == "accepts_coupling" and isinstance(value, list):
-            args[key] = tuple(tuple(Ref(r) for r in group) for group in value if isinstance(group, list))
         elif isinstance(value, list):
             args[key] = tuple(value)
         else:

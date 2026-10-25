@@ -75,17 +75,26 @@ what it may use, and the criteria that prove it. arch checks the code against it
    says it (`path: SourcePath`). Do not comment local variables: name them well instead. People read these
    lines when they point at a name in review. `arch check --all` lists names that need one (C014) and
    descriptions that only repeat the name (C015).
-6. **After changing anything:** `arch check`. Errors block; fix them, or change the design deliberately
-   (with a decision entry: `arch add decision`).
-7. **Before asking for review, inspect your own output.** Run `arch review <base>` and read it as the reviewer
+6. **After changing anything:** `arch check`. Errors block; fix them, change the design deliberately (with a
+   decision entry: `arch add decision`), or answer the finding with a reason (`arch respond`).
+7. **Raise what you notice, in your work or anyone's.** A defect, a question, or a better way:
+   `arch raise defect|question|idea <subject> "<what>" --station <where it was made> --evidence "<exact
+   words>" --by <you>`. Do not fix what is outside your task. An idea must say what it removes or unifies,
+   and what it costs; the best ideas make things simpler with a stronger model or abstraction, not more
+   parts. Read `arch findings --all` first, and do not raise again what was declined without new evidence.
+8. **Answer findings:** `arch respond fixed|accepted|declined|answered "<reason>" <ref...> --by <you>`, with
+   refs as `arch findings` lists them. Every answer is reviewed. When the finding was noticed later than the
+   station that made it (an escape), also give `--countermeasure`: what changes upstream so it is caught
+   where it is made next time.
+9. **Before asking for review, inspect your own output.** Run `arch review <base>` and read it as the reviewer
    will: every reason, every "No reason given", every question about a description. Fix what you would flag.
    When the change is something a person must see (a page, a layout), ask them to look at the named things
    before calling it done. Do not pass a defect downstream.
-8. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
+10. **Being reviewed:** a person reviews your change item by item with `arch review --serve`. Before that,
    point them at what matters with `arch review --note <item> "..."` (where you were unsure, what to
    check). Afterwards, `arch review --feedback` lists their open change requests, blocking ones first;
    address each one. You cannot approve items yourself.
-9. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
+11. **Reviewing someone else's change:** `arch review <base>` summarises it layer by layer; read intent first.
 
 Methods for design work:
 {methods}

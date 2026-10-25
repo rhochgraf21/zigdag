@@ -51,14 +51,13 @@ def test_inferred_uses_and_exports_leave_no_boundary_errors():
 
 
 @realizes("arch.guide.infer#AC3")
-def test_import_cycles_become_accepted_couplings_with_a_decision():
+def test_import_cycles_are_recorded_and_block_only_a_specified_parent():
     inference, result, facts = inferred()
     assert inference.cycles == (("app.web.forms", "app.web.views"),)
     web = result.after.components["app.web"]
-    assert web.accepts_coupling == (("forms", "views"),)
     assert [d.title for d in web.decisions] == ["Inferred import cycle among forms, views"]
     s005 = [f for f in check(Graph(result.after), facts).findings if f.rule == "S005"]
-    assert [f.severity for f in s005] == [Severity.WARNING]
+    assert [f.severity for f in s005] == [Severity.INFO]  # a draft has not claimed its solution yet
 
 
 @realizes("arch.guide.infer#AC5")
@@ -68,6 +67,6 @@ def test_init_writes_a_design_that_passes_its_first_check(tmp_path, capsys):
         (tmp_path / path).write_text(text)
     assert main(["--project", str(tmp_path), "init"]) == 0
     assert (tmp_path / "design/components/app/core/rules.md").is_file()
-    assert (tmp_path / "design/baseline").read_text().count("C004") == 1  # the test links to a criterion not yet written
+    assert (tmp_path / "design/responses/baseline.md").read_text().count("C004") == 1  # links a criterion not yet written
     assert main(["--project", str(tmp_path), "check"]) == 0
     assert main(["--project", str(tmp_path), "init"]) == 2  # refuses to overwrite a design

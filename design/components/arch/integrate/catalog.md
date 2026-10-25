@@ -13,3 +13,4 @@ status: specified
 - AC4: Every operation shall take domain types and return a report that renders itself.
 - AC5: Removing or renaming an operation shall count as a breaking change.
 - AC6: Only the surfaces shall parse text into domain types.
+- AC7: Every surface shall let anyone raise a finding and answer any finding, always with a reason.

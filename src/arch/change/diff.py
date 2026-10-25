@@ -151,7 +151,6 @@ def _component_fields(a: Component, b: Component) -> Iterator[FieldChange]:
     yield from _compare("hides", ChangeClass.DESIGN, a.hides, b.hides)
     yield from _compare("uses", ChangeClass.STRUCTURE, a.uses, b.uses)
     yield from _compare("exports", ChangeClass.STRUCTURE, a.exports, b.exports)
-    yield from _compare("accepts_coupling", ChangeClass.STRUCTURE, a.accepts_coupling, b.accepts_coupling)
     yield from _compare("status", ChangeClass.STATUS, a.status, b.status)
     crit_a = {c.id.partition("#")[2]: c.text for c in a.criteria}
     crit_b = {c.id.partition("#")[2]: c.text for c in b.criteria}

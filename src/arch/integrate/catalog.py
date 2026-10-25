@@ -14,11 +14,14 @@ from pathlib import Path
 
 from arch import realize
 from arch.change import Outcome as ApplyOutcome
-from arch.change import apply
+from arch.change import ApplyResult, apply
 from arch.change.diff import diff as design_diff
 from arch.change.ops import Operation as DesignOperation
-from arch.check import Baseline
+from arch.check import Ledger, Report
 from arch.check import check as run_checks
+from arch.check import promotion
+from arch.check.engine import Finding, FindingKey, FindingRef, Kind, RuleId, Source, Station, Subject, parse_ref, ref_of
+from arch.check.ledger import Answer, EntryName, Noticed, Response, accepting, digest_of, name_for, render_noticed, render_response
 from arch.guide.infer import infer
 from arch.guide.next import ActionLimit, next_actions
 from arch.guide.plan import plan as make_plan
@@ -53,6 +56,9 @@ from arch.view.report import (
     FindingsReport,
     InfoFindings,
     InitReport,
+    LedgerWrite,
+    Listing,
+    FindingsListing,
     NextReport,
     PlanReport,
     Rendering,
@@ -70,7 +76,12 @@ class UnknownComponent(Exception):
     pass
 
 
-UsageError = (UnknownComponent, UnknownTarget, workspace.NoRevision, workspace.StaleEdit, workspace.AlreadyDesigned)
+class LedgerRejected(Exception):
+    """A finding or an answer that cannot be recorded as given."""
+
+
+UsageError = (UnknownComponent, UnknownTarget, workspace.NoRevision, workspace.StaleEdit, workspace.AlreadyDesigned,
+              LedgerRejected)
 # ReviewRejected joins UsageError below, once defined
 NoProject = (workspace.NoProject, workspace.BadConfig)
 
@@ -100,6 +111,9 @@ class Command(enum.Enum):
     EDIT = "edit"
     DIFF = "diff"
     BASELINE = "baseline"
+    RAISE = "raise"
+    RESPOND = "respond"
+    FINDINGS = "findings"
     INIT = "init"
     NEXT = "next"
     DIAGRAM = "diagram"
@@ -144,22 +158,80 @@ def _component(g: Graph, cid: ComponentId | None) -> ComponentId | None:
 
 
 def check(ws: Workspace, info: InfoFindings = InfoFindings.COUNTED) -> Result:
-    report = run_checks(_graph(ws), ws.facts(), ws.baseline(), ws.config().lexicon())
+    report = _report(ws)
     return Result(FindingsReport(report, info), Outcome.BLOCKING if report.blocking else Outcome.OK)
 
 
+def _report(ws: Workspace, ledger: Ledger | None = None) -> Report:
+    return run_checks(_graph(ws), ws.facts(), ws.ledger() if ledger is None else ledger, ws.config().lexicon())
+
+
+_BASELINE = EntryName("baseline")
+_BASELINE_REASON = Text("These errors existed when arch was adopted. Only new ones block; fix these over time.")
+
+
 def baseline(ws: Workspace) -> Result:
-    """Accept today's errors as the starting point; fixed ones drop out."""
-    old = ws.baseline()
-    report = run_checks(_graph(ws), ws.facts())
-    new = Baseline.of(report.findings)
-    ws.write_baseline(new)
-    return Result(BaselineReport(Count(len(old.entries)), Count(len(new.entries)), Count(len(old.stale(report)))))
+    """Accept today's errors as the starting point, in one answer; fixed ones drop out of it."""
+    ledger = ws.ledger()
+    old = next((r for r in ledger.responses if r.name == _BASELINE), None)
+    without = replace(ledger, responses=tuple(r for r in ledger.responses if r.name != _BASELINE))
+    report = _report(ws, without)
+    new = accepting(report.blocking, _BASELINE, Text("arch baseline"), _BASELINE_REASON)
+    ws.write_ledger_entry(new.path, render_response(new))
+    before = set(old.findings) if old else set()
+    still = {f.identity for f in report.findings}
+    return Result(BaselineReport(Count(len(before)), Count(len(new.findings)), Count(len(before - still))))
+
+
+def raise_(ws: Workspace, subject: Subject, kind: Kind, station: Station, message: Text, by: Text,
+           source: Source = Source.AGENT, evidence: Text | None = None, found_at: Station | None = None,
+           hint: Text = Text("")) -> Result:
+    """Record something noticed in the design, the code or the process: a defect, a question or an idea."""
+    if source is Source.RULE:
+        raise LedgerRejected("rules' findings are found again on every run; raise as a critic, a person or an agent")
+    g = _graph(ws)
+    taken = {n.name for n in ws.ledger().noticed}
+    base = name_for(f"{subject}-{message[:48]}")
+    name = next(EntryName(f"{base}-{i}" if i else base) for i in range(len(taken) + 1)
+                if (f"{base}-{i}" if i else base) not in taken)
+    finding = Finding(subject, RuleId(by), FindingKey(name), kind, message, hint, None, station, source=source,
+                      evidence=evidence, found_at=found_at)
+    noticed = Noticed(finding, name, digest_of(g, subject))
+    ws.write_ledger_entry(noticed.path, render_noticed(noticed))
+    return Result(LedgerWrite(Text(f"noted {kind.value} on {subject}: {ref_of(finding.identity)}"), noticed.path))
+
+
+def respond(ws: Workspace, answer: Answer, reason: Text, refs: Sequence[FindingRef], by: Text,
+            countermeasure: Text | None = None) -> Result:
+    """Answer findings: fixed, accepted, declined or answered, always with a reason. Answered findings stop
+    blocking; the answer itself is reviewed like any other change."""
+    if not reason.strip():
+        raise LedgerRejected("an answer needs a reason")
+    try:
+        identities = tuple(parse_ref(r) for r in refs)
+    except ValueError as e:
+        raise LedgerRejected(str(e)) from None
+    known = {f.identity for f in _report(ws).findings}
+    unknown = [ref_of(i) for i in identities if i not in known]
+    if unknown:
+        raise LedgerRejected(f"no such finding: {', '.join(unknown)} (see `arch findings`)")
+    taken = {r.name for r in ws.ledger().responses}
+    base = name_for(f"{answer.value}-{identities[0][1]}-{identities[0][2]}")
+    name = next(EntryName(f"{base}-{i}" if i else base) for i in range(len(taken) + 1)
+                if (f"{base}-{i}" if i else base) not in taken)
+    response = Response(name, answer, by, reason, identities, countermeasure)
+    ws.write_ledger_entry(response.path, render_response(response))
+    return Result(LedgerWrite(Text(f"{answer.value} {len(identities)} finding{'s' * (len(identities) != 1)}"), response.path))
+
+
+def findings(ws: Workspace, listing: Listing = Listing.OPEN) -> Result:
+    """Findings with their answers: what is open, ideas waiting for an answer, escapes without a countermeasure."""
+    return Result(FindingsListing(_report(ws), ws.ledger(), listing))
 
 
 def context(ws: Workspace, target: ContextTarget, budget: TokenBudget = DEFAULT_BUDGET_TOKENS) -> Result:
     g, facts = _graph(ws), ws.facts()
-    return Result(make_context(g, facts, run_checks(g, facts, ws.baseline(), ws.config().lexicon()), target, budget))
+    return Result(make_context(g, facts, run_checks(g, facts, ws.ledger(), ws.config().lexicon()), target, budget))
 
 
 def outline(ws: Workspace, root: ComponentId | None = None, depth: Depth | None = None) -> Result:
@@ -184,7 +256,7 @@ def matrix(ws: Workspace, parent: ComponentId | None = None, overlay: MatrixOver
 def next_(ws: Workspace, scope: ComponentId | None = None, limit: ActionLimit = ActionLimit(10)) -> Result:
     """The most valuable next actions, each naming the method or operation that applies."""
     g = _graph(ws)
-    report = run_checks(g, ws.facts(), ws.baseline(), ws.config().lexicon())
+    report = run_checks(g, ws.facts(), ws.ledger(), ws.config().lexicon())
     return Result(NextReport(next_actions(g, report, _component(g, scope), limit)))
 
 
@@ -205,7 +277,7 @@ def diagram(ws: Workspace, root: ComponentId | None = None, depth: Depth = Depth
     if overlays:
         facts = ws.facts()
         if Overlay.EFFECTS in overlays:
-            d = with_effects(d, g, facts, run_checks(g, facts, ws.baseline(), ws.config().lexicon()))
+            d = with_effects(d, g, facts, run_checks(g, facts, ws.ledger(), ws.config().lexicon()))
         if Overlay.OBSERVED in overlays:
             d = with_observed(d, g, facts)
     return Result(DiagramView(d, form))
@@ -216,10 +288,10 @@ def _review_input(ws: Workspace, base: Revision) -> ReviewInput:
     before, snap_before = ws.design_at(since), ws.snapshot_at(since)
     after, snap_after = ws.design(), ws.snapshot()
     facts_before, facts_after = realize.extract(snap_before), realize.extract(snap_after)
-    baseline, lexicon = ws.baseline(), ws.config().lexicon()
+    ledger, lexicon = ws.ledger(), ws.config().lexicon()
     diffs = ws.diffs(since)
-    report_before = run_checks(Graph(before), facts_before, baseline, lexicon)
-    report_after = run_checks(Graph(after), facts_after, baseline, lexicon)
+    report_before = run_checks(Graph(before), facts_before, ledger, lexicon)
+    report_after = run_checks(Graph(after), facts_after, ledger, lexicon)
     # names are resolved only in the files a reviewer will read
     facts_before = replace(facts_before, references=realize.names(snap_before, [d.old_path or d.path for d in diffs]))
     facts_after = replace(facts_after, references=realize.names(snap_after, [d.path for d in diffs]))
@@ -307,9 +379,26 @@ def edit(ws: Workspace, operations: Sequence[DesignOperation], mode: EditMode = 
     snapshot = ws.snapshot()
     facts = realize.extract(snapshot)
     result = apply(ws.design(), operations, snapshot, facts.links)
+    if result.outcome is ApplyOutcome.APPLIED:
+        result = _promotion_gate(ws, result, facts)
     if result.outcome is ApplyOutcome.APPLIED and mode is EditMode.WRITE:
         ws.write(result.design_edits, result.source_edits)
     return Result(EditReport(result, mode), Outcome.OK if result.outcome is ApplyOutcome.APPLIED else Outcome.BLOCKING)
+
+
+def _promotion_gate(ws: Workspace, result: ApplyResult, facts) -> ApplyResult:
+    """A status may rise only when nothing is open at the stations it claims: the definition of done."""
+    before, after = Graph(result.before), Graph(result.after)
+    if all(c not in before or before[c].status == after[c].status for c in after.ids()):
+        return result
+    open_ = promotion.blockers(before, after, run_checks(after, facts, ws.ledger(), ws.config().lexicon()))
+    if not open_:
+        return result
+    first = open_[0]
+    reason = (f"{len(open_)} open finding{'s' * (len(open_) != 1)} at the stations this status claims, first "
+              f"{ref_of(first.identity)}: {first.message}. Fix or answer them (`arch respond`), then raise the status")
+    return replace(result, outcome=ApplyOutcome.REJECTED, after=result.before, design_edits=(), source_edits=(),
+                   new_findings=open_, reason=Text(reason))
 
 
 def init(ws: Workspace, mode: EditMode = EditMode.WRITE) -> Result:
@@ -321,13 +410,13 @@ def init(ws: Workspace, mode: EditMode = EditMode.WRITE) -> Result:
     edit_report = EditReport(result, mode)
     if result.outcome is not ApplyOutcome.APPLIED:
         return Result(InitReport(edit_report, Count(0), (), Count(0), inference.notes), Outcome.BLOCKING)
-    remaining = Baseline.of(run_checks(Graph(result.after), facts).findings)
+    remaining = accepting(run_checks(Graph(result.after), facts).blocking, _BASELINE, Text("arch init"), _BASELINE_REASON)
     if mode is EditMode.WRITE:
         ws.write(result.design_edits, result.source_edits)
-        if remaining.entries:
-            ws.write_baseline(remaining)
+        if remaining.findings:
+            ws.write_ledger_entry(remaining.path, render_response(remaining))
     cycles = tuple(tuple(Text(c) for c in group) for group in inference.cycles)
-    return Result(InitReport(edit_report, Count(len(inference.components)), cycles, Count(len(remaining.entries)),
+    return Result(InitReport(edit_report, Count(len(inference.components)), cycles, Count(len(remaining.findings)),
                              inference.notes))
 
 
@@ -367,9 +456,16 @@ OPERATIONS: tuple[Operation, ...] = (
               Access.WRITES, init),
     Operation(Command.BASELINE, Text("Accept current errors as the starting point, so only new ones block"),
               Access.WRITES, baseline),
+    Operation(Command.RAISE, Text("Record something you noticed: a defect, a question or an idea, about the design, "
+                                  "the code or the process"), Access.WRITES, raise_),
+    Operation(Command.RESPOND, Text("Answer findings: fixed, accepted, declined or answered, always with a reason"),
+              Access.WRITES, respond),
+    Operation(Command.FINDINGS, Text("List findings and their answers: open ones, ideas waiting for an answer, escapes "
+                                     "without a countermeasure, and how often each source's findings are accepted"),
+              Access.READS, findings),
 )
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "Audience", "DiagramFormat", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "Audience", "DiagramFormat", "LedgerRejected", "Listing", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]

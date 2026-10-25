@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import deal
 from ruamel.yaml import YAML
@@ -40,7 +41,6 @@ from arch.model.schema import (
     Need,
     SourceText,
     Status,
-    Suppression,
     validate_fields,
 )
 
@@ -108,25 +108,43 @@ def load(files: Mapping[DesignPath, SourceText]) -> Design:
 Node = Component | Need | Constraint
 
 
+@dataclass(frozen=True)
+class Frontmatter:
+    """A design file split into its YAML frontmatter and its body, or the problem that stops reading it."""
+
+    fields: Mapping[FieldName, object] | None  # None when the frontmatter cannot be read
+    body: SourceText
+    problem: Issue | None = None
+
+
+def frontmatter(path: DesignPath, text: SourceText) -> Frontmatter:
+    loc = Location(path)
+    m = _FRONTMATTER.match(text)
+    if not m:
+        return Frontmatter(None, text, Issue(loc, None, Text("missing YAML frontmatter delimited by '---' lines")))
+    try:
+        raw = _yaml.load(io.StringIO(m.group(1))) or {}
+    except MarkedYAMLError as e:
+        mark = e.problem_mark or e.context_mark
+        line = LineNo(mark.line + 2) if mark else LineNo(1)
+        return Frontmatter(None, text, Issue(Location(path, line), None, Text(f"invalid YAML: {e.problem or e}")))
+    except YAMLError as e:
+        return Frontmatter(None, text, Issue(loc, None, Text(f"invalid YAML: {e}")))
+    if not isinstance(raw, dict):
+        return Frontmatter(None, text, Issue(loc, None, Text("frontmatter must be a mapping")))
+    return Frontmatter(raw, SourceText(text[m.end():]))
+
+
 def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue, ...]]:
     kind, ident = kind_of(path), node_id(path)
     loc = Location(path)
     if kind is None or ident is None:
         return None, (Issue(loc, None, Text("not a design node path")),)
 
-    m = _FRONTMATTER.match(text)
-    if not m:
-        return None, (Issue(loc, None, Text("missing YAML frontmatter delimited by '---' lines")),)
-    try:
-        raw = _yaml.load(io.StringIO(m.group(1))) or {}
-    except MarkedYAMLError as e:
-        mark = e.problem_mark or e.context_mark
-        line = LineNo(mark.line + 2) if mark else LineNo(1)
-        return None, (Issue(Location(path, line), None, Text(f"invalid YAML: {e.problem or e}")),)
-    except YAMLError as e:
-        return None, (Issue(loc, None, Text(f"invalid YAML: {e}")),)
-    if not isinstance(raw, dict):
-        return None, (Issue(loc, None, Text("frontmatter must be a mapping")),)
+    front = frontmatter(path, text)
+    if front.fields is None:
+        return None, (front.problem,)
+    raw, body_start = front.fields, len(text) - len(front.body)
 
     if raw.get("kind") != kind.value:
         return None, (Issue(loc, FieldName("kind"), Text(f"kind must be '{kind.value}' for files in this directory")),)
@@ -135,7 +153,6 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
     if any(i.message.startswith("missing required") or i.field in _hard_fields(kind) for i in issues):
         return None, issues
 
-    body_start = m.end()
     body = text[body_start:]
 
     def refs(name: str) -> tuple[Ref, ...]:
@@ -145,12 +162,6 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
     def opt_text(name: str) -> Text | None:
         value = raw.get(name)
         return Text(value.strip()) if isinstance(value, str) and value.strip() else None
-
-    suppress = raw.get("suppress")
-    suppressions = tuple(
-        Suppression(Text(str(rule)), Text(str(reason)) if isinstance(reason, str) and reason.strip() else None)
-        for rule, reason in (suppress.items() if isinstance(suppress, dict) else ())
-    )
 
     def line_at(offset_in_body: int) -> LineNo:
         return LineNo(text.count("\n", 0, body_start + offset_in_body) + 1)
@@ -162,8 +173,6 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
                 Criterion(CriterionId(f"{cid}#{c.group(1)}"), Text(c.group(2).strip()), Location(path, line_at(c.start())))
                 for c in _CRITERION.finditer(body)
             )
-            sets = raw.get("accepts_coupling")
-            accepted = tuple(tuple(Ref(v) for v in s) for s in sets if isinstance(s, list)) if isinstance(sets, list) else ()
             node: Node = Component(
                 id=cid,
                 realizes=Text(raw["realizes"].strip()),
@@ -172,18 +181,16 @@ def parse(path: DesignPath, text: SourceText) -> tuple[Node | None, tuple[Issue,
                 serves=tuple(NeedId(r) for r in refs("serves")),
                 uses=refs("uses"),
                 exports=refs("exports"),
-                accepts_coupling=accepted,
                 status=Status(raw["status"]),
                 criteria=criteria,
                 decisions=_decisions(body, path, line_at),
                 location=loc,
-                suppressions=suppressions,
             )
         case Kind.NEED:
             statement = body.strip()
             if not statement:
                 return None, issues + (Issue(loc, None, Text("a need's statement is its body text, which is empty")),)
-            node = Need(NeedId(ident), Text(statement), opt_text("stakeholder"), opt_text("signal"), loc, suppressions)
+            node = Need(NeedId(ident), Text(statement), opt_text("stakeholder"), opt_text("signal"), loc)
         case Kind.CONSTRAINT:
             rule = raw.get("rule")
             policy, problems = Policy.parse(rule) if isinstance(rule, dict) else (Policy(), ())

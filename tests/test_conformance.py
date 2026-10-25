@@ -63,7 +63,7 @@ def test_evidence_strictness_scales_with_maturity():
 @realizes("arch.check.conformance#AC5")
 def test_unanalyzed_effects_are_reported_not_passed():
     f = run({**BASE, "src/s/core/api.py": "def broken(:\n"})  # unparseable, so nothing was analyzed
-    assert ("C007", "s.core.api") in rules(f, Severity.INFO)
+    assert ("C007", "s.core.api") in rules(f, Severity.WARNING)  # a question about code, which is always in force
     assert ("C007", "s.core.inner") not in rules(f)
 
 

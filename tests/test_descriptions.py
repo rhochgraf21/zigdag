@@ -69,8 +69,10 @@ def test_conformance_reports_missing_and_empty_descriptions_more_strictly_as_cod
     assert ("C014", "undescribed:m.Edit.target", Severity.INFO) in specified
     assert ("C015", "restated:m.Edit.before", Severity.INFO) in specified
     assert not any(k.endswith((".path", ".after", ".suffixes", "Link.apply_to", "CONFIG_FILE")) for _, k, _ in specified)
-    assert {s for _, _, s in found("contracted")} == {Severity.WARNING}
-    assert {s for _, _, s in found("verified")} == {Severity.ERROR}
+    contracted = found("contracted")  # contracted claims the interface: a missing description now blocks
+    assert ("C014", "undescribed:m.Edit.target", Severity.ERROR) in contracted
+    assert ("C015", "restated:m.Edit.before", Severity.WARNING) in contracted  # a question: a person judges it
+    assert found("verified") == contracted
 
 
 @realizes("arch.realize.python.extract#AC10")

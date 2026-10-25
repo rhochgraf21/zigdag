@@ -46,13 +46,3 @@ def test_lexicons_extend_per_project():
     assert not [f for f in findings(base(**{"needs/n.md": need})) if f.rule == "S101"]
     custom = Lexicon().extended(solution=[Term("Widgetron")])
     assert [f.key for f in findings(base(**{"needs/n.md": need}), custom) if f.rule == "S101"] == ["solution:widgetron"]
-
-
-@realizes("arch.check.statements#AC3")
-def test_suppressions_need_reasons_and_are_dropped_when_unused():
-    with_reason = "---\nkind: need\nsuppress: {S101: 'the API is what this customer sells'}\n---\nPartners can call the API.\n"
-    no_reason = "---\nkind: need\nsuppress: {S101: ''}\n---\nPartners can call the API.\n"
-    unused = "---\nkind: need\nsuppress: {S101: 'old reason'}\n---\nPartners can trade.\n"
-    assert not {f.rule for f in findings(base(**{"needs/n.md": with_reason}))} & {"S101", "S105"}
-    assert {"S101", "S105"} <= {f.rule for f in findings(base(**{"needs/n.md": no_reason}))}
-    assert "S106" in {f.rule for f in findings(base(**{"needs/n.md": unused}))}

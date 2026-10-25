@@ -72,9 +72,6 @@ def infer(facts: Facts) -> Inference:
             node = parent
 
     cycles = _cycles(ids, uses)
-    accepted: dict[ComponentId, list[tuple[Ref, ...]]] = defaultdict(list)
-    for group in cycles:
-        accepted[parent_of(group[0])].append(tuple(Ref(short_name(c)) for c in group))
 
     ops: list[Operation] = []
     for cid in sorted(ids, key=lambda c: (c.count("."), c)):
@@ -88,16 +85,16 @@ def infer(facts: Facts) -> Inference:
             status=Status.DRAFT,
             uses=refs,
             exports=tuple(sorted(exports[cid])),
-            accepts_coupling=tuple(sorted(accepted[cid])),
         ))
     for group in cycles:
         names = ", ".join(short_name(c) for c in group)
         ops.append(AddDecision(
             component=parent_of(group[0]),
             title=Text(f"Inferred import cycle among {names}"),
-            chose=Text("accept the coupling for now"),
-            because=Text("the code imports these from each other, and the inferred design reflects the code so adoption starts green"),
-            consequences=Text("review it: break the cycle (move the shared part down a level, or invert a dependency), then remove the acceptance"),
+            chose=Text("record the cycle as found, and leave it to be resolved"),
+            because=Text("the code imports these from each other, and the inferred design reflects the code"),
+            consequences=Text("the parent cannot become specified until the cycle is broken, or the coupling finding is "
+                              "accepted with a reason. To break it, move the shared part down a level or invert a use"),
         ))
     return Inference(tuple(ops), tuple(sorted(ids)), cycles, tuple(notes))
 

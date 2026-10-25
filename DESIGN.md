@@ -63,8 +63,8 @@ Three node kinds, plain text in the repo, matching axiomatic design's domains:
 information axiom is how you choose among candidates. So each decision lives on the component whose DP
 embodies it, as a `### title` entry under `## Decisions` with `Chose:` / `Over:` / `Because:` lines
 (plus `Consequences:`, `Previously:` for reversals, and `Backed by:` naming the constraints that make
-it checkable). System-wide decisions live on the root. A coupling kept on purpose is `accepts_coupling`
-on the parent, with the TRIZ resolution as one of its decisions. The chronological decision log is a
+it checkable). System-wide decisions live on the root. A coupling kept on purpose is an accepted answer
+to the coupling finding, with the TRIZ resolution as one of the parent's decisions. The chronological decision log is a
 view generated from git history, not a folder people maintain.
 
 Key mechanics:
