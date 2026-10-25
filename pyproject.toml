@@ -2,7 +2,7 @@
 name = "arch-design"  # working name; `arch` is taken on PyPI (see DESIGN.md §13)
 version = "0.0.1"
 description = "Design-as-code and architecture-as-code for humans and coding agents"
-readme = "DESIGN.md"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["ruamel.yaml>=0.18", "deal>=4.24"]
 

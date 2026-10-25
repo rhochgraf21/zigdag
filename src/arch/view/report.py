@@ -47,7 +47,8 @@ def _finding_json(f: Finding, severity: Severity) -> JsonValue:
 
 def _counts(report: Report, findings: tuple[Finding, ...]) -> str:
     n = {s: sum(1 for f in findings if report.severity(f) is s) for s in Severity}
-    return f"{n[Severity.ERROR]} errors, {n[Severity.WARNING]} warnings, {n[Severity.INFO]} info"
+    error, warning = n[Severity.ERROR], n[Severity.WARNING]
+    return f"{error} error{'s' * (error != 1)}, {warning} warning{'s' * (warning != 1)}, {n[Severity.INFO]} info"
 
 
 @dataclass(frozen=True)
