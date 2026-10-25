@@ -27,7 +27,7 @@ def test_own_design_has_no_open_findings():
 @realizes("arch#AC2")
 def test_own_code_conforms_to_own_design():
     report = check(GRAPH, WS.facts(), WS.ledger())
-    assert [f for f in report.findings if f.severity is not Severity.INFO and not report.is_answered(f)] == []
+    assert [f for f in report.findings if report.severity(f) is not Severity.INFO and not report.is_answered(f)] == []
 
 
 @realizes("arch.model.matrix#AC1")

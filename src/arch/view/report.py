@@ -32,21 +32,21 @@ class EditMode(enum.Enum):
     DRY_RUN = "dry run"
 
 
-def _finding_line(f: Finding, answered: bool = False) -> str:
+def _finding_line(f: Finding, severity: Severity, answered: bool = False) -> str:
     where = f" ({f.location})" if f.location else ""
     mark = " (answered)" if answered else ""
-    return f"{f.severity.value:7} {f.rule} {f.subject}: {f.message}{where}{mark}\n        hint: {f.hint}"
+    return f"{severity.value:7} {f.rule} {f.subject}: {f.message}{where}{mark}\n        hint: {f.hint}"
 
 
-def _finding_json(f: Finding) -> JsonValue:
-    return {"ref": ref_of(f.identity), "rule": f.rule, "subject": f.subject, "severity": f.severity.value,
+def _finding_json(f: Finding, severity: Severity) -> JsonValue:
+    return {"ref": ref_of(f.identity), "rule": f.rule, "subject": f.subject, "severity": severity.value,
             "kind": f.kind.value, "station": f.station.value, "source": f.source.value, "message": f.message,
             "hint": f.hint, "location": str(f.location) if f.location else None, "evidence": f.evidence,
             "found_at": f.found_at.value if f.found_at else None}
 
 
-def _counts(findings: tuple[Finding, ...]) -> str:
-    n = {s: sum(1 for f in findings if f.severity is s) for s in Severity}
+def _counts(report: Report, findings: tuple[Finding, ...]) -> str:
+    n = {s: sum(1 for f in findings if report.severity(f) is s) for s in Severity}
     return f"{n[Severity.ERROR]} errors, {n[Severity.WARNING]} warnings, {n[Severity.INFO]} info"
 
 
@@ -58,16 +58,17 @@ class FindingsReport:
     def to_markdown(self) -> Markdown:
         everything = self.info is InfoFindings.LISTED
         shown = [f for f in self.report.findings
-                 if everything or (f.severity is not Severity.INFO and not self.report.is_answered(f))]
+                 if everything or (self.report.severity(f) is not Severity.INFO and not self.report.is_answered(f))]
         hidden = len(self.report.findings) - len(shown)
         answered = sum(1 for f in self.report.findings if self.report.is_answered(f))
         tail = (f"; {answered} answered, not blocking" if answered else "") + (" (--all to list the rest)" if hidden else "")
-        lines = [_finding_line(f, self.report.is_answered(f)) for f in shown]
+        lines = [_finding_line(f, self.report.severity(f), self.report.is_answered(f)) for f in shown]
         open_ = tuple(f for f in self.report.findings if not self.report.is_answered(f))
-        return Markdown("\n".join([*lines, _counts(open_) + tail]))
+        return Markdown("\n".join([*lines, _counts(self.report, open_) + tail]))
 
     def to_json(self) -> JsonValue:
-        return [{**_finding_json(f), "answered": self.report.is_answered(f)} for f in self.report.findings]
+        return [{**_finding_json(f, self.report.severity(f)), "answered": self.report.is_answered(f)}
+                for f in self.report.findings]
 
 
 class Listing(enum.Enum):
@@ -90,7 +91,7 @@ class FindingsListing:
             match self.listing:
                 case Listing.OPEN:  # what someone raised always shows; rules' findings once their station counts
                     return (f.kind is not Kind.IDEA and not self.report.is_answered(f)
-                            and (f.source is not Source.RULE or f.severity is not Severity.INFO))
+                            and (f.source is not Source.RULE or self.report.severity(f) is not Severity.INFO))
                 case Listing.IDEAS:
                     return f.kind is Kind.IDEA and f.source is not Source.RULE and not self.report.is_answered(f)
                 case Listing.ESCAPES:
@@ -128,7 +129,7 @@ class FindingsListing:
         return Markdown("\n".join(lines))
 
     def to_json(self) -> JsonValue:
-        return {"findings": [{**_finding_json(f), "answer": (r.answer.value if (r := self.ledger.answer_for(f.identity)) else None),
+        return {"findings": [{**_finding_json(f, self.report.severity(f)), "answer": (r.answer.value if (r := self.ledger.answer_for(f.identity)) else None),
                               "escaped": f.escaped} for f in self.rows()],
                 "uptake": {k: {"taken": a, "answered": b} for k, (a, b) in self.uptake().items()}}
 
@@ -199,7 +200,7 @@ class EditReport:
         r = self.result
         if r.outcome is Outcome.REJECTED:
             lines = [f"rejected: {r.reason}", "nothing was changed"]
-            lines += [_finding_line(f) for f in r.new_findings]
+            lines += [_finding_line(f, r.new_findings.severity(f)) for f in r.new_findings.findings]
             return Markdown("\n".join(lines + [f"note: {n}" for n in r.notes]))
         verb = "would apply" if self.mode is EditMode.DRY_RUN else "applied"
         lines = [f"{verb} {len(r.operations)} operation{'s' * (len(r.operations) != 1)}:"]
@@ -209,9 +210,9 @@ class EditReport:
             lines.append(f"  {action} design/{e.path}")
         for e in r.source_edits:
             lines.append(f"  modify {e.path}")
-        if r.new_findings:
+        if r.new_findings.findings:
             lines.append("new findings (not blocking):")
-            lines += ["  " + _finding_line(f) for f in r.new_findings]
+            lines += ["  " + _finding_line(f, r.new_findings.severity(f)) for f in r.new_findings.findings]
         lines += [f"note: {n}" for n in r.notes]
         return Markdown("\n".join(lines))
 
@@ -223,7 +224,7 @@ class EditReport:
             "design_edits": [{"path": e.path, "action": "create" if e.before is None else "delete" if e.after is None else "modify"}
                              for e in r.design_edits],
             "source_edits": [e.path for e in r.source_edits],
-            "new_findings": [_finding_json(f) for f in r.new_findings],
+            "new_findings": [_finding_json(f, r.new_findings.severity(f)) for f in r.new_findings.findings],
             "notes": list(r.notes),
         }
 

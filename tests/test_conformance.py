@@ -25,11 +25,11 @@ DESIGN = {
 
 def run(code: dict[str, str], design=DESIGN):
     snap = Snapshot({SourcePath(k): v for k, v in code.items()}, ROOTS)
-    return check(graph(design), realize.extract(snap)).findings
+    return check(graph(design), realize.extract(snap))
 
 
-def rules(findings, severity=None):
-    return {(f.rule, f.subject) for f in findings if severity is None or f.severity is severity}
+def rules(report, severity=None):
+    return {(f.rule, f.subject) for f in report.findings if severity is None or report.severity(f) is severity}
 
 
 BASE = {"src/s/__init__.py": "", "src/s/core/api.py": "", "src/s/core/inner.py": "", "src/s/idle.py": ""}
@@ -48,7 +48,7 @@ def test_imports_need_declared_visible_uses():
 @realizes("arch.check.conformance#AC4", "arch.check.conformance#AC6")
 def test_dangling_links_are_errors_with_locations():
     f = run({**BASE, "tests/test_s.py": "@realizes('s.core#AC1', 's.core#AC9', 'nope')\ndef test(): ...\n"})
-    bad = [x for x in f if x.rule == "C004"]
+    bad = [x for x in f.findings if x.rule == "C004"]
     assert sorted(x.key for x in bad) == ["link:nope", "link:s.core#AC9"]
     assert all(str(x.location).startswith("tests/test_s.py:") for x in bad)
 
@@ -79,7 +79,7 @@ def test_effect_constraints():
             "src/s/shell/cmd.py": "import socket\nfrom s.shell.io import load\n\ndef run(p):\n    print(load(p))\n\ndef ping():\n    return socket.create_connection(('x', 1))\n",
             "src/s/core/api.py": "import os\n\ndef home():\n    return os.environ['HOME']\n",
             "src/s/core/inner.py": "def dyn(src):\n    return eval(src)\n"}
-    got = {(f.rule, f.subject, f.key) for f in run(code, design)}
+    got = {(f.rule, f.subject, f.key) for f in run(code, design).findings}
     assert ("C008", "s.core.api", "effect:env") in got  # pure component reads the environment
     assert ("C009", "s.core.inner", "unknown:s.core.inner.dyn") in got  # dynamic code in a pure component
     assert ("C008", "s.shell.cmd", "effect:network") in got  # forbidden in the shell subtree
@@ -87,12 +87,12 @@ def test_effect_constraints():
     assert not any(r == "C008" and s == "s.shell.io" for r, s, _ in got)  # io reads files directly: allowed
     assert not any(k == "effect:fs.read" and s == "s.shell.cmd" for _, s, k in got)  # reached via io: fine
     unused = run({**code, "src/s/shell/cmd.py": "import socket\n"}, design)
-    assert not any(f.key == "effect:network" for f in unused)  # importing is not using
+    assert not any(f.key == "effect:network" for f in unused.findings)  # importing is not using
 
 
 def test_third_party_allowlist_and_stdlib():
     f = run({**BASE, "src/s/shell.py": "import json\nimport requests.adapters\nimport numpy\n"})
-    third = [x for x in f if x.rule == "C006"]
+    third = [x for x in f.findings if x.rule == "C006"]
     assert [x.key for x in third] == ["third-party:numpy"]
 
 
@@ -116,6 +116,7 @@ def test_deal_declarations_must_cover_inferred_effects():
         "@effects('read')\ndef declared_read(p):\n    return open(p).read()\n\n"
         "@deal.pure\ndef pure_env():\n    return os.environ\n\n"
         "@deal.has('io')\ndef helper_user(p):\n    return pure_but_reads(p)\n")}
-    found = {f.key: f.severity.value for f in run(code) if f.rule == "C012"}
+    report = run(code)
+    found = {f.key: report.severity(f).value for f in report.findings if f.rule == "C012"}
     assert found == {"declared:s.core.api.pure_but_reads:fs.read": "error",
                      "declared:s.core.api.pure_env:env": "error"}

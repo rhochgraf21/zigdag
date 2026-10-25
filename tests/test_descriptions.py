@@ -63,7 +63,8 @@ def test_only_names_their_type_does_not_explain_need_a_description():
 def test_conformance_reports_missing_and_empty_descriptions_more_strictly_as_code_matures():
     def found(status):
         design = codec.load({DesignPath("needs/n.md"): NEED, DesignPath("components/m.md"): component(serves="n", status=status)})
-        return {(f.rule, f.key, f.severity) for f in check(Graph(design), facts()).findings if f.rule in ("C014", "C015")}
+        report = check(Graph(design), facts())
+        return {(f.rule, f.key, report.severity(f)) for f in report.findings if f.rule in ("C014", "C015")}
 
     specified = found("specified")
     assert ("C014", "undescribed:m.Edit.target", Severity.INFO) in specified

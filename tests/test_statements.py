@@ -28,7 +28,8 @@ def test_vague_and_non_ears_criteria():
     vague = component(serves="n").replace("When asked, it shall do the thing.", "It shall be fast.")
     no_shall = component(serves="n").replace("When asked, it shall do the thing.", "Works when asked.")
     measured = component(serves="n").replace("When asked, it shall do the thing.", "It shall be fast: under 200 ms.")
-    assert ("S102", Severity.WARNING) in {(f.rule, f.severity) for f in findings(base(**{"components/s/a.md": vague}))}
+    report = check(graph(base(**{"components/s/a.md": vague})))
+    assert ("S102", Severity.WARNING) in {(f.rule, report.severity(f)) for f in report.findings}
     assert "S103" in {f.rule for f in findings(base(**{"components/s/a.md": no_shall}))}
     assert "S102" not in {f.rule for f in findings(base(**{"components/s/a.md": measured}))}
 

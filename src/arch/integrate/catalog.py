@@ -476,7 +476,7 @@ def _promotion_gate(ws: Workspace, result: ApplyResult, facts) -> ApplyResult:
     reason = (f"{len(open_)} open finding{'s' * (len(open_) != 1)} at the stations this status claims, first "
               f"{ref_of(first.identity)}: {first.message}. Fix or answer them (`arch respond`), then raise the status")
     return replace(result, outcome=ApplyOutcome.REJECTED, after=result.before, design_edits=(), source_edits=(),
-                   new_findings=open_, reason=Text(reason))
+                   new_findings=Report(open_, after), reason=Text(reason))  # judged as the promotion would leave them
 
 
 def init(ws: Workspace, mode: EditMode = EditMode.WRITE) -> Result:

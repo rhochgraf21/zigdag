@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from arch.check import check
-from arch.check.engine import Finding
+from arch.check.engine import Report
 from arch.change.ops import Operation, Rejected
 from arch.model import codec
 from arch.model.codec import NodeFile
@@ -51,7 +51,7 @@ class ApplyResult:
     after: Design
     design_edits: tuple[DesignEdit, ...]
     source_edits: tuple[SourceEdit, ...]
-    new_findings: tuple[Finding, ...]
+    new_findings: Report  # findings the batch introduces, judged against the design they belong to
     notes: tuple[Text, ...]
     reason: Text | None = None  # why it was rejected
 
@@ -141,7 +141,8 @@ def apply(
     ops = tuple(operations)
 
     def rejected(reason: str) -> ApplyResult:
-        return ApplyResult(Outcome.REJECTED, ops, design, design, (), (), (), tuple(draft.notes), Text(reason))
+        return ApplyResult(Outcome.REJECTED, ops, design, design, (), (), Report((), Graph(design)), tuple(draft.notes),
+                           Text(reason))
 
     for i, op in enumerate(ops):
         try:
@@ -151,11 +152,13 @@ def apply(
 
     after = draft.design()
     known = {f.identity for f in check(Graph(design)).findings}
-    new = tuple(f for f in check(Graph(after)).findings if f.identity not in known)
+    after_graph = Graph(after)
+    new = tuple(f for f in check(after_graph).findings if f.identity not in known)
     broken = [f for f in new if f.rule in INTEGRITY_RULES]
     if broken:
         first = broken[0]
-        return ApplyResult(Outcome.REJECTED, ops, design, design, (), (), tuple(broken), tuple(draft.notes),
+        return ApplyResult(Outcome.REJECTED, ops, design, design, (), (), Report(tuple(broken), after_graph), tuple(draft.notes),
                            Text(f"the result would be broken: {first.subject}: {first.message}"))
     design_edits, source_edits = draft.edits(design, snapshot)
-    return ApplyResult(Outcome.APPLIED, ops, design, after, design_edits, source_edits, new, tuple(draft.notes))
+    return ApplyResult(Outcome.APPLIED, ops, design, after, design_edits, source_edits, Report(new, after_graph),
+                       tuple(draft.notes))

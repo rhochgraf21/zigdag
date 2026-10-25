@@ -159,9 +159,9 @@ def _sections(graph: Graph, facts: Facts, m: UnitMap, report: Report, cid: Compo
     constraints = [f"- `{k}`: {_first_sentence(design.constraints[k].statement)}" for k in graph.effective_constraints(cid)]
 
     findings = [
-        f"- {f.severity.value} {f.rule}: {f.message}" + (f" ({f.location})" if f.location else "")
+        f"- {report.severity(f).value} {f.rule}: {f.message}" + (f" ({f.location})" if f.location else "")
         for f in report.findings
-        if f.severity is not Severity.INFO and (f.subject == cid or f.subject in own_units)
+        if report.severity(f) is not Severity.INFO and (f.subject == cid or f.subject in own_units)
     ]
 
     uses_full: list[str] = []

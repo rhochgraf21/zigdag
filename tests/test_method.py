@@ -27,4 +27,4 @@ def test_every_method_ends_with_the_deterministic_check():
 @pytest.mark.parametrize("m", METHODS, ids=lambda m: m.name.value)
 def test_worked_examples_pass_the_check(m):
     report = check(Graph(codec.load(m.example.result)))
-    assert [f for f in report.findings if f.severity is not Severity.INFO] == [], m.name
+    assert [f for f in report.findings if report.severity(f) is not Severity.INFO] == [], m.name

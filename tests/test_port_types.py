@@ -44,6 +44,7 @@ def test_rule_flags_bare_builtins_in_ports_but_not_predicates_or_exempt_parts():
                               "def _private(n: str): ...\n"),
             "src/s/cli.py": "def main(argv: list[str]) -> int: ...\n"}
     facts = realize.extract(Snapshot({SourcePath(k): v for k, v in code.items()}, Roots(("src",), ())))
-    found = {(f.key, f.severity.value) for f in check(design, facts).findings if f.rule == "C011"}
+    report = check(design, facts)
+    found = {(f.key, report.severity(f).value) for f in report.findings if f.rule == "C011"}
     assert found == {("bare:s.core.bad:n", "error"), ("bare:s.core.bad:verbose", "error"),
                      ("bare:s.core.bad:return", "error"), ("untyped:s.core.untyped:n", "warning")}

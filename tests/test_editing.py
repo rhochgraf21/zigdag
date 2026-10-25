@@ -93,7 +93,7 @@ def test_preconditions_and_integrity_reject():
     dangling = apply(design(), [Link(ComponentId("s.shell"), Relation.USES, Ref("nowhere"))])
     assert dangling.outcome is Outcome.REJECTED and "nowhere" in dangling.reason
     quality = apply(design(), [SetField(Text("s.core.api"), Settable.HIDES, None)])
-    assert quality.outcome is Outcome.APPLIED and [f.rule for f in quality.new_findings] == ["S006"]
+    assert quality.outcome is Outcome.APPLIED and [f.rule for f in quality.new_findings.findings] == ["S006"]
 
 
 @realizes("arch.change.ops#AC2")

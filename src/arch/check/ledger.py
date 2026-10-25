@@ -27,11 +27,9 @@ from arch.check.engine import (
     Kind,
     Report,
     RuleId,
-    Severity,
     Source,
     Station,
     Subject,
-    severity_of,
 )
 from arch.model import codec
 from arch.model.graph import Graph
@@ -135,8 +133,7 @@ class Ledger:
                             "and the answer names no countermeasure",
                             "say what changes upstream (a lint, a critic question, a method step, a model change) so "
                             "this is caught where it is made", station=Station.REVIEW))
-        placed = [replace(f, severity=severity_of(f, graph)) for f in extra]
-        return Report(tuple(sorted([*findings, *placed], key=lambda f: (f.subject, f.rule, f.key))),
+        return Report(tuple(sorted([*findings, *extra], key=lambda f: (f.subject, f.rule, f.key))), graph,
                       report.answered | frozenset(answered))
 
     def answer_for(self, identity: FindingIdentity) -> Response | None:
@@ -188,7 +185,7 @@ def _noticed(name: EntryName, raw: dict, body: Text, path: DesignPath) -> Notice
     found_at = raw.get("found_at")
     finding = Finding(
         Subject(str(raw["subject"])), RuleId(str(raw["by"])), FindingKey(name), Kind(raw["kind"]), body,
-        Text(str(raw.get("hint") or "")), Location(path), Station(raw["station"]), Severity.INFO, Source(raw["source"]),
+        Text(str(raw.get("hint") or "")), Location(path), Station(raw["station"]), Source(raw["source"]),
         Text(str(raw["evidence"])) if raw.get("evidence") else None, Station(found_at) if found_at else None)
     if finding.source is Source.RULE:
         raise ValueError("rules' findings are found again on every run and are not stored")
@@ -210,7 +207,7 @@ def _placed(n: Noticed, graph: Graph) -> Finding:
     now = digest_of(graph, f.subject)
     if n.digest is not None and now is not None and now != n.digest:
         f = replace(f, message=Text(f"{f.message} (its subject has changed since this was noticed)"))
-    return replace(f, severity=severity_of(f, graph))
+    return f
 
 
 def _ledger_finding(rule: str, path: DesignPath, key: str, kind: Kind, message: str, hint: str,
@@ -221,7 +218,7 @@ def _ledger_finding(rule: str, path: DesignPath, key: str, kind: Kind, message: 
 
 def _problem(path: DesignPath, message: str, key: str = "parse") -> Finding:
     return Finding(Subject(path), RuleId("L000"), FindingKey(key), Kind.DEFECT, Text(message),
-                   Text("fix the file so arch can read it"), Location(path), Station.FORM, Severity.ERROR)
+                   Text("fix the file so arch can read it"), Location(path), Station.FORM)
 
 
 __all__ = ["Answer", "Digest", "EntryName", "Ledger", "LedgerText", "Noticed", "Response", "accepting", "digest_of", "name_for",

@@ -37,8 +37,9 @@ def test_an_accepted_finding_is_reported_but_does_not_block():
 def test_answers_to_findings_that_no_longer_occur_are_pointed_out():
     baseline = accepting(check(graph(BROKEN)).blocking, "baseline", Text("arch baseline"), Text("existing"))
     fixed = {**BROKEN, "components/s/a.md": component(serves="n")}
-    gone = [f for f in check(graph(fixed), ledger=ledger_of(baseline)).findings if f.rule == "L001"]
-    assert len(gone) == 1 and gone[0].severity is Severity.INFO
+    report = check(graph(fixed), ledger=ledger_of(baseline))
+    gone = [f for f in report.findings if f.rule == "L001"]
+    assert len(gone) == 1 and report.severity(gone[0]) is Severity.INFO
 
 
 @realizes("arch.check.ledger#AC3", "arch.check.ledger#AC6")
@@ -51,7 +52,8 @@ def test_ledger_files_round_trip_and_an_answer_needs_a_reason():
     assert parsed.noticed[0].finding == replace(n.finding, location=Location(n.path))  # it knows its file
     assert parsed.responses == (r,)
     silent = Ledger.parse({r.path: render_response(replace(r, reason=Text("")))})
-    assert any(f.rule == "L000" and f.severity is Severity.ERROR for f in silent.apply(check(graph(BROKEN)), graph(BROKEN)).findings)
+    applied = silent.apply(check(graph(BROKEN)), graph(BROKEN))
+    assert any(f.rule == "L000" and applied.severity(f) is Severity.ERROR for f in applied.findings)
 
 
 @realizes("arch.check.engine#AC2", "arch.check.engine#AC4")
@@ -77,7 +79,7 @@ def test_an_escape_answered_without_a_countermeasure_is_questioned():
                            found_at=Station.REVIEW), "adds-a-function")
     fixed = Response("fixed-it", Answer.FIXED, Text("claude"), Text("Moved AC3 into its own component."), (late.finding.identity,))
     report = check(graph(BROKEN), ledger=ledger_of(late, fixed))
-    assert late.finding.escaped and any(f.rule == "L002" and f.severity is Severity.WARNING for f in report.findings)
+    assert late.finding.escaped and any(f.rule == "L002" and report.severity(f) is Severity.WARNING for f in report.findings)
     with_cm = replace(fixed, countermeasure=Text("critic question: does a criterion add a function?"))
     assert not any(f.rule == "L002" for f in check(graph(BROKEN), ledger=ledger_of(late, with_cm)).findings)
 

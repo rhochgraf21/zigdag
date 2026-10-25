@@ -47,7 +47,7 @@ def test_inferred_uses_and_exports_leave_no_boundary_errors():
     assert comps["app.web.views"].uses == ("core.rules", "forms")
     assert comps["app.web"].uses == ("core",) and comps["app.core"].exports == ("rules",)
     report = check(Graph(result.after), facts)
-    assert not [f for f in report.findings if f.rule in ("C001", "S007", "S008") and f.severity is Severity.ERROR]
+    assert not [f for f in report.findings if f.rule in ("C001", "S007", "S008") and report.severity(f) is Severity.ERROR]
 
 
 @realizes("arch.guide.infer#AC3")
@@ -56,8 +56,8 @@ def test_import_cycles_are_recorded_and_block_only_a_specified_parent():
     assert inference.cycles == (("app.web.forms", "app.web.views"),)
     web = result.after.components["app.web"]
     assert [d.title for d in web.decisions] == ["Inferred import cycle among forms, views"]
-    s005 = [f for f in check(Graph(result.after), facts).findings if f.rule == "S005"]
-    assert [f.severity for f in s005] == [Severity.INFO]  # a draft has not claimed its solution yet
+    report = check(Graph(result.after), facts)
+    assert [report.severity(f) for f in report.findings if f.rule == "S005"] == [Severity.INFO]  # a draft has not claimed its solution yet
 
 
 @realizes("arch.guide.infer#AC5")

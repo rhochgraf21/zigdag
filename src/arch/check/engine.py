@@ -87,7 +87,6 @@ class Finding:
     hint: Text
     location: Location | SourceLocation | None = None
     station: Station = Station.FORM  # where the defect was made; a rule's findings take the rule's station
-    severity: Severity = Severity.INFO  # set by the engine; see severity_of
     source: Source = Source.RULE
     evidence: Text | None = None  # the words the finding is about, quoted exactly
     found_at: Station | None = None  # where it was noticed, when that is later than where it was made
@@ -148,14 +147,21 @@ class Rule:
     evaluate: Callable[[Context], Iterable[Finding]]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Report:
+    """Findings as they stand against one design. A finding is a fact; how severe it is depends on how far its
+    subject has come, so the report works it out from the graph rather than storing it on the finding."""
+
     findings: tuple[Finding, ...]
+    graph: Graph
     answered: frozenset[FindingIdentity] = frozenset()  # findings with a response; reported but never blocking
+
+    def severity(self, finding: Finding) -> Severity:
+        return severity_of(finding, self.graph)
 
     @property
     def blocking(self) -> tuple[Finding, ...]:
-        return tuple(f for f in self.findings if f.severity.blocks and f.identity not in self.answered)
+        return tuple(f for f in self.findings if self.severity(f).blocks and f.identity not in self.answered)
 
     def is_answered(self, finding: Finding) -> bool:
         return finding.identity in self.answered
@@ -166,14 +172,12 @@ def run(rules: Iterable[Rule], context: Context) -> Report:
     for rule in rules:
         try:
             for f in rule.evaluate(context):
-                placed = replace(f, station=rule.station)  # a rule's findings are made where the rule looks
-                findings.add(replace(placed, severity=severity_of(placed, context.graph)))
+                findings.add(replace(f, station=rule.station))  # a rule's findings are made where the rule looks
         except Exception as e:  # a broken rule must not hide the others' findings
             findings.add(
                 Finding(
                     Subject("arch"), RuleId("E000"), FindingKey(rule.id), Kind.DEFECT,
                     Text(f"rule {rule.id} failed: {type(e).__name__}: {e}"), Text("this is a bug in arch"),
-                    severity=Severity.ERROR,
                 )
             )
-    return Report(tuple(sorted(findings, key=lambda f: (f.subject, f.rule, f.key))))
+    return Report(tuple(sorted(findings, key=lambda f: (f.subject, f.rule, f.key))), context.graph)

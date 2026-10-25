@@ -11,7 +11,8 @@ BASE = {"needs/n.md": NEED, "components/s.md": component(serves="n")}
 
 
 def findings(files):
-    return {(f.rule, f.subject, f.severity) for f in check(graph({**BASE, **files})).findings}
+    report = check(graph({**BASE, **files}))
+    return {(f.rule, f.subject, report.severity(f)) for f in report.findings}
 
 
 COUPLED = {"components/s/a.md": component(uses="b", serves="n"), "components/s/b.md": component(uses="a", serves="n")}

@@ -67,14 +67,15 @@ def _action(f: Finding, report: Report) -> Action | None:
         return None
     guidance = _GUIDANCE.get(f.rule)
     about_statements = f.rule.startswith(_STATEMENT_RULES_PREFIX)
-    if f.severity is Severity.ERROR:
+    severity = report.severity(f)
+    if severity is Severity.ERROR:
         coupling = guidance is not None and guidance[0] is ActionKind.RESOLVE_COUPLING
         kind = ActionKind.RESOLVE_COUPLING if coupling else ActionKind.FIX_BLOCKING
         method = guidance[1] if guidance else (MethodName.WRITE_REQUIREMENTS if about_statements else None)
         op = guidance[2] if guidance else None
     elif guidance is not None:
         kind, method, op = guidance
-    elif f.severity is Severity.WARNING:
+    elif severity is Severity.WARNING:
         kind, method, op = ActionKind.IMPROVE, MethodName.WRITE_REQUIREMENTS if about_statements else None, None
     else:
         return None
