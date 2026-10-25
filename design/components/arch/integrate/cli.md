@@ -3,7 +3,7 @@ kind: component
 realizes: Offer every operation as a shell command for humans, scripts and agents
 solution: Shell commands for every catalog operation, with readable output, JSON output on request, and documented exit codes
 hides: Argument parsing and terminal formatting
-uses: [agent, catalog, change.ops, mcp, model.ids, model.schema, view.report, server, review.items, check.engine, check.ledger]
+uses: [agent, catalog, change.ops, mcp, model.ids, model.schema, view.report, server, review.items, check.engine, check.ledger, check.critique]
 status: specified
 ---
 ## Acceptance criteria

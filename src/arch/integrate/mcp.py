@@ -15,6 +15,7 @@ from mcp.server.mcpserver import MCPServer
 
 from arch.change import ops
 from arch.check.engine import FindingRef, Kind, Source, Station, Subject
+from arch.check.critique import AnswerText
 from arch.check.ledger import Answer
 from arch.integrate import catalog
 from arch.integrate.catalog import (
@@ -116,6 +117,16 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
         return text(catalog.respond(ws(), Answer(answer), Text(reason), [FindingRef(r) for r in refs], Text(by),
                                     Text(countermeasure) if countermeasure else None))
 
+    def critique(scope: str | None = None, mode: str = "list") -> str:
+        """Which design text waits for a critic (mode "list"), the request to hand a critic ("request"), or a
+        request about the rubric's own examples ("calibration"). Give a request to a reviewer that did not write
+        the text and has no other context; record its JSON answer with critique_record."""
+        return text(catalog.critique(ws(), ComponentId(scope) if scope else None, catalog.CritiqueMode(mode)))
+
+    def critique_record(answer: str) -> str:
+        """Record a critic's JSON answer. Only findings that quote the text exactly are kept."""
+        return text(catalog.record_critique(ws(), AnswerText(answer)))
+
     def findings(listing: str = "open") -> str:
         """Findings and their answers: open, ideas, escapes or all."""
         return text(catalog.findings(ws(), catalog.Listing(listing)))
@@ -124,7 +135,8 @@ def _tools(project: Path) -> Mapping[Command, Callable[..., str]]:
             Command.PLAN: plan, Command.NEXT: next_, Command.DIAGRAM: diagram, Command.EDIT: edit, Command.DIFF: diff,
             Command.BASELINE: baseline, Command.REVIEW: review, Command.REVIEW_FEEDBACK: review_feedback,
             Command.REVIEW_NOTE: review_note, Command.REVIEW_RECORD: review_record, Command.INIT: init,
-            Command.RAISE: raise_, Command.RESPOND: respond, Command.FINDINGS: findings}
+            Command.RAISE: raise_, Command.RESPOND: respond, Command.FINDINGS: findings,
+            Command.CRITIQUE: critique, Command.CRITIQUE_RECORD: critique_record}
 
 
 def server(project: Path) -> MCPServer:

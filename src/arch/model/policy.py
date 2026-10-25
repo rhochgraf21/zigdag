@@ -229,12 +229,28 @@ class BudgetRule:
         return BudgetRule(limits)
 
 
+class Critique(enum.Enum):
+    """Whether design text must be judged by an independent critic before its stations count as passed."""
+
+    OPTIONAL = "optional"
+    REQUIRED = "required"
+
+    @staticmethod
+    def parse(raw: RawRule, problems: Problems) -> Critique:
+        required = raw.get("required", True)
+        if not isinstance(required, bool):
+            problems.add(Text("critique.required must be true or false"))
+            return Critique.OPTIONAL
+        return Critique.REQUIRED if required else Critique.OPTIONAL
+
+
 class RuleKind(enum.Enum):
     EFFECTS = "effects"
     DIRECT_EFFECTS = "direct_effects"
     IMPORTS = "imports"
     PORT_TYPES = "port_types"
     BUDGET = "budget"
+    CRITIQUE = "critique"
 
 
 @dataclass(frozen=True)
@@ -246,6 +262,7 @@ class Policy:
     imports: ImportRule | None = None
     port_types: PortTypeRule = PortTypeRule()
     budget: BudgetRule = BudgetRule()
+    critique: Critique = Critique.OPTIONAL
 
     @staticmethod
     def parse(raw: RawRule) -> tuple[Policy, tuple[Text, ...]]:
@@ -261,6 +278,8 @@ class Policy:
             imports=ImportRule.parse(sections[RuleKind.IMPORTS], problems) if RuleKind.IMPORTS.value in raw else None,
             port_types=PortTypeRule.parse(sections[RuleKind.PORT_TYPES], problems),
             budget=BudgetRule.parse(sections[RuleKind.BUDGET], problems),
+            critique=Critique.parse(sections[RuleKind.CRITIQUE], problems)
+            if RuleKind.CRITIQUE.value in raw else Critique.OPTIONAL,
         )
         return policy, tuple(problems.messages)
 
@@ -275,6 +294,7 @@ class Policy:
             imports=ImportRule.combine(imports) if imports else None,
             port_types=PortTypeRule.combine(p.port_types for p in ps),
             budget=BudgetRule.combine(p.budget for p in ps),
+            critique=Critique.REQUIRED if any(p.critique is Critique.REQUIRED for p in ps) else Critique.OPTIONAL,
         )
 
     def describe(self) -> Text:
@@ -305,11 +325,14 @@ class Policy:
             if self.port_types.exempt:
                 lines.append(f"This does not apply in {names(self.port_types.exempt)}.")
         lines += [f"{k} must be at most {v:g}." for k, v in sorted(self.budget.limits.items())]
+        if self.critique is Critique.REQUIRED:
+            lines.append("An independent critic must judge the design text before its stations count as passed.")
         return Text("\n".join(lines) or "No rule here is checked by machine.")
 
     def for_component(self, cid: ComponentId) -> Policy:
         """This policy with exemptions resolved for `cid`."""
-        return Policy(self.effects.for_component(cid), self.direct_effects, self.imports, self.port_types, self.budget)
+        return Policy(self.effects.for_component(cid), self.direct_effects, self.imports, self.port_types, self.budget,
+                      self.critique)
 
     @property
     def restricts_effects(self) -> bool:

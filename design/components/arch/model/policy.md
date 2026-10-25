@@ -11,6 +11,7 @@ status: specified
 - AC2: Combining policies shall only tighten: forbidden effects accumulate and allow-lists intersect.
 - AC3: Each rule kind shall answer its own question (is this effect permitted here, is this package allowed for this component), so checks never interpret raw rule data.
 - AC4: If a rule is unknown or malformed, then the policy shall report a problem instead of failing.
+- AC5: Where a constraint requires critique, the policy shall require it for every component in the constraint's scope.
 
 ## Decisions
 ### Checks ask the policy, not the file

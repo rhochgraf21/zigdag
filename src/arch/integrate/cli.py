@@ -15,6 +15,7 @@ from pathlib import Path
 from arch.change import ops
 from arch.check.engine import FindingRef, Source, Station, Subject
 from arch.check.engine import Kind as FindingKind
+from arch.check.critique import AnswerText
 from arch.check.ledger import Answer
 from arch.integrate import agent, catalog
 from arch.integrate.agent.claude import BadSettings
@@ -95,6 +96,12 @@ def _parser() -> argparse.ArgumentParser:
     rs.add_argument("refs", nargs="+", help="findings, as RULE@SUBJECT#KEY (see `arch findings`)")
     rs.add_argument("--by", required=True, help="who answers")
     rs.add_argument("--countermeasure", help="for an escape: what changed upstream so it is caught where it is made")
+    cq = sub.add_parser("critique", help=summary[Command.CRITIQUE])
+    cq.add_argument("scope", nargs="?", help="only nodes within this component")
+    mode = cq.add_mutually_exclusive_group()
+    mode.add_argument("--request", action="store_true", help="print the request for a critic (JSON)")
+    mode.add_argument("--calibration", action="store_true", help="print a request about the rubric's own examples")
+    mode.add_argument("--record", type=Path, metavar="ANSWER", help="record a critic's answer (JSON file)")
     fl = sub.add_parser("findings", help=summary[Command.FINDINGS])
     which = fl.add_mutually_exclusive_group()
     which.add_argument("--ideas", action="store_true", help="ideas waiting for an answer")
@@ -253,10 +260,19 @@ def _run(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
                                         Station(args.found_at) if args.found_at else None, Text(args.hint)),
         "respond": lambda: catalog.respond(ws, Answer(args.answer), Text(args.reason), [FindingRef(r) for r in args.refs],
                                            Text(args.by), Text(args.countermeasure) if args.countermeasure else None),
+        "critique": lambda: _critique(args, ws),
         "findings": lambda: catalog.findings(ws, catalog.Listing.IDEAS if args.ideas else catalog.Listing.ESCAPES
                                              if args.escapes else catalog.Listing.ALL if args.all else catalog.Listing.OPEN),
     }
     return runners[args.cmd]()
+
+
+def _critique(args: argparse.Namespace, ws: Workspace) -> catalog.Result:
+    if args.record:
+        return catalog.record_critique(ws, AnswerText(ws.read_input(args.record)))
+    mode = catalog.CritiqueMode.REQUEST if args.request else catalog.CritiqueMode.CALIBRATION if args.calibration \
+        else catalog.CritiqueMode.LIST
+    return catalog.critique(ws, ComponentId(args.scope) if args.scope else None, mode)
 
 
 def _review(args: argparse.Namespace, ws: Workspace) -> catalog.Result:

@@ -33,6 +33,9 @@ class AbstractOp(enum.Enum):
     UNLINK = "remove a reference"
     MOVE = "move or rename a component"
     REMOVE = "remove a node"
+    CRITIQUE = "have design text judged by an independent critic"
+    RAISE = "record a defect, a question or an idea"
+    RESPOND = "answer a finding, with a reason"
 
 
 class MethodName(enum.Enum):
@@ -41,6 +44,7 @@ class MethodName(enum.Enum):
     DECOMPOSE = "decompose"
     RESOLVE_COUPLING = "resolve-coupling"
     REVIEW_DESIGN_DIFF = "review-design-diff"
+    CRITIQUE = "critique"
 
 
 @dataclass(frozen=True)

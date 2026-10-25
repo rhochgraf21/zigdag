@@ -7,11 +7,13 @@ or JSON with the same content; nothing here computes results.
 from __future__ import annotations
 
 import enum
+import json
 from dataclasses import dataclass
 
 from arch.change import ApplyResult, Outcome
 from arch.change.diff import DesignDiff
 from arch.check.engine import Finding, Kind, Report, Severity, Source, ref_of
+from arch.check.critique import Agreement, Request
 from arch.check.ledger import Answer, Ledger
 from arch.guide.next import Action
 from arch.guide.plan import Plan
@@ -281,3 +283,76 @@ class PlanReport:
         p = self.plan
         return {"targets": list(p.targets), "impacted": list(p.impacted),
                 "layers": [list(layer) for layer in p.layering.layers], "coupled": [list(c) for c in p.layering.coupled]}
+
+
+@dataclass(frozen=True)
+class CritiqueListing:
+    """The nodes whose text an independent critic has not judged since it last changed."""
+
+    waiting: tuple[Text, ...]
+
+    def to_markdown(self) -> Markdown:
+        if not self.waiting:
+            return Markdown("every node that must be critiqued has been, since it last changed")
+        return Markdown("\n".join([
+            f"{len(self.waiting)} node{'s' * (len(self.waiting) != 1)} wait for an independent critic: "
+            + ", ".join(self.waiting),
+            "next: `arch critique --request > request.json`, hand it to a reviewer that did not write the text "
+            "and has no other context, then `arch critique --record answer.json`"]))
+
+    def to_json(self) -> JsonValue:
+        return {"waiting": list(self.waiting)}
+
+
+@dataclass(frozen=True)
+class CritiqueRequestView:
+    """A critic's request: the rubric and the text to judge. Always JSON, for the critic to read."""
+
+    request: Request
+
+    def to_markdown(self) -> Markdown:
+        return Markdown(self.request.to_json())
+
+    def to_json(self) -> JsonValue:
+        return json.loads(self.request.to_json())
+
+
+@dataclass(frozen=True)
+class CritiqueRecorded:
+    """What arch accepted from a critic's answer, and what it refused and why."""
+
+    critic: Text
+    reviewed: Count
+    recorded: Count
+    repeated: Count  # already noticed and still open
+    refused: tuple[Text, ...]
+
+    def to_markdown(self) -> Markdown:
+        lines = [f"{self.critic} reviewed {self.reviewed}: {self.recorded} findings recorded, "
+                 f"{self.repeated} already open, {len(self.refused)} refused"]
+        lines += [f"  refused: {r}" for r in self.refused]
+        if self.recorded:
+            lines.append("next: `arch findings`, then fix each one or answer it with `arch respond`")
+        return Markdown("\n".join(lines))
+
+    def to_json(self) -> JsonValue:
+        return {"critic": self.critic, "reviewed": self.reviewed, "recorded": self.recorded, "repeated": self.repeated,
+                "refused": list(self.refused)}
+
+
+@dataclass(frozen=True)
+class CalibrationReport:
+    """How often a critic agreed with each question's own examples."""
+
+    critic: Text
+    agreements: tuple[Agreement, ...]
+
+    def to_markdown(self) -> Markdown:
+        right = sum(a.right for a in self.agreements)
+        asked = sum(a.asked for a in self.agreements)
+        lines = [f"{self.critic}: {right} of {asked} examples judged as the rubric expects"]
+        lines += [f"  {a.question}: {a.right} of {a.asked}" for a in self.agreements if a.right < a.asked]
+        return Markdown("\n".join(lines))
+
+    def to_json(self) -> JsonValue:
+        return {"critic": self.critic, "questions": {a.question: {"right": a.right, "asked": a.asked} for a in self.agreements}}

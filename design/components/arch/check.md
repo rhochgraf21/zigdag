@@ -5,7 +5,7 @@ solution: Deterministic rule sets, findings from critics, people and agents, and
 hides: Rule evaluation and finding identity
 serves: [catch-departures, sound-reasoning, trace-purpose, compose-at-scale]
 uses: [model, realize]
-exports: [engine, ledger, promotion]
+exports: [engine, ledger, promotion, critique]
 status: specified
 ---
 ## Acceptance criteria

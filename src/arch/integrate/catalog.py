@@ -19,6 +19,7 @@ from arch.change.diff import diff as design_diff
 from arch.change.ops import Operation as DesignOperation
 from arch.check import Ledger, Report
 from arch.check import check as run_checks
+from arch.check import critique as critic
 from arch.check import promotion
 from arch.check.engine import Finding, FindingKey, FindingRef, Kind, RuleId, Source, Station, Subject, parse_ref, ref_of
 from arch.check.ledger import Answer, EntryName, Noticed, Response, accepting, digest_of, name_for, render_noticed, render_response
@@ -30,7 +31,7 @@ from arch.integrate import workspace
 from arch.integrate.workspace import ProjectEdit, ProjectPath, Revision, Workspace
 
 from arch.model.graph import Graph
-from arch.model.ids import ComponentId, Text
+from arch.model.ids import ComponentId, Text, is_within
 from arch.model.matrix import matrix_of
 from arch.view.context import DEFAULT_BUDGET_TOKENS, ContextTarget, TokenBudget, UnknownTarget
 from arch.view.context import context as make_context
@@ -55,6 +56,10 @@ from arch.view.report import (
     EditReport,
     FindingsReport,
     InfoFindings,
+    CalibrationReport,
+    CritiqueListing,
+    CritiqueRecorded,
+    CritiqueRequestView,
     InitReport,
     LedgerWrite,
     Listing,
@@ -114,6 +119,8 @@ class Command(enum.Enum):
     RAISE = "raise"
     RESPOND = "respond"
     FINDINGS = "findings"
+    CRITIQUE = "critique"
+    CRITIQUE_RECORD = "critique_record"
     INIT = "init"
     NEXT = "next"
     DIAGRAM = "diagram"
@@ -190,10 +197,7 @@ def raise_(ws: Workspace, subject: Subject, kind: Kind, station: Station, messag
     if source is Source.RULE:
         raise LedgerRejected("rules' findings are found again on every run; raise as a critic, a person or an agent")
     g = _graph(ws)
-    taken = {n.name for n in ws.ledger().noticed}
-    base = name_for(f"{subject}-{message[:48]}")
-    name = next(EntryName(f"{base}-{i}" if i else base) for i in range(len(taken) + 1)
-                if (f"{base}-{i}" if i else base) not in taken)
+    name = _unique(name_for(f"{subject}-{message[:48]}"), {n.name for n in ws.ledger().noticed})
     finding = Finding(subject, RuleId(by), FindingKey(name), kind, message, hint, None, station, source=source,
                       evidence=evidence, found_at=found_at)
     noticed = Noticed(finding, name, digest_of(g, subject))
@@ -215,13 +219,70 @@ def respond(ws: Workspace, answer: Answer, reason: Text, refs: Sequence[FindingR
     unknown = [ref_of(i) for i in identities if i not in known]
     if unknown:
         raise LedgerRejected(f"no such finding: {', '.join(unknown)} (see `arch findings`)")
-    taken = {r.name for r in ws.ledger().responses}
-    base = name_for(f"{answer.value}-{identities[0][1]}-{identities[0][2]}")
-    name = next(EntryName(f"{base}-{i}" if i else base) for i in range(len(taken) + 1)
-                if (f"{base}-{i}" if i else base) not in taken)
+    name = _unique(name_for(f"{answer.value}-{identities[0][1]}-{identities[0][2]}"), {r.name for r in ws.ledger().responses})
     response = Response(name, answer, by, reason, identities, countermeasure)
     ws.write_ledger_entry(response.path, render_response(response))
     return Result(LedgerWrite(Text(f"{answer.value} {len(identities)} finding{'s' * (len(identities) != 1)}"), response.path))
+
+
+class CritiqueMode(enum.Enum):
+    LIST = "list"  # which nodes wait for a critic
+    REQUEST = "request"  # the request for a critic, as JSON
+    CALIBRATION = "calibration"  # a request about the rubric's own examples, to measure a critic
+
+
+def critique(ws: Workspace, scope: ComponentId | None = None, mode: CritiqueMode = CritiqueMode.LIST) -> Result:
+    """The design text an independent critic must judge, or the request to hand that critic."""
+    if mode is CritiqueMode.CALIBRATION:
+        return Result(CritiqueRequestView(critic.calibration_request()))
+    g = _graph(ws)
+    _component(g, scope)
+    report = run_checks(g, None, ws.ledger(), ws.config().lexicon())
+    waiting = tuple(f.subject for f in report.findings if f.rule == "Q001" and not report.is_answered(f)
+                    and (scope is None or (f.subject in g and is_within(ComponentId(f.subject), scope))))
+    if mode is CritiqueMode.REQUEST:
+        return Result(CritiqueRequestView(critic.request(g, waiting)))
+    return Result(CritiqueListing(tuple(Text(w) for w in waiting)))
+
+
+def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
+    """Accept what a critic can quote: its findings are stored, and each node it reviewed counts as critiqued
+    until its text changes. A calibration answer is scored instead."""
+    try:
+        parsed = critic.CriticAnswer.parse(answer)
+    except ValueError as e:
+        raise LedgerRejected(str(e)) from None
+    if parsed.purpose is critic.Purpose.CALIBRATION:
+        return Result(CalibrationReport(parsed.critic, critic.score(parsed)))
+    g, ledger = _graph(ws), ws.ledger()
+    verdict = critic.judge(parsed, g)
+    open_ = {(n.finding.subject, n.finding.rule, n.finding.evidence) for n in ledger.noticed
+             if ledger.answer_for(n.finding.identity) is None}
+    taken = {n.name for n in ledger.noticed}
+    recorded = repeated = 0
+    for f in verdict.findings:
+        if (f.subject, f.rule, f.evidence) in open_:
+            repeated += 1
+            continue
+        name = _unique(name_for(f"{f.subject}-{f.rule}"), taken)
+        taken.add(name)
+        noticed = Noticed(replace(f, key=FindingKey(name)), name, digest_of(g, f.subject))
+        ws.write_ledger_entry(noticed.path, render_noticed(noticed))
+        recorded += 1
+    if verdict.reviewed:
+        names = {r.name for r in ledger.responses}
+        stamp = Response(_unique(name_for(f"critiqued-by-{parsed.critic}"), names), Answer.ANSWERED, parsed.critic,
+                         Text(f"Judged by {parsed.critic} with rubric {critic.RUBRIC_VERSION}: "
+                              f"{len(verdict.findings)} findings."),
+                         tuple(critic.wanted(g, s) for s in verdict.reviewed))
+        ws.write_ledger_entry(stamp.path, render_response(stamp))
+    return Result(CritiqueRecorded(parsed.critic, Count(len(verdict.reviewed)), Count(recorded), Count(repeated),
+                                   verdict.refused))
+
+
+def _unique(base: EntryName, taken: set[EntryName]) -> EntryName:
+    return next(EntryName(f"{base}-{i}" if i else base) for i in range(len(taken) + 1)
+                if (f"{base}-{i}" if i else base) not in taken)
 
 
 def findings(ws: Workspace, listing: Listing = Listing.OPEN) -> Result:
@@ -463,9 +524,14 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(Command.FINDINGS, Text("List findings and their answers: open ones, ideas waiting for an answer, escapes "
                                      "without a countermeasure, and how often each source's findings are accepted"),
               Access.READS, findings),
+    Operation(Command.CRITIQUE, Text("Which design text waits for an independent critic, and the request to hand it "
+                                     "(or a calibration request about the rubric's own examples)"), Access.READS, critique),
+    Operation(Command.CRITIQUE_RECORD, Text("Record a critic's answer: findings it can quote are stored, and the nodes it "
+                                            "reviewed count as critiqued until their text changes"),
+              Access.WRITES, record_critique),
 )
 
 __all__ = [o.run.__name__ for o in OPERATIONS] + [
     "Access", "Command", "ContextTarget", "Depth", "MatrixOverlay", "NoProject", "Operation", "Outcome", "Result", "Revision",
-    "ActionLimit", "Audience", "DiagramFormat", "LedgerRejected", "Listing", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
+    "ActionLimit", "Audience", "CritiqueMode", "DiagramFormat", "LedgerRejected", "Listing", "ReviewRejected", "VerdictInput", "Edges", "Overlay", "ProjectEdit", "ProjectPath", "TokenBudget", "UsageError", "Workspace", "new_project", "open_project",
 ]
