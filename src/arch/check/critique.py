@@ -215,11 +215,12 @@ class Request:
     def to_json(self) -> AnswerText:
         kinds = {p.kind for p in self.pieces}
         questions = [q for q in RUBRIC if q.part.node_kind in kinds]
+        blind = self.purpose is Purpose.CALIBRATION  # the examples are what is judged, so they must not be shown
         doc = {
             "rubric": RUBRIC_VERSION, "purpose": self.purpose.value,
             "instructions": list(INSTRUCTIONS),
             "questions": [{"id": q.id, "part": q.part.value, "ask": q.ask, "because": q.because,
-                           "flags": q.flags, "passes": q.passes} for q in questions],
+                           **({} if blind else {"flags": q.flags, "passes": q.passes})} for q in questions],
             "subjects": [{"subject": p.subject, "kind": p.kind.value, "text": p.text, "context": dict(p.context)}
                          for p in self.pieces],
             "answer_format": ANSWER_FORMAT,
@@ -346,6 +347,15 @@ def _refusal(r: Raised, pieces: dict[Subject, Piece]) -> str | None:
     return None
 
 
+def repeats(new: Finding, old: Finding) -> bool:
+    """Whether a critic's finding says again what an earlier one said: the same question about the same subject,
+    with one quote inside the other. A repeat is not recorded, so an answered finding stays answered."""
+    if (new.subject, new.rule) != (old.subject, old.rule) or not new.evidence or not old.evidence:
+        return False
+    a, b = _squash(new.evidence), _squash(old.evidence)
+    return a in b or b in a
+
+
 def _squash(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -376,4 +386,4 @@ def score(answer: CriticAnswer) -> tuple[Agreement, ...]:
 
 
 __all__ = ["RUBRIC", "RUBRIC_VERSION", "RULES", "Agreement", "CriticAnswer", "AnswerText", "Part", "Piece", "Purpose",
-           "Question", "QuestionId", "Request", "Tally", "Verdict", "calibration_request", "judge", "request", "required", "score", "wanted"]
+           "Question", "QuestionId", "Request", "Tally", "Verdict", "calibration_request", "judge", "repeats", "request", "required", "score", "wanted"]

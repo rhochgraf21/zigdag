@@ -64,6 +64,7 @@ def test_only_findings_that_quote_the_text_and_ask_a_rubric_question_are_kept():
 @realizes("arch.check.critique#AC5")
 def test_a_calibration_answer_is_scored_against_the_rubric_examples():
     request = json.loads(critic.calibration_request().to_json())
+    assert not any("flags" in q or "passes" in q for q in request["questions"])  # blind: the examples are the test
     subjects = [s["subject"] for s in request["subjects"]]
     flags = [{"subject": s, "question": s.split(":")[1], "quote": "x", "message": "flagged"}
              for s in subjects if s.endswith(":flags")]
@@ -112,4 +113,12 @@ def test_request_record_and_recritique_from_the_command_line(tmp_path, capsys):
     assert code == 0 and "reviewed 3: 1 findings recorded" in out
     assert "2 nodes wait" in run("critique")[1]  # the need and the constraint
     assert "hides-no-decision@s.a" in run("findings")[1]
-    assert "already open" in run("critique", "--record", str(tmp_path / "answer.json"))[1]  # not stored twice
+    assert "noticed before" in run("critique", "--record", str(tmp_path / "answer.json"))[1]  # not stored twice
+    stamps = sorted((tmp_path / "design/responses").glob("critiqued-by-*.md"))
+    assert len(stamps) == 1  # the second critique of the same nodes replaced the first
+    ref = next(line.split()[2] for line in run("findings")[1].splitlines() if "hides-no-decision" in line)
+    run("respond", "declined", "The secret is named well enough.", ref, "--by", "robert")
+    assert "noticed before" in run("critique", "--record", str(tmp_path / "answer.json"))[1]  # a settled one stays settled
+    run("respond", "fixed", "Named the decision.", ref, "--by", "robert")
+    (tmp_path / "design/responses").joinpath("declined-s-a-s-a-hides-no-decision.md").unlink(missing_ok=True)
+    assert "1 findings recorded" in run("critique", "--record", str(tmp_path / "answer.json"))[1]  # the fix did not hold

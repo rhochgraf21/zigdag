@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Rank the most valuable next design actions within a scope
-solution: A score for each open problem by its severity and its closeness to a need
+solution: A score for each open problem by its severity and its closeness to a need, and the method or operation that addresses it
 hides: The ranking heuristic
 uses: [check.engine, method, model.graph, model.ids, model.schema]
 status: specified

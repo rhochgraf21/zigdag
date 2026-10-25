@@ -71,7 +71,8 @@ from arch.view.report import (
 from arch.review import items as review_items
 from arch.review.assess import ReviewInput
 from arch.review.page import Board, ProjectRoot
-from arch.review.session import Anchor, Category, Decision, Feedback, Record, Verdict, Weight
+from arch.review.feedback import Feedback, Record
+from arch.review.session import Anchor, Category, Decision, Verdict, Weight
 from arch.review.summary import review as make_review
 from arch.view.render import Count
 
@@ -256,12 +257,14 @@ def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
         return Result(CalibrationReport(parsed.critic, critic.score(parsed)))
     g, ledger = _graph(ws), ws.ledger()
     verdict = critic.judge(parsed, g)
-    open_ = {(n.finding.subject, n.finding.rule, n.finding.evidence) for n in ledger.noticed
-             if ledger.answer_for(n.finding.identity) is None}
     taken = {n.name for n in ledger.noticed}
+    # a finding raised again stays with the earlier one while that is open or settled; raised again after it was
+    # answered as fixed, it says the fix did not work, so it is recorded
+    standing = [n.finding for n in ledger.noticed
+                if (r := ledger.answer_for(n.finding.identity)) is None or r.answer is not Answer.FIXED]
     recorded = repeated = 0
     for f in verdict.findings:
-        if (f.subject, f.rule, f.evidence) in open_:
+        if any(critic.repeats(f, old) for old in standing):
             repeated += 1
             continue
         name = _unique(name_for(f"{f.subject}-{f.rule}"), taken)
@@ -270,6 +273,7 @@ def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
         ws.write_ledger_entry(noticed.path, render_noticed(noticed))
         recorded += 1
     if verdict.reviewed:
+        _supersede(ws, ledger, frozenset(verdict.reviewed))
         names = {r.name for r in ledger.responses}
         stamp = Response(_unique(name_for(f"critiqued-by-{parsed.critic}"), names), Answer.ANSWERED, parsed.critic,
                          Text(f"Judged by {parsed.critic} with rubric {critic.RUBRIC_VERSION}: "
@@ -278,6 +282,18 @@ def record_critique(ws: Workspace, answer: critic.AnswerText) -> Result:
         ws.write_ledger_entry(stamp.path, render_response(stamp))
     return Result(CritiqueRecorded(parsed.critic, Count(len(verdict.reviewed)), Count(recorded), Count(repeated),
                                    verdict.refused))
+
+
+def _supersede(ws: Workspace, ledger: Ledger, reviewed: frozenset[Subject]) -> None:
+    """A new critique of a node replaces its earlier one: drop those entries from older critique answers."""
+    for r in ledger.responses:
+        if r.answer is not Answer.ANSWERED or not r.findings or any(rule != "Q001" for rule, _, _ in r.findings):
+            continue
+        kept = tuple(i for i in r.findings if i[1] not in reviewed)
+        if not kept:
+            ws.remove_ledger_entry(r.path)
+        elif kept != r.findings:
+            ws.write_ledger_entry(r.path, render_response(replace(r, findings=kept)))
 
 
 def _unique(base: EntryName, taken: set[EntryName]) -> EntryName:

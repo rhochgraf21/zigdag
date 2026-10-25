@@ -12,7 +12,6 @@ status: specified
 - AC3: The published JSON Schema shall be generated from the types, never written by hand.
 - AC4: Acceptance criteria shall be parsed from `- ACn:` lines in the component body, each with a stable id `<component>#ACn`.
 - AC5: A component's `## Decisions` section shall be parsed into entries (title, text, labels, location), one per `### title`.
-- AC6: Adding a node kind shall require a decision entry on this component.
 
 ## Rationale
 Ids are distinct domain types (ComponentId, NeedId, ConstraintId), so a need can never be

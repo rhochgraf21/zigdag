@@ -2,7 +2,7 @@
 kind: component
 realizes: Represent what is true of the realization in a language-neutral form
 solution: Typed records of what the code contains and does, the snapshot they come from, and the adapter protocol
-hides: Fact representation and comparison
+hides: How facts from many files are merged and ordered
 uses: []
 status: specified
 ---
@@ -16,7 +16,7 @@ status: specified
 - AC7: The fact schema shall depend on no other arch component, so an adapter needs only this module.
 - AC8: Facts shall record every definition, public or private, with its lines and its one-line description.
 - AC9: Facts shall record each call site with the lines that the call spans.
-- AC10: An interface name shall need a description when its name and type do not explain it and it inherits none from a base method.
+- AC10: An interface name shall need a description when a word of its name is missing from the names of its types and it inherits none from a base method.
 
 ## Rationale
 This is arch's most important internal design rule in the Baldwin and Clark sense: adapters and core

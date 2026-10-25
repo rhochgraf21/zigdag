@@ -11,6 +11,6 @@ status: specified
 - AC2: Every result shall be a typed object renderable as Markdown or JSON.
 - AC3: Operation names and input schemas shall be versioned.
 - AC4: Every operation shall take domain types and return a report that renders itself.
-- AC5: Removing or renaming an operation shall count as a breaking change.
+- AC5: When an operation is removed or renamed, the major version of the published operation schema shall change.
 - AC6: Only the surfaces shall parse text into domain types.
 - AC7: Every surface shall let anyone raise a finding and answer any finding, always with a reason.

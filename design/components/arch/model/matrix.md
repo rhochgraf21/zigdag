@@ -2,7 +2,7 @@
 kind: component
 realizes: Derive the design matrix of a component's children, with its coupling class and realization order
 solution: Sibling uses as matrix entries, cycles found as coupled sets, and layers that give the build order
-hides: Matrix construction and ordering algorithms
+hides: How cycles are found and how ties in build order break
 uses: [graph, ids]
 status: specified
 ---

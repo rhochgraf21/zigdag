@@ -1,6 +1,6 @@
 ---
 kind: component
-realizes: Represent what constraints require as typed policies, and combine the policies in force for a component
+realizes: Say what the constraints in force require of each component
 solution: One typed rule per kind of constraint, which parses itself, combines with others and says what it permits
 hides: The rule syntax written in constraint files
 uses: [ids]

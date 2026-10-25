@@ -2,7 +2,7 @@
 kind: component
 realizes: Compute the resulting design and file edits for a batch of operations, rejecting batches that break integrity
 solution: Apply operations to the immutable model in memory, run integrity rules on the result, then compute minimal text edits through the codec
-hides: Transaction mechanics
+hides: How a draft of the design is kept while operations run
 uses: [ops, model.codec, model.graph, model.ids, model.schema, realize.facts, check]
 status: specified
 ---

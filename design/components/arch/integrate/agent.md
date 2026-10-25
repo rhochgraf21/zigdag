@@ -13,7 +13,7 @@ status: specified
 - AC4: Every abstract operation a method names shall have a command spelling, and every spelled command shall exist in the CLI.
 - AC5: A hook run outside an arch project, or one that fails, shall exit quietly so it never breaks the agent.
 - AC6: After an edit, the hook shall report only blocking findings about the edited file or its component, through Claude Code's documented feedback channel (exit 2, stderr).
-- AC7: The generic AGENTS.md section shall work with any agent.
+- AC7: The generic AGENTS.md section shall use only plain Markdown and arch commands, with nothing specific to one agent.
 - AC8: The core skill shall tell agents to describe the interface names they add or change, and not to comment local variables.
 
 ## Rationale

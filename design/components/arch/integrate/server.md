@@ -1,6 +1,6 @@
 ---
 kind: component
-realizes: Serve the review page on this machine, where reviewers give their verdicts
+realizes: Carry each verdict from the review page into the review session
 solution: The standard library's threaded HTTP server bound to 127.0.0.1, accepting verdicts only as JSON from its own page, recording them through the catalog
 hides: HTTP
 uses: [catalog, model.ids, review.page, review.session, view.render]

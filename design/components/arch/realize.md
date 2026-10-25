@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Relate the design to the artifacts that realize it, in both directions
-solution: Language-neutral facts extracted from source snapshots by pluggable adapters, a mapping from artifacts to components, and scaffolding emitted from the design
+solution: Language-neutral facts from source snapshots, test reports and version history, a mapping from artifacts to components, and scaffolding from the design
 hides: Knowledge of particular languages, report formats and version control
 serves: [catch-departures, low-adoption-cost]
 uses: [model]

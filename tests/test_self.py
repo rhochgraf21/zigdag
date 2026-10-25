@@ -6,7 +6,7 @@ from pathlib import Path
 
 from arch import realizes
 from arch.check import check
-from arch.check.engine import Severity
+from arch.check.engine import Kind, Severity
 from arch.guide.plan import plan
 from arch.integrate.cli import main
 from arch.integrate.workspace import find
@@ -20,7 +20,8 @@ GRAPH = Graph(WS.design())
 @realizes("arch#AC5")
 def test_own_design_has_no_open_findings():
     report = check(GRAPH, ledger=WS.ledger())
-    assert [f for f in report.findings if not report.is_answered(f)] == []  # every finding fixed, or answered with a reason
+    # every defect and question is fixed or answered with a reason; ideas may wait for their owner's answer
+    assert [f for f in report.findings if not report.is_answered(f) and f.kind is not Kind.IDEA] == []
 
 
 @realizes("arch#AC2")

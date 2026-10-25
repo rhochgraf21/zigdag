@@ -163,11 +163,34 @@ Delivered where reviewers already are (a generated PR comment), with a local pag
 - **Declared vs. observed coupling**: imports and co-change overlaid on declared uses expose hidden coupling.
 - **`explain`** for any file or line: the component → requirement → need chain, plus the component's secret.
 
+## 7a. Quality built into the process (Jidoka)
+
+arch is autonomation: machines catch defects where they are made, and people improve the process.
+
+- **One finding model.** A finding has a source (rule, critic, person, agent), a kind (defect, question,
+  idea) and the station where it was made (form, needs, requirements, solution, interface, code, evidence,
+  review). Rules find theirs again on every run. Critics, people and agents record theirs in the ledger.
+- **Severity is one rule.** A status claims stations. A rule's defect at a claimed station is an error;
+  anything else there is a warning; the rest is information. Only deterministic rules fail a check alone.
+- **Stop the line.** A status rises only when nothing is open at the stations it newly claims.
+- **Every finding gets an answer** (fixed, accepted, declined, answered), always with a reason, reviewed
+  like any other change. An escape (noticed later than where it was made) must name its countermeasure:
+  the change upstream that catches it next time, as high as possible on the ladder: make it impossible,
+  a lint, a critic question, a method step, human review.
+- **Meaning is judged by an independent critic**, against a rubric kept as data. arch never calls a
+  model; it writes the request and keeps only findings that quote the text. Blind calibration measures the
+  critic against the rubric's own examples.
+- **Anyone may raise ideas**, people and agents alike. An idea must say what it removes or unifies. Every
+  idea is answered, and agents do not raise a declined idea again without new evidence.
+- **Make the right way the easy way.** When the wrong path is cheaper, people and agents take it: `arch
+  split` makes giving a second function its own part as cheap as adding a criterion.
+
 ## 8. Not ceremony
 
 1. **Value before effort**: on an existing repo, five minutes to a dependency map, DSM, hotspots, hidden
    coupling and a draft decomposition, with zero writing.
-2. **Ratchet, don't gate**: baseline existing findings; only new ones block; fixed ones cannot return.
+2. **Ratchet, don't gate**: accept existing findings in one answer; only new ones block; fixed ones cannot
+   return. A critique counts until its node's text changes.
 3. **One node is a valid project**; depth is earned by complexity.
 4. **Same PR, same agent**: design changes ride with the code, authored by the agent, reviewed as a diff.
 5. **The design pays rent daily**: cards, checks and plans make the agent's own work better, so it has a

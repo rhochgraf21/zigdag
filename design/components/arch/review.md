@@ -1,11 +1,11 @@
 ---
 kind: component
-realizes: Let a person review a change one decision at a time, and get their verdicts back to its author
-solution: Review pages built from the design diff and the code diff, with verdicts kept against each page's content
+realizes: Let a person review a change one decision at a time
+solution: Review pages and a pull-request summary built from the design and code diffs, ranked by risk, with verdicts fed back to the author
 hides: How a change is cut into review pages
 serves: [proportional-review, catch-departures, sound-reasoning]
 uses: [model, realize, check, change, view]
-exports: [summary, assess, items, page, session, explain]
+exports: [summary, assess, items, page, session, explain, feedback]
 status: specified
 ---
 ## Acceptance criteria

@@ -217,6 +217,9 @@ class Workspace:
                 files[path] = self._git("show", f"{revision}:{name}")
         return codec.load(files)
 
+    def remove_ledger_entry(self, path: DesignPath) -> None:
+        (self.design_dir / path).unlink(missing_ok=True)
+
     def ledger_at(self, revision: Revision) -> Ledger:
         """The ledger as committed at a git revision, so a review can show what was raised and answered since."""
         rel = self.design_dir.relative_to(self._git_root()).as_posix()

@@ -1,6 +1,6 @@
 ---
 kind: component
-realizes: Lead actors through structured design reasoning and toward the most valuable next work
+realizes: Guide people and agents toward sound design work
 solution: Deterministic advisors for next actions, work plans and drafts from code, plus written methods for design reasoning
 hides: Prioritization heuristics and method content
 serves: [sound-reasoning, low-adoption-cost, compose-at-scale]

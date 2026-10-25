@@ -1,7 +1,7 @@
 ---
 kind: component
 realizes: Show structure visually, in forms that stay stable across revisions
-solution: A diagram model rendered to Mermaid, Graphviz and SVG, with overlays for effects, coupling and change
+solution: A diagram model rendered to Mermaid, Graphviz and SVG, with a deterministic layout shared by before and after
 hides: Diagram construction and target formats
 uses: [render, outline, check.engine, model.graph, model.ids, model.matrix, model.schema, realize.facts, realize.history, realize.mapping, change.diff]
 status: specified

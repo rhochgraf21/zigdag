@@ -9,7 +9,7 @@ status: specified
 ## Acceptance criteria
 - AC1: Public symbols shall be the names in `__all__` if it is defined, else top-level names without a leading underscore.
 - AC2: A function shall have effect E if it calls a known source of E (direct) or a project function with effect E (transitive), computed to a fixed point.
-- AC3: Calls that cannot be resolved statically shall yield effect `unknown`, never be assumed pure.
+- AC3: When a call cannot be resolved, its effects shall be charged where the object it is called on was obtained, and only dynamic code such as eval or exec shall yield `unknown`.
 - AC4: Relative imports shall resolve to absolute module paths.
 - AC5: `@deal.has(...)` and `@deal.pre/post/ensure/inv` on public symbols shall become ContractDecl facts.
 - AC6: Every resolvable call shall become a Call fact naming the callee's dotted name, resolving `self.method()`, imported names, and methods on parameters or locals whose class is known from an annotation or a constructor call.
@@ -17,7 +17,7 @@ status: specified
 - AC8: Names in code shall resolve to their definitions through imports, typed parameters and self.
 - AC9: A member of a private class shall not be part of the interface.
 - AC10: Each use of a local variable shall resolve to the line that set the value it sees.
-- AC11: A module value set to a short literal shall read as a constant, with its value.
+- AC11: A module value set to a literal of at most 40 characters shall read as a constant, with its value.
 
 ## Rationale
 Static inference over-approximates in places and misses dynamic dispatch. Reporting `unknown` keeps

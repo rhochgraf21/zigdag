@@ -20,7 +20,8 @@ from arch.review import items as review_items
 from arch.review.assess import ReviewInput
 from arch.review.items import Glossary, Mechanical, Stage
 from arch.review.page import Board, Editor, ProjectRoot, render
-from arch.review.session import Category, Decision, Feedback, ItemState, Record, Reviewer, Session, Verdict, Weight
+from arch.review.feedback import Feedback, Record
+from arch.review.session import Category, Decision, ItemState, Reviewer, Session, Verdict, Weight
 from tests.conftest import NEED, component
 
 DESIGN = {"needs/n.md": NEED, "components/s.md": component(serves="n"),
@@ -169,7 +170,7 @@ def test_verdicts_go_stale_and_block_downstream():
     assert s.state(page(changed, "intent"), changed) is ItemState.STALE and not s.open_requests(changed)
 
 
-@realizes("arch.review.session#AC3", "arch.review.session#AC4")
+@realizes("arch.review.feedback#AC1", "arch.review.feedback#AC2")
 def test_feedback_lists_blocking_requests_first_and_round_trips():
     items = review_items.build(board_input())
     s = (Session(Text("branch"))

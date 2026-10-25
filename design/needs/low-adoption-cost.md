@@ -1,6 +1,6 @@
 ---
 kind: need
 stakeholder: Team with an existing codebase
-signal: Time to first useful output; ongoing upkeep time compared with time saved
+signal: Time to first useful output; hours spent on design upkeep per month
 ---
-The practice can be adopted on an existing codebase incrementally, and keeping it up costs less than it saves.
+A team with an existing codebase gets useful results early, without stopping its work.

@@ -2,7 +2,7 @@
 kind: component
 realizes: Let a reviewer judge a change with effort proportional to its risk
 solution: A Markdown summary in layers, from intent to code ranked by risk, sized for a pull-request comment
-hides: Layering and risk scoring
+hides: How the summary's layers are chosen and sized
 uses: [change.diff, realize.facts, check.engine, view.diagram, view.render, model.graph, model.ids, model.schema, realize.history, realize.mapping, assess]
 status: specified
 ---

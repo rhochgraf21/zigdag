@@ -324,12 +324,12 @@ class CritiqueRecorded:
     critic: Text
     reviewed: Count
     recorded: Count
-    repeated: Count  # already noticed and still open
+    repeated: Count  # noticed before: open, or settled by an answer
     refused: tuple[Text, ...]
 
     def to_markdown(self) -> Markdown:
         lines = [f"{self.critic} reviewed {self.reviewed}: {self.recorded} findings recorded, "
-                 f"{self.repeated} already open, {len(self.refused)} refused"]
+                 f"{self.repeated} noticed before, {len(self.refused)} refused"]
         lines += [f"  refused: {r}" for r in self.refused]
         if self.recorded:
             lines.append("next: `arch findings`, then fix each one or answer it with `arch respond`")

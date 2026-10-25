@@ -1,14 +1,13 @@
 ---
 kind: component
 realizes: Keep an explicit, checked model of a system's intent and structure for people and agents
-solution: A local, deterministic toolchain that reads plain-text design files kept in the repository
-hides: How design knowledge is stored, related to code, and verified
+solution: "A local, deterministic toolchain over plain-text design files in the repository: it checks the code against them, changes and presents them, and guides the work"
 serves: [understand-system, right-context, catch-departures, proportional-review, trace-purpose, sound-reasoning, low-adoption-cost, compose-at-scale, durable-knowledge]
 uses: []
 status: specified
 ---
 ## Acceptance criteria
-- AC1: When pointed at a repository that has no design, arch shall produce useful output (dependency map, design structure matrix, hotspots, draft decomposition) without any authored input.
+- AC1: When pointed at a repository that has no design, arch shall produce a dependency map, a design structure matrix, hotspots and a draft decomposition without any authored input.
 - AC2: When a change departs from the design, arch shall report the component, the rule and the source location, and shall signal failure.
 - AC3: For any component or source location, arch shall produce a context card within a configurable size budget (default ~4k tokens).
 - AC4: arch shall never require network access, an account, or a particular coding agent.
