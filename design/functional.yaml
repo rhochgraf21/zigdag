@@ -17,9 +17,33 @@ frs:
     statements:
       read: The names shall read each kind of name that the record uses.
 
+  zigdag.core.vocabulary.names.code_name:
+    statements:
+      hold: The code name shall name code by the adapter of the code and the path of the code.
+
+  zigdag.core.vocabulary.names.outcome_ref:
+    statements:
+      hold: The outcome ref shall name an outcome by the job of the outcome and the name of the outcome.
+
   zigdag.core.vocabulary.findings:
     statements:
       carry: The findings shall give each result the rule, the subject and the place that produced the result.
+
+  zigdag.core.vocabulary.findings.finding:
+    statements:
+      hold: The finding shall give the result, the rule, the subject and the place of one thing that a check found.
+
+  zigdag.core.vocabulary.findings.report:
+    statements:
+      hold: The report shall list the findings of a run in order.
+
+  zigdag.core.vocabulary.findings.result:
+    statements:
+      hold: The result shall name whether a check found a break, a question or a thing to do.
+
+  zigdag.core.vocabulary.findings.span:
+    statements:
+      hold: The span shall locate a value in a file by the line and the column of the value.
 
   zigdag.core.vocabulary.effects:
     statements:
@@ -29,14 +53,58 @@ frs:
     statements:
       define: The kinds shall define each check kind with the parameters and the sentence of the check kind.
 
+  zigdag.core.vocabulary.kinds.param_problem:
+    statements:
+      hold: The param problem shall describe a rule parameter that does not fit the schema of the parameter.
+
+  zigdag.core.vocabulary.kinds.param_type:
+    statements:
+      hold: The param type shall name the kind of value that a rule parameter takes.
+
+  zigdag.core.vocabulary.kinds.check_kind:
+    statements:
+      hold: The check kind shall define the parameters, the reads, the exactness and the sentence of a check.
+
+  zigdag.core.vocabulary.kinds.exactness:
+    statements:
+      hold: The exactness shall name whether a failing check breaks or asks a question.
+
+  zigdag.core.vocabulary.kinds.part:
+    statements:
+      hold: The part shall name a part of the code model that a check reads.
+
   zigdag.core.vocabulary.codec:
     statements:
       round-trip: The codec shall write each value that one process hands another as text that reads back to the same value.
+
+  zigdag.core.vocabulary.codec.unreadable_text:
+    statements:
+      hold: The unreadable text shall give the reason that the codec refused a text.
 
   zigdag.core.language:
     statements:
       parse: The language shall parse each sentence against the grammar for the sentence.
       never-raise: When given any text, the language shall return a result without raising an exception.
+
+  zigdag.core.language.lexicon_name:
+    statements:
+      hold: The lexicon name shall name a lexicon that a project can tune.
+
+  zigdag.core.language.lexicons:
+    statements:
+      hold: The lexicons shall hold the words that the grammar and the quality checks use.
+
+  zigdag.core.language.ears:
+    statements:
+      hold: The ears shall hold the parts of one parsed EARS statement.
+
+  zigdag.core.language.problem:
+    statements:
+      hold: The problem shall describe something wrong with a sentence.
+
+  zigdag.core.language.token:
+    statements:
+      hold: The token shall hold one word of a sentence with the position of the word.
 
   zigdag.core.record:
     statements:
@@ -46,9 +114,101 @@ frs:
       stable: When formatting a formatted design file, the record shall return the same text.
       digest: When an entry changes, the record shall give the entry a new digest.
 
+  zigdag.core.record.contents:
+    statements:
+      hold: The contents shall hold what the design files say.
+
+  zigdag.core.record.contents.record:
+    statements:
+      hold: The record shall hold everything that the design files say.
+
+  zigdag.core.record.contents.job:
+    statements:
+      hold: The job shall hold one job with the performer and the outcomes of the job.
+
+  zigdag.core.record.contents.outcome:
+    statements:
+      hold: The outcome shall hold one outcome with the statement of the outcome.
+
+  zigdag.core.record.contents.fr:
+    statements:
+      hold: The fr shall hold one FR with the statements of the FR and the outcomes that the FR serves.
+
+  zigdag.core.record.contents.at:
+    statements:
+      hold: The at shall locate a value of the record where the value is written.
+
+  zigdag.core.record.contents.domain:
+    statements:
+      hold: The domain shall name the domain that a design file belongs to.
+
+  zigdag.core.record.contents.placement:
+    statements:
+      hold: The placement shall map a design parameter to the units of the code of the design parameter.
+
+  zigdag.core.record.contents.yaml_entry:
+    statements:
+      hold: The yaml entry shall hold one key of a design file with the value and the reason of the key.
+
+  zigdag.core.record.rules:
+    statements:
+      hold: The rules shall hold the constraints, the process variables and the tunings of the record.
+
+  zigdag.core.record.rules.constraint:
+    statements:
+      hold: The constraint shall hold one constraint with the FR, the outcomes and the enforcement of the constraint.
+
+  zigdag.core.record.rules.process_variable:
+    statements:
+      hold: The process variable shall hold one process variable with the design parameter and the outcomes of the variable.
+
+  zigdag.core.record.rules.check_use:
+    statements:
+      hold: The check use shall name the check kind that a rule uses, with the parameters and the exceptions of the rule.
+
+  zigdag.core.record.rules.excepted:
+    statements:
+      hold: The excepted shall name the code that a rule skips, with the reason.
+
+  zigdag.core.record.rules.tuning:
+    statements:
+      hold: The tuning shall hold what an entry changes about a built-in rule.
+
+  zigdag.core.record.rules.gate:
+    statements:
+      hold: The gate shall name a gate that each change passes before the change is accepted.
+
+  zigdag.core.record.rules.evidence_kind:
+    statements:
+      hold: The evidence kind shall name the kind of evidence that a statement needs.
+
+  zigdag.core.record.entries:
+    statements:
+      hold: The entries shall give each entry of the record a name and a digest.
+
+  zigdag.core.record.entries.entry:
+    statements:
+      hold: The entry shall give one entry of the record a name, a domain and a digest.
+
+  zigdag.core.record.entries.entry_kind:
+    statements:
+      hold: The entry kind shall name what kind of entry an entry is.
+
   zigdag.core.settings:
     statements:
       read: The settings shall read zigdag.toml into settings.
+
+  zigdag.core.settings.custom_check:
+    statements:
+      hold: The custom check shall define a check kind that a project registers.
+
+  zigdag.core.settings.custom_effect:
+    statements:
+      hold: The custom effect shall name the calls that perform an effect that a project registers.
+
+  zigdag.core.settings.settings:
+    statements:
+      hold: The settings shall hold how zigdag runs on a project.
 
   zigdag.core.workflow:
     statements:
@@ -60,15 +220,51 @@ frs:
       answered-once: When a question was answered for the current content, the log shall leave the question out of the findings.
       edited-lines: If a raised line no longer matches the id of the line, then the log shall report a break.
 
+  zigdag.core.workflow.log.answer:
+    statements:
+      hold: The answer shall name how a thread or a question was answered.
+
+  zigdag.core.workflow.log.approval:
+    statements:
+      hold: The approval shall record that someone approved an entry at the current content of the entry.
+
+  zigdag.core.workflow.log.critique_event:
+    statements:
+      hold: The critique event shall record that a critic answered the rubric about an entry.
+
+  zigdag.core.workflow.log.kind:
+    statements:
+      hold: The kind shall name whether a raised thread is a defect, a question or an idea.
+
+  zigdag.core.workflow.log.log:
+    statements:
+      hold: The log shall keep the events that people and agents added, in time order.
+
+  zigdag.core.workflow.log.thread:
+    statements:
+      hold: The thread shall hold a raised finding with the answers to the finding.
+
   zigdag.core.workflow.review:
     statements:
       show: The review shall show what a change does to the record, domain by domain.
       renames: When an entry leaves one name and returns unchanged under another, the review shall show a rename.
 
+  zigdag.core.workflow.review.change:
+    statements:
+      hold: The change shall record what a change did to one entry of the record.
+
+  zigdag.core.workflow.review.change_kind:
+    statements:
+      hold: The change kind shall name whether an entry was added, changed, removed or renamed.
+
   zigdag.core.workflow.critique:
     statements:
       ask: The critique shall ask a fresh critic the rubric questions about each chosen entry.
       quotes: If a critic's evidence is not words from the entry, then the critique shall refuse the finding.
+
+  zigdag.core.workflow.critique.judgement:
+    statements:
+      hold: The judgement shall hold the findings that a critic raised about one entry.
 
   zigdag.core.workflow.rename:
     statements:
@@ -79,6 +275,202 @@ frs:
     statements:
       hold: The code shall hold what an adapter read from the code of a project, in terms of no language.
 
+  zigdag.core.code.model:
+    statements:
+      hold: The model shall hold the code model with the units and the libraries of the code model.
+
+  zigdag.core.code.model.code_model:
+    statements:
+      hold: The code model shall hold what an adapter read from the code of a project.
+
+  zigdag.core.code.model.unit:
+    statements:
+      hold: The unit shall hold one module, package or table of the project.
+
+  zigdag.core.code.model.unit_kind:
+    statements:
+      hold: The unit kind shall name whether a unit is a module, a package or a table.
+
+  zigdag.core.code.model.libraries:
+    statements:
+      hold: The libraries shall list the packages that the project declares or vendors, with the standard library.
+
+  zigdag.core.code.model.place:
+    statements:
+      hold: The place shall locate the symbol of a unit, or the top-level code of a unit, where code runs.
+
+  zigdag.core.code.symbols:
+    statements:
+      hold: The symbols shall describe the names that the code defines.
+
+  zigdag.core.code.symbols.symbol:
+    statements:
+      hold: The symbol shall describe one name that a unit defines.
+
+  zigdag.core.code.symbols.symbol_kind:
+    statements:
+      hold: The symbol kind shall name whether a symbol is a function, a class, a method, a named type or a constant.
+
+  zigdag.core.code.symbols.signature:
+    statements:
+      hold: The signature shall list the parameters and the return type of an operation.
+
+  zigdag.core.code.symbols.param:
+    statements:
+      hold: The param shall describe one parameter of an operation with how the body uses the parameter.
+
+  zigdag.core.code.symbols.field:
+    statements:
+      hold: The field shall describe one field of a class.
+
+  zigdag.core.code.symbols.type_expr:
+    statements:
+      hold: The type expr shall describe a type as the code writes the type.
+
+  zigdag.core.code.symbols.type_kind:
+    statements:
+      hold: The type kind shall name the kind of type that a type expr is.
+
+  zigdag.core.code.symbols.abstraction:
+    statements:
+      hold: The abstraction shall name whether a class is a protocol or an abstract base class.
+
+  zigdag.core.code.uses:
+    statements:
+      hold: The uses shall record how code reaches other code, effects and data.
+
+  zigdag.core.code.uses.dependency:
+    statements:
+      hold: The dependency shall record that a place depends on a name.
+
+  zigdag.core.code.uses.dependency_kind:
+    statements:
+      hold: The dependency kind shall name whether a dependency is an import or a reference.
+
+  zigdag.core.code.uses.call:
+    statements:
+      hold: The call shall record that a place calls a name.
+
+  zigdag.core.code.uses.effect_start:
+    statements:
+      hold: The effect start shall record that a place starts an effect through an API.
+
+  zigdag.core.code.uses.type_of:
+    statements:
+      hold: The type of shall describe what one file says about the type of a value.
+
+  zigdag.core.code.uses.access:
+    statements:
+      hold: The access shall record that a place reads or changes a field of a value.
+
+  zigdag.core.code.uses.access_kind:
+    statements:
+      hold: The access kind shall name whether an access creates, reads, updates or deletes.
+
+  zigdag.core.code.uses.raise:
+    statements:
+      hold: The raise shall record that a place raises an error.
+
+  zigdag.core.code.uses.unknown:
+    statements:
+      hold: The unknown shall locate code whose behaviour the adapter cannot read.
+
+  zigdag.core.code.values:
+    statements:
+      hold: The values shall record where values come from and where values go.
+
+  zigdag.core.code.values.use:
+    statements:
+      hold: The use shall record a value that code gives to a release point or an effect.
+
+  zigdag.core.code.values.use_kind:
+    statements:
+      hold: The use kind shall name whether a use releases a value or gives the value to an effect.
+
+  zigdag.core.code.values.planned_use:
+    statements:
+      hold: The planned use shall record a value that comes from a plan unless the function of the value is pure.
+
+  zigdag.core.code.values.value_source:
+    statements:
+      hold: The value source shall record where a value inside a function comes from.
+
+  zigdag.core.code.values.source:
+    statements:
+      hold: The source shall name the kind of place that a value comes from.
+
+  zigdag.core.code.values.need:
+    statements:
+      hold: The need shall name whether a value is given to a call or branched on.
+
+  zigdag.core.code.values.computation:
+    statements:
+      hold: The computation shall locate a comparison, arithmetic or logic that a function works out.
+
+  zigdag.core.code.tests:
+    statements:
+      hold: The tests shall describe the tests of a project with what the tests did.
+
+  zigdag.core.code.tests.test:
+    statements:
+      hold: The test shall describe one test with the statements that the test verifies.
+
+  zigdag.core.code.tests.link:
+    statements:
+      hold: The link shall name the statement that a test verifies.
+
+  zigdag.core.code.tests.outcome:
+    statements:
+      hold: The outcome shall name whether a test passed, failed, errored or was skipped.
+
+  zigdag.core.code.tests.run:
+    statements:
+      hold: The run shall record one test with the units whose code ran.
+
+  zigdag.core.code.tests.observations:
+    statements:
+      hold: The observations shall hold what the watcher saw while the tests ran.
+
+  zigdag.core.code.tests.crossing:
+    statements:
+      hold: The crossing shall record a value that crossed into an operation from another design parameter.
+
+  zigdag.core.code.tests.escape:
+    statements:
+      hold: The escape shall record an error that left an operation for another design parameter.
+
+  zigdag.core.code.tests.leak:
+    statements:
+      hold: The leak shall record the text of a protected value that code wrote to an effect.
+
+  zigdag.core.code.generated_tests:
+    statements:
+      hold: The generated tests shall record the tests that zigdag generates with what each test found.
+
+  zigdag.core.code.generated_tests.replay:
+    statements:
+      hold: The replay shall record a call that the watcher made again with a copy of the arguments of the call.
+
+  zigdag.core.code.generated_tests.verdict:
+    statements:
+      hold: The verdict shall name whether a replayed call gave the same result.
+
+  zigdag.core.code.generated_tests.cases:
+    statements:
+      hold: The cases shall record how the generated cases of a contract went.
+
+  zigdag.core.code.generated_tests.mutant:
+    statements:
+      hold: The mutant shall record one change to a pure function with what noticed the change.
+
+  zigdag.core.code.generated_tests.mutant_fate:
+    statements:
+      hold: The mutant fate shall name whether anything noticed a mutant.
+
+  zigdag.core.code.generated_tests.witness:
+    statements:
+      hold: The witness shall give an input that a function and a mutant of the function behave differently on.
+
   zigdag.core.analysis:
     statements:
       check: The analysis shall check the record against the code model.
@@ -87,17 +479,77 @@ frs:
     statements:
       own: The resolve shall give every unit of code exactly one design parameter.
 
+  zigdag.core.analysis.resolve.dp:
+    statements:
+      hold: The dp shall hold a design parameter with the parent, the children, the code and the level of the design parameter.
+
+  zigdag.core.analysis.resolve.tree:
+    statements:
+      hold: The tree shall map every unit of code to the design parameter that owns the unit.
+
   zigdag.core.analysis.relate:
     statements:
       reach: The relate shall work out the effects that each place in the code reaches through calls.
+
+  zigdag.core.analysis.relate.edge:
+    statements:
+      hold: The edge shall link a place in one design parameter to the code in another design parameter that the place depends on.
+
+  zigdag.core.analysis.relate.origin:
+    statements:
+      hold: The origin shall locate where an effect starts with the API that the effect starts with.
+
+  zigdag.core.analysis.relate.relations:
+    statements:
+      hold: The relations shall hold the edges, the design matrices and the effects that each place reaches.
+
+  zigdag.core.analysis.relate.target:
+    statements:
+      hold: The target shall classify a name as project code, vendored code, the standard library or a third party.
 
   zigdag.core.analysis.watch:
     statements:
       plan: The watch shall plan what a test watcher watches in the code of a project.
 
+  zigdag.core.analysis.watch.guarded_structure:
+    statements:
+      hold: The guarded structure shall name a recorded structure with the one component that changes the structure.
+
+  zigdag.core.analysis.watch.mutation_target:
+    statements:
+      hold: The mutation target shall name a pure function with a contract and the bound of the search for the mutants of the function.
+
+  zigdag.core.analysis.watch.watch_plan:
+    statements:
+      hold: The watch plan shall tell a watcher what to watch while the tests run.
+
   zigdag.core.analysis.data:
     statements:
       work-out: The data shall work out each recorded structure with the structures that the structure contains and refers to.
+
+  zigdag.core.analysis.data.cardinality:
+    statements:
+      hold: The cardinality shall name how many structures a field holds.
+
+  zigdag.core.analysis.data.data_access:
+    statements:
+      hold: The data access shall record the code of a design parameter that creates, reads or changes a structure.
+
+  zigdag.core.analysis.data.data_model:
+    statements:
+      hold: The data model shall hold every recorded structure with the structures that the structure contains and refers to.
+
+  zigdag.core.analysis.data.relation:
+    statements:
+      hold: The relation shall link a field of one structure to the structure that the field contains or refers to.
+
+  zigdag.core.analysis.data.structure:
+    statements:
+      hold: The structure shall hold one recorded structure with the representations of the structure.
+
+  zigdag.core.analysis.data.value_use:
+    statements:
+      hold: The value use shall record a value that code gives to a release point or an effect.
 
   zigdag.core.analysis.checks:
     statements:
@@ -115,6 +567,22 @@ frs:
       unmutated: If code is marked to be left unmutated outside the except of the rule, then the checks shall report a break.
       planned: If a function that is not declared pure works out a value or uses a value that no pure function decided, then the checks shall report a break.
       contracted: If a function that is declared pure and that an interface offers has no contract, then the checks shall report a break.
+
+  zigdag.core.analysis.checks.context:
+    statements:
+      hold: The context shall give every check the record, the code and what zigdag worked out.
+
+  zigdag.core.analysis.checks.rule_use:
+    statements:
+      hold: The rule use shall hold one rule in force with the parameters, the FR and the skipped code of the rule.
+
+  zigdag.core.analysis.checks.analysis:
+    statements:
+      hold: The analysis shall hold everything that one run of zigdag worked out about a project.
+
+  zigdag.core.analysis.checks.project_files:
+    statements:
+      hold: The project files shall hold the text of the settings, the record and the log of a project.
 
   zigdag.core.views:
     statements:
@@ -134,6 +602,18 @@ frs:
     statements:
       read: The python shall read the Python source of a project into the code model, with the tests and the test reports of the project.
 
+  zigdag.adapters.python.python_files:
+    statements:
+      hold: The python files shall hold the text that the shell read for the Python adapter.
+
+  zigdag.adapters.python.watched_test:
+    statements:
+      hold: The watched test shall record one test with the units whose code ran while the test ran.
+
+  zigdag.adapters.python.recording:
+    statements:
+      hold: The recording shall hold everything that one watched run of the tests saw.
+
   zigdag.watchers:
     serves:
       - review-change.hollow-evidence
@@ -148,6 +628,10 @@ frs:
       same-seed: When the watcher generates inputs, the python shall use the same seed in every run.
       mutate: When a function that is declared without effects has a contract, the python shall run the cases of the contract against each mutant of the body of the function.
       search: When nothing notices a mutant, the python shall search within a bound for an input that the mutant and the function behave differently on.
+
+  zigdag.watchers.python.search_verdict:
+    statements:
+      hold: The search verdict shall name what the search for a differing input found.
 
   zigdag.agents:
     serves: [change-safely.late-feedback, change-safely.context-time]
@@ -164,6 +648,30 @@ frs:
   zigdag.cli.plans:
     statements:
       decide: The plans shall decide what each command does with what the cli read.
+
+  zigdag.cli.plans.git_listing:
+    statements:
+      hold: The git listing shall give the paths that git listed at a revision, or the reason that git failed.
+
+  zigdag.cli.plans.disk_layout:
+    statements:
+      hold: The disk layout shall locate what decides how a project on disk is read.
+
+  zigdag.cli.plans.outcome:
+    statements:
+      hold: The outcome shall hold what a command writes, logs, prints and exits with.
+
+  zigdag.cli.plans.reading:
+    statements:
+      hold: The reading shall decide which files of a project the cli reads.
+
+  zigdag.cli.plans.watched_run:
+    statements:
+      hold: The watched run shall hold how the tests run under the watcher.
+
+  zigdag.cli.plans.write:
+    statements:
+      hold: The write shall hold one file with the text to write to the file.
 
 constraints:
   pure-core:  # the same text must always give the same findings
@@ -238,4 +746,4 @@ constraints:
       - python.search._crosshair
 
   edge-types:
-    off: true  # zigdag's own data is not designed yet: see the defect raised on edge-types in the log
+    off: true  # being switched on: zigdag's structures are recorded, its plain types are being named

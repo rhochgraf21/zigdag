@@ -205,7 +205,7 @@ def work_out(model: CodeModel, tree: Tree, relations: Relations) -> DataModel:
         if symbol.kind is SymbolKind.CLASS:
             key = next((f for f in symbol.fields if f.key), None)
             named = key.type.named if key is not None and key.type is not None else None
-            if named is not None:
+            if named is not None and named in model.symbols:  # only a project-defined type tells references apart
                 identities.setdefault(named, symbol.qualified)
 
     found_relations: list[Relation] = []

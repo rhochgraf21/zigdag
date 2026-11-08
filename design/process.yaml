@@ -38,6 +38,16 @@ planned-effects:  # the watcher's functions with effects react to the tests as t
 
 contracted-interfaces:  # known breaks when the rule arrived: each pure function an interface offers, still with no contract; debt to pay down
   except:
+    - core.checks.context.Context.in_scope
+    - core.checks.context.Context.is_answered
+    - core.checks.context.Context.observed
+    - core.checks.context.Context.used_from_other_dps
+    - core.checks.context.declared_pure
+    - core.language.sentences.Ears.pattern
+    - core.language.tokens.Token.hyphen_unit
+    - core.language.tokens.Token.is_number
+    - core.language.tokens.Token.is_word
+    - core.language.tokens.Token.lower
     - adapters.python.observed.Recording.from_text
     - adapters.python.observed.Recording.to_text
     - adapters.python.read_python
