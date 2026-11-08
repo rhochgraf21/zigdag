@@ -7,6 +7,7 @@ import collections.abc as abc
 import dataclasses
 import enum
 import hashlib
+import pathlib
 import types
 import typing
 
@@ -91,8 +92,13 @@ def fingerprint(value: object) -> str | None:
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16] if _walk(value, parts, DEPTH, set()) else None
 
 
+# Values judged by what they say, not by their fields: a path keeps lazily filled caches, so two equal paths can
+# have different fields.
+_SCALARS = (bool, int, float, complex, str, bytes, enum.Enum, pathlib.PurePath)
+
+
 def _walk(value: object, out: list[str], depth: int, seen: set[int]) -> bool:
-    if value is None or isinstance(value, bool | int | float | complex | str | bytes | enum.Enum):
+    if value is None or isinstance(value, _SCALARS):
         out.append(f"{type_name(value)}:{value!r}")
         return True
     if depth == 0 or id(value) in seen:

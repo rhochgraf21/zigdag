@@ -1,4 +1,5 @@
-"""The shell: the command line. It reads the project, runs the pure core, and writes or prints what it found."""
+"""The shell: the command line. It reads the project, has the pure core and plans.py decide, and carries out what they
+decided: writes, prints and exits."""
 
 from __future__ import annotations
 
@@ -8,28 +9,28 @@ from pathlib import Path
 
 from zigdag.agents.claude import POST_EDIT, PRODUCT, SESSION_START
 from zigdag.cli import commands as c
-from zigdag.cli.files import code_model, from_disk, project_files
+from zigdag.cli import plans
+from zigdag.cli.files import from_disk
 from zigdag.core import log as lg
 from zigdag.core.checks.run import ProjectFiles
 from zigdag.core.code import CodeModel
 
 PROGRAM = "zigdag"
-TEST = "test"
 
 
 def read_project(root: Path) -> ProjectFiles:
     """The project's record, settings and log, as zigdag reads them."""
-    return project_files(from_disk(root))
+    return plans.project_files(from_disk(root))
 
 
 def read_code(root: Path) -> CodeModel | None:
     """The project's code model, or None when there is no code to read."""
-    return code_model(from_disk(root))
+    return plans.code_model(from_disk(root))
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=PROGRAM, description="Zigzag from needs to code, and keep it a DAG.")
-    parser.add_argument("--project", type=Path, default=Path.cwd(), help="the project's root (default: here)")
+    parser.add_argument("--project", type=Path, help="the project's root (default: here)")
     commands = parser.add_subparsers(dest="command", required=True)
 
     check = commands.add_parser("check", help="check the record and the code")
@@ -92,43 +93,45 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args, passed_on = parser.parse_known_args(argv)
-    if passed_on and args.command != TEST:
-        parser.error(f"unrecognized arguments: {' '.join(passed_on)}")
-    project = c.Project(args.project.resolve())
-    match args.command:
-        case "check":
-            return c.check(project, args.json, args.base)
-        case "test":
-            return c.test(project, passed_on)
-        case "fmt":
-            return c.fmt(project, args.check)
-        case "raise":
-            return c.raise_(project, args.kind, args.on, args.say, args.by, args.evidence)
-        case "answer":
-            return c.answer(project, args.ref, args.answer, args.say, args.by, args.countermeasure)
-        case "findings":
+    route = plans.route(args, passed_on, Path.cwd())
+    if route.rejected:
+        parser.error(route.rejection)
+    project = c.Project(route.root)
+    a = route.args
+    match route.command:
+        case plans.Command.CHECK:
+            return c.check(project, a.json, a.base)
+        case plans.Command.TEST:
+            return c.test(project, list(route.passed_on))
+        case plans.Command.FMT:
+            return c.fmt(project, a.check)
+        case plans.Command.RAISE:
+            return c.raise_(project, a.kind, a.on, a.say, a.by, a.evidence)
+        case plans.Command.ANSWER:
+            return c.answer(project, a.ref, a.answer, a.say, a.by, a.countermeasure)
+        case plans.Command.FINDINGS:
             return c.findings(project)
-        case "show" if args.data:
-            return c.view(project, c.DATA_VIEW, args.name)
-        case "show" | "context" | "next":
-            return c.view(project, args.command, getattr(args, "name", None) or getattr(args, "target", None))
-        case "init":
-            return c.init_project(project, args.force)
-        case "review":
-            return c.review(project, args.base)
-        case "approve":
-            return c.approve(project, args.names, args.base, args.by)
-        case "critique" if args.request:
-            return c.critique_request(project, args.names, args.base)
-        case "critique":
-            return c.critique_record(project, args.record, args.by) if args.by else c.refuse("--record needs --by")
-        case "rename":
-            return c.rename_fr(project, args.old, args.new)
-        case "agent":
-            return c.agent_install(project, args.product, args.hook_command)
-        case "hook":
-            return c.hook(project, args.event, sys.stdin.read() if args.event == POST_EDIT else "")
-    return c.refuse(f"unknown command {args.command!r}")
+        case plans.Command.VIEW:
+            return c.view(project, route.view, route.target)
+        case plans.Command.INIT:
+            return c.init_project(project, a.force)
+        case plans.Command.REVIEW:
+            return c.review(project, a.base)
+        case plans.Command.APPROVE:
+            return c.approve(project, a.names, a.base, a.by)
+        case plans.Command.CRITIQUE_REQUEST:
+            return c.critique_request(project, a.names, a.base)
+        case plans.Command.CRITIQUE_RECORD:
+            return c.critique_record(project, a.record, a.by)
+        case plans.Command.RENAME:
+            return c.rename_fr(project, a.old, a.new)
+        case plans.Command.AGENT:
+            return c.agent_install(project, a.product, a.hook_command)
+        case plans.Command.HOOK_EDIT:
+            return c.edit_hook(project)
+        case plans.Command.HOOK_SESSION:
+            return c.session_hook(project)
+    return c.perform(project, route.refusal)
 
 
 if __name__ == "__main__":

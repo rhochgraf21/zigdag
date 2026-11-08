@@ -113,6 +113,7 @@ frs:
       single-implementation: If an abstraction has exactly one implementation, then the checks shall ask about the abstraction.
       weak-contracts: If every case of a contract holds for a changed function, then the checks shall ask about the change.
       unmutated: If code is marked to be left unmutated outside the except of the rule, then the checks shall report a break.
+      planned: If a function that is not declared pure works out a value or uses a value that no pure function decided, then the checks shall report a break.
 
   zigdag.core.views:
     statements:
@@ -159,6 +160,10 @@ frs:
       run: The cli shall run a command on the project that the user names.
       test: When asked to test, the cli shall run the tests of the project with the watcher before the cli checks the project.
 
+  zigdag.cli.plans:
+    statements:
+      decide: The plans shall decide what each command does with what the cli read.
+
 constraints:
   pure-core:  # the same text must always give the same findings
     on: zigdag.core
@@ -195,45 +200,12 @@ constraints:
     with:
       allow: [read, write, stdin, stdout, stderr, syscall, time, env, import]
 
-  cli-decides-purely:  # the cli decides in pure code; only these functions have effects, and they carry its decisions out
-    on: zigdag.cli
+  pure-cli-plans:  # the cli decides in its plans, and only carries them out elsewhere
+    on: zigdag.cli.plans
     serves: [maintain.unrelated-breakage]
     check: effects
     with:
       allow: []
-    except:
-      - main
-      - _parser
-      - read_code
-      - read_project
-      - commands.Project.files
-      - commands.Project.at
-      - commands.Project.read
-      - commands.Project.write
-      - commands.Project.append
-      - commands.now
-      - commands.refuse
-      - commands._changeset
-      - commands._chosen
-      - commands.check
-      - commands.test
-      - commands.fmt
-      - commands.raise_
-      - commands.answer
-      - commands.findings
-      - commands.view
-      - commands.init_project
-      - commands.review
-      - commands.approve
-      - commands.critique_request
-      - commands.critique_record
-      - commands.rename_fr
-      - commands.agent_install
-      - commands.hook
-      - files.from_disk
-      - files.from_git
-      - files._git
-      - files._git_read
 
   pure-agents:  # the agents only make the text of skills and hooks; the cli writes it
     on: zigdag.agents
