@@ -1,0 +1,67 @@
+frs:
+  mojo2verus:
+    statements:
+      translate: The mojo2verus shall translate a Mojo program with specs into a Verus program with the same meaning.
+
+  mojo2verus.core:
+    serves: [verify-programs.wrong-proof-passes, verify-programs.verus-to-write]
+    statements:
+      translate: The core shall translate Mojo source text into Verus source text.
+
+  mojo2verus.core.frontend:
+    statements:
+      read: The frontend shall read Mojo source text into a syntax tree with source positions.
+
+  mojo2verus.core.semantics:
+    statements:
+      type: The semantics shall give each expression in a syntax tree a Mojo type.
+
+  mojo2verus.core.models:
+    statements:
+      provide: The models shall provide a Verus model for each supported standard-library type.
+
+  mojo2verus.core.emit:
+    statements:
+      translate:   The emit shall translate a checked program into Verus.
+      same-output: When given the same program twice, the emit shall produce the same Verus.
+      unmodelled:  If a construct has no model, then the emit shall stop with an error that names the Mojo line.
+
+  mojo2verus.core.erase:
+    statements:
+      remove:         The erase shall remove specs from Mojo source text.
+      same-positions: When given Mojo source text, the erase shall keep every remaining character at the same line and column.
+
+  mojo2verus.cli:
+    serves: [verify-programs.slow-verdict]
+    statements:
+      run: The cli shall translate the files named on the command line.
+
+constraints:
+  machine-effects:
+    on: mojo2verus
+    serves: [verify-programs.wrong-proof-passes]
+    check: effects
+    with:
+      allow: [read, write, stdout, stderr, syscall]
+
+  pure-core:  # a proof must not depend on the machine it was made on
+    on: mojo2verus.core
+    serves: [verify-programs.wrong-proof-passes]
+    check: effects
+    with:
+      allow: []
+    except:
+      - emit.translator_names  # Reads its own source to list names. A build step would remove this.
+      - stdlib_names
+
+  emit-without-parser:
+    on: mojo2verus.core.emit
+    serves: [maintain.unrelated-breakage]
+    check: may-depend-on
+    with:
+      allow: [mojo2verus.core.semantics, mojo2verus.core.models]
+
+  fast-verdict:
+    on: mojo2verus
+    serves: [verify-programs.slow-verdict]
+    statement: When given a 10,000-line program, the mojo2verus shall finish translating within 5 s.

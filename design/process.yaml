@@ -1,0 +1,37 @@
+property-tests:
+  kind: verification
+  on: zigdag.core.language
+  serves: [maintain.unrelated-breakage]
+  evidence: property-test
+
+described-names:
+  off: true  # zigdag's own interface names are not described yet: see the defect raised on described-names in the log
+
+stop-on-error:
+  kind: workflow
+  on: zigdag
+  serves: [keep-design-true.drift-unnoticed]
+  gate: stop-on-error
+
+countermeasure-on-escape:
+  kind: workflow
+  on: zigdag
+  serves: [track-concerns.forgotten-concern]
+  gate: countermeasure-on-escape
+
+planned-effects:  # the watcher's functions with effects react to the tests as they run, inside Python's monitoring callbacks; moving their decisions into pure code is debt to pay down
+  except:
+    - watchers.python.pytest_configure
+    - watchers.python._Hooks.pytest_sessionfinish
+    - watchers.python.watcher.Watcher.start
+    - watchers.python.watcher.Watcher.end
+    - watchers.python.watcher.Watcher.printed
+    - watchers.python.watcher.Watcher.finish
+    - watchers.python.watcher.Watcher.mutate
+    - watchers.python.mutants.mutants
+    - watchers.python.mutants._fate
+    - watchers.python.mutants._limit
+    - watchers.python.mutants._compiled
+    - watchers.python.mutants._searched
+    - watchers.python.search.search
+    - watchers.python.search._crosshair

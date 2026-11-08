@@ -1,0 +1,6 @@
+buy-products:
+  job: Buy a product online
+  performer: Shopper
+  outcomes:
+    lost-order: Minimize the likelihood that a placed order is lost
+    checkout-time: Minimize the time it takes to complete a checkout

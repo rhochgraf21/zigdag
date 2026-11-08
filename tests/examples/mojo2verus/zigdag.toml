@@ -1,0 +1,20 @@
+[settings]
+ruleset = 1
+tests        = ["tests"]
+test_command = "pytest"
+vendor       = ["src/mojo2verus/_vendor"]
+
+[adapters]
+default = "python"
+
+[adapters.python]
+source = ["src"]
+
+[effects."verus.run"]
+description = "Starts the Verus verifier"
+calls       = ["mojo2verus.verus.run_verus"]
+
+[checks.no-module-state]
+description = "Modules keep no changeable state at the top level"
+code        = "tools/archform_checks.py:no_module_state"
+reads       = ["symbols"]

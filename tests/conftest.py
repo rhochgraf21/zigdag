@@ -1,27 +1,50 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from pathlib import Path
 
-from arch.model import codec
-from arch.model.graph import Graph
-from arch.model.ids import DesignPath
+from zigdag.core.checks.run import ProjectFiles, check
+from zigdag.core.findings import RecordPath, Report, Result
+
+EXAMPLES = Path(__file__).parent / "examples"
+
+SETTINGS = """
+[settings]
+ruleset = 1
+
+[adapters]
+default = "python"
+"""
+
+CUSTOMER = """
+verify-programs:
+  job: Verify that a Mojo program meets its spec
+  performer: Mojo developer
+  outcomes:
+    wrong-proof-passes: Minimize the likelihood that a proof passes for a program that breaks its spec
+"""
+
+FUNCTIONAL = """
+frs:
+  app:
+    statements:
+      run: The app shall translate a program.
+  app.core:
+    serves: [verify-programs.wrong-proof-passes]
+    statements:
+      translate: The core shall translate Mojo source text into Verus source text.
+"""
 
 
-def component(uses: str = "", exports: str = "", serves: str = "", status: str = "specified",
-              hides: str | None = "a secret", criteria: int = 1, body: str = "") -> str:
-    lines = ["---", "kind: component", "realizes: Do the thing", "solution: The thing-doer"]
-    if hides:
-        lines.append(f"hides: {hides}")
-    for key, value in (("uses", uses), ("exports", exports), ("serves", serves)):
-        if value:
-            lines.append(f"{key}: [{value}]")
-    lines += [f"status: {status}", "---", "## Acceptance criteria"]
-    lines += [f"- AC{i}: When asked, it shall do the thing." for i in range(1, criteria + 1)]
-    return "\n".join(lines) + "\n" + body
+def project(settings: str | None = SETTINGS, **domains: str) -> Report:
+    """Check a project made of the given domain files; defaults give a minimal valid record."""
+    files = {"customer": CUSTOMER, "functional": FUNCTIONAL, **domains}
+    design = {RecordPath(f"design/{name}.yaml"): text for name, text in files.items() if text is not None}
+    return check(ProjectFiles(settings, design))
 
 
-NEED = "---\nkind: need\n---\nSomeone can get something done.\n"
+def rules(report: Report, result: Result) -> set[str]:
+    return {f.rule for f in report.of_result(result)}
 
 
-def graph(files: Mapping[str, str]) -> Graph:
-    return Graph(codec.load({DesignPath(k): v for k, v in files.items()}))
+def says(report: Report, result: Result) -> list[str]:
+    return [f.say for f in report.of_result(result)]

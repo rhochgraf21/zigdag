@@ -1,0 +1,268 @@
+frs:
+  zigdag:
+    statements:
+      check: The zigdag shall check a design record against the code that the record describes.
+
+  zigdag.core:
+    serves: [keep-design-true.drift-unnoticed, keep-design-true.different-answers]
+    statements:
+      find: The core shall turn the text of a project into findings.
+      same-findings: When given the same project text twice, the core shall return the same findings.
+
+  zigdag.core.vocabulary:
+    statements:
+      define: The vocabulary shall define the words that the rest of the core shares.
+
+  zigdag.core.vocabulary.names:
+    statements:
+      read: The names shall read each kind of name that the record uses.
+
+  zigdag.core.vocabulary.findings:
+    statements:
+      carry: The findings shall give each result the rule, the subject and the place that produced the result.
+
+  zigdag.core.vocabulary.effects:
+    statements:
+      define: The effects shall define the closed list of effect names.
+
+  zigdag.core.vocabulary.kinds:
+    statements:
+      define: The kinds shall define each check kind with the parameters and the sentence of the check kind.
+
+  zigdag.core.vocabulary.codec:
+    statements:
+      round-trip: The codec shall write each value that one process hands another as text that reads back to the same value.
+
+  zigdag.core.language:
+    statements:
+      parse: The language shall parse each sentence against the grammar for the sentence.
+      never-raise: When given any text, the language shall return a result without raising an exception.
+
+  zigdag.core.record:
+    statements:
+      read: The record shall read the design files into a record with the place of every value.
+      text-only: When reading a design file, the record shall read every value as text.
+      keep-all: When formatting a design file, the record shall keep every value and every comment.
+      stable: When formatting a formatted design file, the record shall return the same text.
+      digest: When an entry changes, the record shall give the entry a new digest.
+
+  zigdag.core.settings:
+    statements:
+      read: The settings shall read zigdag.toml into settings.
+
+  zigdag.core.workflow:
+    statements:
+      keep: The workflow shall keep what people and agents decide about a design.
+
+  zigdag.core.workflow.log:
+    statements:
+      keep: The log shall keep each event that people and agents add, in time order.
+      answered-once: When a question was answered for the current content, the log shall leave the question out of the findings.
+      edited-lines: If a raised line no longer matches the id of the line, then the log shall report a break.
+
+  zigdag.core.workflow.review:
+    statements:
+      show: The review shall show what a change does to the record, domain by domain.
+      renames: When an entry leaves one name and returns unchanged under another, the review shall show a rename.
+
+  zigdag.core.workflow.critique:
+    statements:
+      ask: The critique shall ask a fresh critic the rubric questions about each chosen entry.
+      quotes: If a critic's evidence is not words from the entry, then the critique shall refuse the finding.
+
+  zigdag.core.workflow.rename:
+    statements:
+      everywhere: The rename shall rename an FR everywhere that the record and the tests use the name.
+      keeps-code: When an FR is renamed, the rename shall keep the code that the FR pointed at.
+
+  zigdag.core.code:
+    statements:
+      hold: The code shall hold what an adapter read from the code of a project, in terms of no language.
+
+  zigdag.core.analysis:
+    statements:
+      check: The analysis shall check the record against the code model.
+
+  zigdag.core.analysis.resolve:
+    statements:
+      own: The resolve shall give every unit of code exactly one design parameter.
+
+  zigdag.core.analysis.relate:
+    statements:
+      reach: The relate shall work out the effects that each place in the code reaches through calls.
+
+  zigdag.core.analysis.watch:
+    statements:
+      plan: The watch shall plan what a test watcher watches in the code of a project.
+
+  zigdag.core.analysis.data:
+    statements:
+      work-out: The data shall work out each recorded structure with the structures that the structure contains and refers to.
+
+  zigdag.core.analysis.checks:
+    statements:
+      report: The checks shall report every break, question and thing to do in a project.
+      gates: When a gate is in force, the checks shall report each changed entry that has not passed the gate.
+      data: When a rule covers data, the checks shall report each use of the data that the rule does not allow.
+      states: When a statement names a state or a feature, the checks shall report each state or feature that the data does not have.
+      evidence-runs: If a test ran no code of the design parameter that the test verifies, then the checks shall report a break.
+      evidence-current: When a test passed against code that has changed since, the checks shall report the evidence as out of date.
+      shallow: If a component has less code behind each name and parameter of the interface of the component than the rule asks, then the checks shall ask about the component.
+      modes: If a function that another design parameter uses branches on a flag or a kind that the function takes, then the checks shall ask about the function.
+      narrow: If a function that another design parameter uses reads a single field of a class that the function takes, then the checks shall ask about the function.
+      single-implementation: If an abstraction has exactly one implementation, then the checks shall ask about the abstraction.
+      weak-contracts: If every case of a contract holds for a changed function, then the checks shall ask about the change.
+      unmutated: If code is marked to be left unmutated outside the except of the rule, then the checks shall report a break.
+
+  zigdag.core.views:
+    statements:
+      show: The views shall show a design parameter with the rules and the code around the design parameter.
+      data: When asked for the data, the views shall show each structure under a design parameter with the design parameters that touch the structure.
+
+  zigdag.core.init:
+    statements:
+      record: The init shall record existing code so that the first check of the code holds.
+
+  zigdag.adapters:
+    serves: [keep-design-true.drift-unnoticed, change-safely.context-time]
+    statements:
+      read: The adapters shall read the code of each supported language into the code model.
+
+  zigdag.adapters.python:
+    statements:
+      read: The python shall read the Python source of a project into the code model, with the tests and the test reports of the project.
+
+  zigdag.watchers:
+    serves:
+      - review-change.hollow-evidence
+      - keep-design-true.hidden-effect
+      - change-safely.data-mismatch
+    statements:
+      record: The watchers shall record what the code of a project does while the tests of the project run.
+
+  zigdag.watchers.python:
+    statements:
+      watch: The python shall record the effects, calls and changes that the Python code of a project makes while the tests run.
+      same-seed: When the watcher generates inputs, the python shall use the same seed in every run.
+      mutate: When a function that is declared without effects has a contract, the python shall run the cases of the contract against each mutant of the body of the function.
+      search: When nothing notices a mutant, the python shall search within a bound for an input that the mutant and the function behave differently on.
+
+  zigdag.agents:
+    serves: [change-safely.late-feedback, change-safely.context-time]
+    statements:
+      install: The agents shall give a coding agent the skills and the hooks for working with zigdag.
+      feedback: When an agent edits a file, the agents shall report the breaks that concern the file.
+
+  zigdag.cli:
+    serves: [keep-design-true.drift-unnoticed]
+    statements:
+      run: The cli shall run a command on the project that the user names.
+      test: When asked to test, the cli shall run the tests of the project with the watcher before the cli checks the project.
+
+constraints:
+  pure-core:  # the same text must always give the same findings
+    on: zigdag.core
+    serves: [keep-design-true.different-answers]
+    check: effects
+    with:
+      allow: []
+
+  pure-adapters:  # an adapter reads text it is given; the shell reads the files
+    on: zigdag.adapters
+    serves: [keep-design-true.different-answers]
+    check: effects
+    with:
+      allow: []
+
+  language-free-core:  # the core knows no language: only adapters do
+    on: zigdag.core
+    serves: [maintain.unrelated-breakage]
+    check: may-depend-on
+    with:
+      allow: [ruamel]
+
+  adapters-feed-the-core:
+    on: zigdag.adapters
+    serves: [maintain.unrelated-breakage]
+    check: may-depend-on
+    with:
+      allow: [zigdag.core]
+
+  shell-effects:  # the environment carries the watch plan's path from zigdag test to the watcher; CrossHair is imported only when a search runs, since importing it turns contracts off
+    on: zigdag
+    serves: [keep-design-true.different-answers]
+    check: effects
+    with:
+      allow: [read, write, stdin, stdout, stderr, syscall, time, env, import]
+
+  cli-decides-purely:  # the cli decides in pure code; only these functions have effects, and they carry its decisions out
+    on: zigdag.cli
+    serves: [maintain.unrelated-breakage]
+    check: effects
+    with:
+      allow: []
+    except:
+      - main
+      - _parser
+      - read_code
+      - read_project
+      - commands.Project.files
+      - commands.Project.at
+      - commands.Project.read
+      - commands.Project.write
+      - commands.Project.append
+      - commands.now
+      - commands.refuse
+      - commands._changeset
+      - commands._chosen
+      - commands.check
+      - commands.test
+      - commands.fmt
+      - commands.raise_
+      - commands.answer
+      - commands.findings
+      - commands.view
+      - commands.init_project
+      - commands.review
+      - commands.approve
+      - commands.critique_request
+      - commands.critique_record
+      - commands.rename_fr
+      - commands.agent_install
+      - commands.hook
+      - files.from_disk
+      - files.from_git
+      - files._git
+      - files._git_read
+
+  pure-agents:  # the agents only make the text of skills and hooks; the cli writes it
+    on: zigdag.agents
+    serves: [maintain.unrelated-breakage]
+    check: effects
+    with:
+      allow: []
+
+  watchers-decide-purely:  # the watchers decide in pure code; only these functions have effects
+    on: zigdag.watchers
+    serves: [maintain.unrelated-breakage]
+    check: effects
+    with:
+      allow: []
+    except:
+      - python.pytest_configure
+      - python._Hooks.pytest_sessionfinish
+      - python.watcher.Watcher.start
+      - python.watcher.Watcher.end
+      - python.watcher.Watcher.printed
+      - python.watcher.Watcher.finish
+      - python.watcher.Watcher.mutate
+      - python.mutants.mutants
+      - python.mutants._fate
+      - python.mutants._limit
+      - python.mutants._compiled  # it runs the project's own edited code with exec
+      - python.mutants._searched
+      - python.search.search
+      - python.search._crosshair
+
+  edge-types:
+    off: true  # zigdag's own data is not designed yet: see the defect raised on edge-types in the log

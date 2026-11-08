@@ -1,0 +1,40 @@
+frs:
+  shop:
+    statements:
+      sell: The shop shall take orders for products from shoppers.
+
+  shop.storefront:
+    serves: [buy-products.checkout-time]
+    statements:
+      order: The storefront shall let a shopper place an order for a product.
+
+  shop.api:
+    serves: [buy-products.lost-order]
+    statements:
+      record: The api shall record each placed order.
+
+  shop.api.orders:
+    statements:
+      store: The orders shall turn a placed order into a stored order.
+
+  shop.api.orders.order:
+    statements:
+      lines: The order shall give every line a product and a quantity.
+
+  shop.orders_db:
+    serves: [buy-products.lost-order]
+    statements:
+      keep: The orders db shall keep every stored order.
+
+  shop.receipts:
+    serves: [buy-products.lost-order]
+    statements:
+      keep: The receipts shall keep a receipt for each stored order.
+
+constraints:
+  storefront-through-api:
+    on: shop.storefront
+    serves: [buy-products.lost-order]
+    check: effects
+    with:
+      allow: [network]

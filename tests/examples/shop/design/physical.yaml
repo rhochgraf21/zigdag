@@ -1,0 +1,4 @@
+shop.storefront: [terraform:aws_s3_bucket.site, typescript:web/src]
+shop.api:        [terraform:aws_ecs_service.api, python:shop.api]
+shop.orders_db:  [terraform:aws_db_instance.orders, sql:orders, sql:order_lines]
+shop.receipts:   [terraform:aws_s3_bucket.receipts]

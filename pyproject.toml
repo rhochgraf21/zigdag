@@ -1,26 +1,30 @@
 [project]
-name = "arch-design"  # working name; `arch` is taken on PyPI (see DESIGN.md §13)
+name = "zigdag"
 version = "0.0.1"
-description = "Design-as-code and architecture-as-code for humans and coding agents"
-readme = "README.md"
+description = "Zigzag from needs to code, and keep it a DAG"
 requires-python = ">=3.11"
-dependencies = ["ruamel.yaml>=0.18", "deal>=4.24"]
+dependencies = ["ruamel.yaml>=0.18"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.2"]
+contracts = ["deal>=4.24"]  # zigdag test runs deal contracts on generated inputs
+test = ["pytest>=8"]  # zigdag test runs the tests with pytest, and its watcher is a pytest plugin
+# mutants of functions with contracts, and CrossHair's search for an input a mutant changes; both pinned, since
+# zigdag uses their internals
+mutation = ["mutmut==3.8.1", "libcst>=1.9", "crosshair-tool==0.0.113"]
 
 [project.scripts]
-arch = "arch.integrate.cli:main"
+zigdag = "zigdag.cli:main"
+zd = "zigdag.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "hypothesis>=6"]
+dev = ["pytest>=8", "hypothesis>=6", "deal>=4.24", "mutmut==3.8.1", "crosshair-tool==0.0.113"]
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]
 build-backend = "uv_build"
 
-[tool.uv.build-backend]
-module-name = "arch"
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

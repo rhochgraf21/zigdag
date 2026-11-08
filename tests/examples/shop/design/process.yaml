@@ -1,0 +1,6 @@
+terraform-plan:
+  kind: build
+  on: shop
+  serves: [maintain.unrelated-breakage]
+  step: terraform -chdir=infra plan -out=../.zigdag/plan && terraform -chdir=infra show -json ../.zigdag/plan > .zigdag/plan.json
+  produces: [.zigdag/plan.json]

@@ -1,0 +1,4 @@
+mojo2verus.core.frontend: [parse, ast, build]
+mojo2verus.core.semantics: [types, stdlib_model, stdlib_names]
+mojo2verus.core.models: [prelude, collections_rs, spans_rs, strings_rs, simd_rs]
+mojo2verus.cli: [__main__]

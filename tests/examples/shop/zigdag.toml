@@ -1,0 +1,20 @@
+[settings]
+ruleset = 1
+tests        = ["tests"]
+test_command = "pytest"
+
+[adapters]
+default = "python"
+
+[adapters.python]
+source = ["src"]
+
+[adapters.terraform]
+source = "infra"
+plan   = ".zigdag/plan.json"
+
+[adapters.sql]
+migrations = "migrations"
+
+[adapters.typescript]
+source = ["web"]

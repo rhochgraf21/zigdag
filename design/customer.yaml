@@ -1,0 +1,68 @@
+keep-design-true:
+  job: Keep the design of a codebase and its code in agreement
+  performer: Developer who leads a codebase that agents also change
+  outcomes:
+    drift-unnoticed: Minimize the likelihood that code departs from the design without anyone noticing
+    drift-noticed-late: Minimize the time between code departing from the design and someone noticing
+    hidden-effect: Minimize the likelihood that a side effect appears in code that must have none
+    reach-inside: Minimize the likelihood that one part of the code reaches into the private code of another part
+    dependency-loop: Minimize the likelihood that two parts of the code come to depend on each other
+    undeclared-library: Minimize the likelihood that the code uses third-party code the project does not declare
+    oversized-code: Minimize the number of functions too long to understand at once
+    different-answers: Minimize the likelihood that two runs on the same project give different findings
+
+change-safely:
+  job: Make a change to a codebase without breaking what the codebase promises
+  performer: Coding agent or developer making a change
+  outcomes:
+    context-time: Minimize the time it takes to learn what a change must respect
+    files-read: Minimize the number of files read before a change can start
+    broken-promise: Minimize the likelihood that a change breaks something the system promises
+    late-feedback: Minimize the time between making a change and learning what the change broke
+    data-mismatch: Minimize the likelihood that two parts disagree about the data passed between them
+    unknown-next: Minimize the time it takes to decide what to work on next
+
+review-change:
+  job: Review a change to a codebase
+  performer: Developer who reviews changes that people and agents make
+  outcomes:
+    design-review-time: Minimize the time it takes to review what a change does to the design
+    layout-noise: Minimize the amount of layout change a reviewer must read past
+    hollow-evidence: Minimize the likelihood that a test claims to verify something the test never runs
+    failing-evidence: Minimize the likelihood that a promise counts as kept while its test fails
+
+state-requirements:
+  job: Write down what a system must do
+  performer: Developer or product owner who states requirements
+  outcomes:
+    ambiguous: Minimize the likelihood that a requirement can be read two ways
+    two-functions: Minimize the likelihood that one requirement states two functions
+    solution-named: Minimize the likelihood that a requirement names a solution instead of a need
+    untraced: Minimize the number of requirements that serve no outcome
+    unverified: Minimize the number of requirements that no test verifies
+    missing-state: Minimize the likelihood that a requirement refers to a state that does not exist
+
+learn-codebase:
+  job: Learn how a codebase is put together
+  performer: Developer or agent who is new to a codebase
+  outcomes:
+    see-parts: Minimize the time it takes to see the parts of a system and what each part depends on
+    why-it-exists: Minimize the time it takes to learn why a piece of code exists
+    may-use: Minimize the time it takes to find what a piece of code may use
+
+adopt-existing:
+  job: Bring an existing codebase under a design
+  performer: Developer who leads an existing codebase
+  outcomes:
+    record-time: Minimize the time it takes to record what an existing codebase does today
+    first-check-fails: Minimize the likelihood that the first check of an existing codebase fails
+    hidden-debt: Minimize the amount of known debt that goes unrecorded
+    debt-order: Minimize the time it takes to decide which debt to pay down first
+
+track-concerns:
+  job: Track what people and agents notice about a design
+  performer: Developer who leads a codebase that agents also change
+  outcomes:
+    forgotten-concern: Minimize the likelihood that a noticed problem is forgotten
+    asked-again: Minimize the number of times one question is asked again after an answer
+    edited-history: Minimize the likelihood that the record of who noticed what changes without anyone noticing

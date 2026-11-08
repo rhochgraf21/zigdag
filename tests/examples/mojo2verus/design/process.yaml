@@ -1,0 +1,41 @@
+max-lines:
+  except:
+    - emit.Emitter  # 10,142 lines; splitting it is planned
+
+property-tests:
+  kind: verification
+  on: mojo2verus.core
+  serves: [maintain.unrelated-breakage]
+  evidence: property-test
+
+benchmarks:
+  kind: verification
+  on: mojo2verus
+  serves: [verify-programs.slow-verdict]
+  evidence: benchmark
+
+soundness-oracle:
+  kind: validation
+  on: mojo2verus
+  serves: [verify-programs.wrong-proof-passes]
+  measures: verify-programs.wrong-proof-passes
+  report: .zigdag/oracle.xml
+
+generated-names:
+  kind: build
+  on: mojo2verus.core.emit
+  serves: [maintain.unrelated-breakage]
+  step: python scripts/gen_names.py
+  produces: [src/mojo2verus/translator_names.py]
+
+critique-first:
+  kind: workflow
+  on: mojo2verus
+  serves: [maintain.unrelated-breakage]
+  gate: critique-before-review
+
+stop-on-error:
+  kind: workflow
+  on: mojo2verus
+  serves: [maintain.unrelated-breakage]
+  gate: stop-on-error

@@ -1,0 +1,7 @@
+verify-programs:
+  job: Verify that a Mojo program meets its spec
+  performer: Mojo developer
+  outcomes:
+    wrong-proof-passes: Minimize the likelihood that a proof passes for a program that breaks its spec
+    slow-verdict: Minimize the time between changing a program and seeing whether its proof passes
+    verus-to-write: Minimize the amount of Verus a developer must write to state a spec

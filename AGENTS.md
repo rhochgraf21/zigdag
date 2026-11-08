@@ -1,0 +1,8 @@
+- Follow the practices of principal software engineers.
+- When useful, follow the idea that "code should operate on domain model, not on data directly" & law of demeter.
+- Avoid python base types -> prefer enums, classes, alias, etc.
+- Never "hack" in a solution. Long term maintainability & quality is the goal, not speed.
+- No "magic numbers" or other magic variables.
+- Follow best practices for the arrangement of your code. SIMPLER and READABLE is almost always better.
+- Comments should not describe *what* the code does but rather the *whys* behind the code (things like decisions, tradeoffs, learned best practices, experiences, incompletes, implicit assumptions).
+- Docstrings are documentation for people who use or maintain your code.

@@ -1,10 +1,10 @@
-# archform: the model
+# zigdag: the model
 
-archform keeps a software system's design as a record that is checked against the code. The record
+zigdag keeps a software system's design as a record that is checked against the code. The record
 follows axiomatic design's four domains. Every term has one definition. Every statement has a grammar.
 Every check gives the same answer for the same record and code.
 
-This file describes the model and the record. It does not describe how archform is built.
+This file describes the model and the record. It does not describe how zigdag is built.
 
 Status: proposal.
 
@@ -17,33 +17,33 @@ Status: proposal.
    code cannot show.
 3. **Written, worked out, or checked.** Everything in the model is one of these:
    - **written:** a sentence with a grammar, or a value with a type;
-   - **worked out:** derived by archform from what is written plus the code;
-   - **checked:** a link that archform verifies.
+   - **worked out:** derived by zigdag from what is written plus the code;
+   - **checked:** a link that zigdag verifies.
 
    Anything that fits none of these is judgement, for a critic or a person. Otherwise it is not in the
    model.
-4. **Simple to write, deep underneath.** People write few, plain things. archform does the heavy work.
+4. **Simple to write, deep underneath.** People write few, plain things. zigdag does the heavy work.
 5. **Nothing can be left out by accident** (the closed world):
    - **By position, never by list.** A rule placed on a name covers everything below that name,
      including what is added later.
    - **Allow-lists, never deny-lists.** Anything new fails until someone allows it.
    - **Closed vocabularies.** Effects, check kinds, metrics and gates come from fixed lists. An unknown
      word is an error, never ignored.
-   - **Structure in, sentence out.** A rule archform enforces is written as structure, and archform
+   - **Structure in, sentence out.** A rule zigdag enforces is written as structure, and zigdag
      writes its sentence. Enforcement is never guessed from prose.
    - **Only tighten going down.** Nothing below a rule can loosen it. Only the rule itself grants
      exceptions.
    - **Total coverage.** Everything the adapters find belongs to exactly one design parameter: every
      module, deployed resource and table. Every FR statement needs evidence. Every constraint is either
-     checked by archform or verified by evidence.
+     checked by zigdag or verified by evidence.
 6. **Every check has one of four results.** There are no warning levels:
 
    | Result | Meaning |
    |---|---|
    | **holds** | nothing to report |
    | **breaks** | the code or the record contradicts the record. This is an error. |
-   | **to do** | something written is not built or evidenced yet, for example an FR with no code, or a statement with no test. Never an error. `archform next` lists these. |
-   | **question** | archform is unsure, either because it could not analyse something (dynamic imports, `eval`, an untraceable resource name) or because the check is a guess. A question is answered once in the log and stays answered until what it is about changes. It is never treated as a pass. |
+   | **to do** | something written is not built or evidenced yet, for example an FR with no code, or a statement with no test. Never an error. `zigdag next` lists these. |
+   | **question** | zigdag is unsure, either because it could not analyse something (dynamic imports, `eval`, an untraceable resource name) or because the check is a guess. A question is answered once in the log and stays answered until what it is about changes. It is never treated as a pass. |
 
    - Known breaks are listed under the rule's `except`.
    - A check that fails to run breaks. It is never skipped.
@@ -95,7 +95,7 @@ these outcomes.
 |---|---|
 | **FR** (functional requirement) | One function the product must perform, written as EARS statements. Exactly one statement is ubiquitous and states the function. The rest add triggers, states or conditions. |
 | **Statement** | One EARS sentence, named, so evidence can point at it. |
-| **Constraint** | A limit on which designs are acceptable, placed on one FR and covering everything below it. It is enforced in one of two ways: a **check** that archform runs, or a **statement** verified by evidence. |
+| **Constraint** | A limit on which designs are acceptable, placed on one FR and covering everything below it. It is enforced in one of two ways: a **check** that zigdag runs, or a **statement** verified by evidence. |
 
 **FRs form a tree.** The root FR is the system. Each DP gives rise to the FRs one level below it (the
 zigzag).
@@ -248,6 +248,7 @@ These are left to a critic, and then a person:
 - Is the FR the right one for its outcomes? Is the set of FRs complete?
 - Is the design a good choice among the alternatives? (The information axiom.)
 - Is a statement true, as opposed to well formed?
+- Does a test check what its statement says, rather than what the code happened to do?
 
 ---
 
@@ -271,12 +272,12 @@ ideas, not Python calls; each adapter says which calls in its language perform t
 | `syscall` | system calls, starting programs | `subprocess`, `os` |
 | `random` | randomness | `random`, `os.urandom`, `secrets` |
 | `time` | reading the system time | `time.time`, `datetime.now` |
-| `env` | reading environment variables. This one is archform's own; deal has no marker for it. | `os.environ`, `os.getenv` |
+| `env` | reading environment variables. This one is zigdag's own; deal has no marker for it. | `os.environ`, `os.getenv` |
 
 - `io` is the only group, and it is defined exactly as deal defines it.
-- **An effect starts** in the function that calls the effectful API. archform follows calls across the
+- **An effect starts** in the function that calls the effectful API. zigdag follows calls across the
   whole project, so an effect is charged to every function and DP that reaches it.
-- **Custom effects** are registered in `archform.toml` by naming the calls that perform them. Whatever
+- **Custom effects** are registered in `zigdag.toml` by naming the calls that perform them. Whatever
   those calls do inside is counted under the custom name only. For example, `verus.run` allows starting
   Verus but no other program. deal accepts markers it doesn't know, so custom effects work in
   `@deal.has` too.
@@ -285,8 +286,15 @@ ideas, not Python calls; each adapter says which calls in its language perform t
   their own name, so allowing `network` does not allow writing to the orders database.
 - **Language effects.** An adapter may add effects only its language has, for example `unsafe` for
   Rust. They join the closed vocabulary like the rest.
-- When a function declares `@deal.has(...)` or `@deal.pure`, any effect archform finds that the
+- When a function declares `@deal.has(...)` or `@deal.pure`, any effect zigdag finds that the
   markers don't cover is an error.
+- **Declared pure.** A function is declared pure when either of these says it has no effects:
+  - **its code:** `@deal.pure`, or `@deal.has()` with nothing in it;
+  - **the record:** an `effects` rule that allows nothing covers it.
+
+  zigdag checks both: the first against what it finds in the code (above), the second as the rule
+  itself. Declared-pure functions are where decisions belong, and the only ones that are mutated
+  (§4.1 `planned-effects`, §4.5).
 
 ---
 
@@ -306,7 +314,7 @@ Each check kind defines:
 - its **name**;
 - its **parameters**, each with a type and an optional default;
 - **what it reads:** the record, or parts of the code model (§5.1);
-- **its sentence**, which archform renders for people;
+- **its sentence**, which zigdag renders for people;
 - **whether it is exact or a guess.** When an exact check fails, the result is a break. When a guess
   fails, the result is a question.
 
@@ -340,8 +348,10 @@ Each check kind defines:
 | `narrow-parameters` | none | a parameter is wider than what the function uses of it | guess |
 | `no-single-implementations` | none | an abstraction has exactly one implementation | guess |
 | `co-change` | `commits`, `threshold` | DPs keep changing together in git history without one depending on the other | guess |
+| `planned-effects` | none | a function that is not declared pure (§3) passes a call something other than a plan value or its own parameter, branches on something other than a plan value, or computes (see below) | exact; a question where a value cannot be traced |
+| `mutation` | `paths` (default 200), `seconds` (default 10) | a mutant of a pure function with a contract survives its contract cases and every test that runs it, and a search within the bound finds an input that shows the change (§4.5) | guess |
 
-Examples of the sentences archform renders:
+Examples of the sentences zigdag renders:
 - `effects`: "The core shall have no side effects." / "…no side effects other than reading files."
 - `may-depend-on`: "The emit shall depend only on semantics and models."
 - `max-lines`: "Functions under mojo2verus shall be at most 200 lines."
@@ -385,11 +395,11 @@ component boundary is:
   |---|---|---|---|
   | `@deal.raises(...)` | the `E` in `Result<T, E>` | a named error type or a sentinel error in the doc comment | `@throws` in the doc comment |
 
-archform follows what can be raised through calls, as it does for effects. While tests run, an error
+zigdag follows what can be raised through calls, as it does for effects. While tests run, an error
 seen crossing a boundary that is not declared breaks.
 
 **How `data-flow` works without solving the halting problem.** Whether arbitrary code can ever leak a
-value cannot be decided in general. archform does not try. It asks a narrower question that the design
+value cannot be decided in general. zigdag does not try. It asks a narrower question that the design
 makes answerable:
 
 1. **The protected data has its own type.** `data` names recorded structures or distinct named types,
@@ -405,7 +415,7 @@ makes answerable:
    breaks.
 4. **Passing a protected value straight to an effect breaks too,** for example `print(email)` or
    `logger.info(order)`, where `order` contains an email.
-5. **While tests run,** archform remembers the text of every protected value it sees created. It looks
+5. **While tests run,** zigdag remembers the text of every protected value it sees created. It looks
    for that text in everything written to the listed effects: console output, log records, files,
    network sends. A match is a break, with the place it was written. Nothing is stopped; the run is
    watched and reported.
@@ -415,12 +425,81 @@ makes answerable:
 So `data-flow` holds only when every release point is allowed, no protected value reaches an effect
 directly, no test run wrote one out, and nothing was left unknown.
 
-### 4.2 Custom check kinds
+**What the interface checks measure.** All four are guesses, so a failure is a question.
+- **`min-depth`** applies to each component (§2.3). Its **interface size** counts each public function,
+  method, class, field, constant and named type in its code once, and each parameter of a public
+  function or method once. Its **depth** is the lines of its code divided by its interface size. A
+  component whose depth is below `ratio` is shallow. A component with no public names holds.
+- **`no-mode-parameters`** asks about a parameter that picks the behaviour: its type is `bool`, a
+  literal or a project enumeration, and the body branches on its value (`if flag:`,
+  `if kind == "x":`, `match kind:`). The function is then two functions under one name, and every
+  caller must know which one it wants.
+- **`narrow-parameters`** asks about a parameter whose type is a project class with more than one
+  field, when the function only reads one of those fields. It never passes the value on, returns it,
+  compares it, changes it or calls its methods. The function could take that field instead, and its
+  callers would stop depending on the whole class.
+- `no-mode-parameters` and `narrow-parameters` look only at functions and methods that another DP
+  uses. Inside a DP, its code is its own business.
+- **`no-single-implementations`** asks about an abstraction with exactly one implementation.
+  - An **abstraction** is a protocol or an abstract base class. In Python, that is a
+    `typing.Protocol`, a subclass of `abc.ABC`, a class whose metaclass is `abc.ABCMeta`, or a class
+    with an `abc.abstractmethod`.
+  - Its **implementations** are the project's classes, outside the tests, that are not abstractions
+    themselves and either name it as a base, directly or through other classes, or, for a protocol,
+    define every one of its public members.
+  - An abstraction with no implementation is not asked about. It may be there for users to implement.
 
-A custom check is a function registered in `archform.toml`:
+**How `co-change` reads history.**
+- zigdag reads the last `commits` commits from git, leaving out merges, with the files each one
+  changed. A commit **changes** a DP when it changes a file of code under that DP.
+- For each pair of sibling DPs, the **degree** is the number of commits that change both, divided by
+  the number that change either.
+- The pair is asked about when its degree is at least `threshold`, at least three commits changed
+  both, and neither sibling depends on the other in the design matrix.
+- Outside a git repository, the rule waits for history.
+
+**How `planned-effects` keeps decisions out of code with effects.** Decisions belong in pure code,
+where contracts and mutants check them (§4.5); code with effects only carries them out. Whether some
+code "makes a decision" cannot be told in general, so, as with `data-flow`, zigdag checks a
+discipline the code follows instead.
+
+- A **plan value** is:
+  - a constant, or a name defined at the top of a module, such as a function, a class or an
+    enumeration member;
+  - what a declared-pure function returns;
+  - a parameter whose type is what some declared-pure function returns;
+  - anything read, iterated, indexed or formatted from plan values alone, or built from them: a field,
+    an item of a list, an f-string, a project structure or a standard container made of them.
+- In each function that is not declared pure:
+  1. **every argument of every call is a plan value, or one of the function's own parameters,** read,
+     formatted or built from as above. Passing a parameter on decides nothing; the caller's arguments
+     are checked where the caller is. A call to a declared-pure function may be given anything;
+  2. **every condition is a plan value:** the test of an `if` or a `while`, and the subject of a
+     `match`;
+  3. **nothing is worked out:** no comparison, arithmetic, `and`, `or`, `not`, conditional
+     expression, comprehension filter or augmented assignment.
+- So what a call with effects returns can only be handed to a pure function, which makes the next
+  plan, or be returned. A function that passes nothing and branches on nothing needs no plan.
 
 ```python
-from archform.checks import Code, Scope, Violation
+def sync(plan: SyncPlan) -> None:      # SyncPlan is what the pure plan_sync returns
+    while plan.more:                   # a condition from the plan
+        page = api.get(plan.url)       # an argument from the plan
+        plan = plan_after(plan, page)  # the effect's result goes into a pure function
+```
+
+- Each break names what to move, for example: "work out `total > 100` in a pure function, and branch
+  on its result".
+- A value whose source cannot be traced, such as a name the adapter cannot find, is a question.
+- On existing code, `zigdag init` lists every function that breaks the rule under its `except`
+  (§7.9), so that new code follows it from the start.
+
+### 4.2 Custom check kinds
+
+A custom check is a function registered in `zigdag.toml`:
+
+```python
+from zigdag.checks import Code, Scope, Violation
 
 def no_module_state(code: Code, scope: Scope, params: Params) -> Iterable[Violation]:
     for unit in code.units(scope):
@@ -429,11 +508,11 @@ def no_module_state(code: Code, scope: Scope, params: Params) -> Iterable[Violat
                 yield Violation(name.location, f"{name} is changeable module state")
 ```
 
-It receives the code model (§5.1), the same read-only model archform's own checks use.
+It receives the code model (§5.1), the same read-only model zigdag's own checks use.
 
 **Why a custom check stays deterministic:**
 - It receives only the code model, never the file system.
-- archform analyses the check's own code and refuses a check that has any effect from §3.
+- zigdag analyses the check's own code and refuses a check that has any effect from §3.
 - Its findings are sorted before they are reported.
 - It declares what it reads. If an adapter did not supply that, the result is a question.
 
@@ -445,7 +524,6 @@ It receives the code model (§5.1), the same read-only model archform's own chec
 | `property-test` | a test over generated inputs | a test with `@verifies(...)` that uses Hypothesis `@given` or `deal.cases` |
 | `contract` | a precondition, postcondition or invariant checked when the code runs | a deal contract with `@verifies(...)` |
 | `benchmark` | a timed test | a test with `@verifies(...)` that records its timing in the report |
-| `mutation` | proof that the linked tests fail when the code is changed | a mutmut report |
 | `test-report` | results from another tool | a report file named by a process variable |
 
 Each adapter says how its language provides these (§5.2).
@@ -470,14 +548,15 @@ breaks can still be excepted.
 
 | Rule | Holds when |
 |---|---|
-| record integrity | every file parses; every statement fits its grammar; every name resolves and is defined once; every FR's parent is defined; levels nest in order; every sentence archform renders also fits the EARS grammar; `archform fmt` changes nothing on a second run |
+| record integrity | every file parses; every statement fits its grammar; every name resolves and is defined once; every FR's parent is defined; levels nest in order; every sentence zigdag renders also fits the EARS grammar; `zigdag fmt` changes nothing on a second run |
 | coverage | everything the adapters find belongs to exactly one DP; FRs and DPs pair one-to-one |
 | `encapsulation` | everything depends on a DP only through its interface |
 | `container-boundaries` | code in one container does not import another container's components; they talk through endpoints, messages or data containers, or depend on a shared component |
 | `data-ownership` | only a structure's own component changes it; others may hold it and pass it on |
 | `no-cycles` | no cycle between siblings |
 | traceability | every FR on the first level below the root, every constraint and every process variable serves an outcome |
-| declared effects | every effect declaration in the code (`@deal.has`, `@deal.pure`) covers the effects archform finds |
+| declared effects | every effect declaration in the code (`@deal.has`, `@deal.pure`) covers the effects zigdag finds |
+| `contracts` | every contract holds on the inputs generated for it (§4.5) |
 | `permitted-effects` | when infrastructure is described, every resource effect the code has is granted |
 | `representations-agree` | every structure's representations match |
 | `messages-agree`, `endpoints-agree` | the two ends of every traced message and request use the same structures |
@@ -511,6 +590,8 @@ job, placed on the root:
 | `narrow-parameters` | process | `narrow-parameters` | |
 | `no-single-implementations` | process | `no-single-implementations` | |
 | `co-change` | process | `co-change` | the last 500 commits |
+| `planned-effects` | process | `planned-effects` | |
+| `mutation` | process | `mutation` | |
 
 **Tuning a built-in:** write an entry with the built-in's name, in the file of its domain. The entry
 may set only:
@@ -535,15 +616,20 @@ that goes with it, with nothing more to write (§4.5):
 
 ### 4.5 Free: testing
 
-`archform test` runs the project's own tests under observation, runs the tests archform generates, and
-stores every result with a digest of the code it ran against. `archform check` then uses those results
-for as long as the code they ran against is unchanged. The fast static checks run in `archform check`
-on every edit. The observed ones come from the last `archform test`.
+`zigdag test` runs the project's own tests under observation, runs the tests zigdag generates, runs
+the tests again against mutants of the code, and stores every result with a digest of the code it ran
+against. `zigdag check` then uses those results
+for as long as the code they ran against is unchanged. The fast static checks run in `zigdag check`
+on every edit. The observed ones come from the last `zigdag test`.
+
+**What is kept, and for how long.** The watcher records the digest of every source and test file as
+the run starts. Each observation names the files it was seen in, and counts only while all of them are
+unchanged. Observations about changed code are left out, and the check says how many, as a thing to do.
 
 Two rules keep the results trustworthy:
 - **Running code can only find breaks.** A run shows what did happen. It can turn a question into a
   break, but never a break into a pass, because a run cannot show that something never happens.
-- **Everything archform generates runs with fixed seeds,** so the same code and tests give the same
+- **Everything zigdag generates runs with fixed seeds,** so the same code and tests give the same
   results.
 
 **Watching the tests run.** Everything that happens is charged to the DP whose code did it:
@@ -560,10 +646,10 @@ Two rules keep the results trustworthy:
 | contracts | the contracts |
 
 **How data ownership is observed (Python):**
-- **Attribute changes.** archform wraps `__setattr__` and `__delattr__` on recorded structures, so
+- **Attribute changes.** zigdag wraps `__setattr__` and `__delattr__` on recorded structures, so
   every change is charged to the component whose code made it.
 - **Changes in place,** such as `order.items.append(...)`, which bypass `__setattr__`. When a structure
-  is passed into another component, archform records a digest of its contents, and compares it when the
+  is passed into another component, zigdag records a digest of its contents, and compares it when the
   call returns. A difference means that component changed it.
 - **Code the tests never run** is analysed statically. A suspected change there is a question.
 
@@ -573,16 +659,143 @@ Two rules keep the results trustworthy:
 Watching catches what static analysis cannot see: `eval`, dynamic imports, plugins, C extensions,
 callbacks. Each adapter says how much it can observe (§5.2).
 
-**Tests archform makes from what is there:**
-- **Determinism by replay.** For code under a rule that allows no effects, archform records the calls
-  made into it during the tests. It replays each call with a copy of the same arguments, in a
-  different order. A different result breaks the rule. Arguments that cannot be copied make the result
-  a question.
-- **Cases from contracts.** Every function with a contract is run on generated inputs, filtered by its
-  preconditions. In Python this is `deal.cases`.
+**Who did it.** An effect or a change is charged to the innermost frame of the project's own code on
+the stack, as it is when read from the code. Two kinds of work are charged to nobody:
+- **The import system's,** such as reading module files. An import counts only when the project's code
+  makes it; a library importing its own parts is the library's business.
+- **The test tooling's,** such as timing a test or tracing its branches.
 
-archform does not fuzz functions that have no contract. There would be nothing to check the results
-against.
+**What a run shows, and what it cannot:**
+- **Values crossing a boundary** are recorded only where they add to the static check: a parameter
+  with no annotation, an `Any`, or a value that does not fit its annotation.
+- **Another process** cannot be watched. When a test starts one, "it runs code in the statement's DP"
+  cannot be shown false, so a test that ran none of that code in its own process is a question.
+
+**Tests zigdag makes from what is there:**
+- **Determinism by replay.** For code under a rule that allows no effects, zigdag records the calls
+  made into it during the tests. It replays each call with a copy of the same arguments, in a
+  different order. A different result breaks the rule. Arguments that cannot be copied, and results
+  that have nothing to compare, make the result a question. A generator, or a call that returns an
+  iterator, is not replayed: its caller consumes what it gives as it runs.
+- **Cases from contracts.** Every function with a contract is run on generated inputs, filtered by its
+  preconditions. This is property-based testing, with the contract as the property. In Python this is
+  `deal.cases`. A contract that fails on them breaks the always-on
+  rule `contracts` (§4.4). One whose inputs cannot be generated, or with no contract library to run it,
+  is a question.
+
+zigdag generates inputs only for functions with a contract. Without one, there is nothing to check the
+results against.
+
+**Mutants: does anything notice a change?** A contract or a test can pass while checking almost
+nothing, and agents often write both. So once the tests pass, zigdag changes each pure function that
+has a contract, one small edit at a time, for example `<` to `<=`, `and` to `or`, or one constant to
+another. Each edited copy is a **mutant**. zigdag runs the function's contract cases against each
+mutant, then each test that ran the function. If one of them fails, it **kills** the mutant. A mutant
+that **survives** is a change that nothing noticed, which is what `maintain.unrelated-breakage` is
+about. This is the built-in rule `mutation` (§4.4).
+
+- **Only pure functions are mutated.** A mutant is run, so a mutant of code with effects could do
+  whatever that code can, such as delete the wrong file. A function counts as pure only when both of
+  these hold:
+  - **it is declared pure** (§3), in its code or by an `effects` rule in the record. The declaration
+    is the developer's yes to running edited copies of the function;
+  - **zigdag finds no effect** in it or anything it calls, and nothing in it that cannot be read.
+- **Each survivor is searched for an input that shows the change.** A solver looks for an input that
+  the function's preconditions accept, and on which the function as written and the mutant differ: in
+  what they return, in the type of what they raise, or in how they change their arguments. A proof that
+  two functions always agree is out of reach in general, so the search is bounded by the rule's `paths`
+  and `seconds`.
+
+| Mutant | Result |
+|---|---|
+| killed, or it made the cases or tests time out | holds |
+| survived, and on an input the search found, the mutant fails its contract | holds: the contract notices, on an input its cases did not try |
+| survived, and the search found an input that shows the change | a question, with the input and what each version does with it |
+| survived, and the search found no such input within its bound | holds: it is taken as equivalent |
+| survived, and the search could not run | a question, saying why |
+| could not be put in place of the function | a question |
+| not made, because the tool is not installed where the tests run | a question, once for the project |
+
+- **Taking a survivor as equivalent is a guess,** and a deliberate exception to "a question is never
+  treated as a pass" (§1, principle 6). A solver that finds no input within its bound is strong
+  evidence that the change makes no difference, but not a proof. A project that wants more certainty
+  raises the bound.
+- **Only an error's type is compared, not its message.** A message is for people; which error is
+  raised is behaviour.
+- **Contracts and tests are judged together.** A contract states properties, such as "the result is
+  never negative", and exact values are the job of example tests. So a contract alone rarely notices
+  every change, and it is not asked to. A change counts as noticed when the contract's cases or any test
+  that runs the function fails. While a question about a survivor is open, the contract and the tests
+  that ran the mutant lose their evidence (see evidence honesty below). An answer stands until the
+  function changes.
+- **Mutants run in `zigdag test`, never in `zigdag check`.** A result counts while the function's file
+  is unchanged, and, for a survivor, while the tests that ran it are unchanged too.
+- **Nothing is left out quietly.** Apart from functions that are not declared and found pure, code
+  goes unmutated only when its function is listed under the rule's `except`. A marker that stops a tool mutating code, such
+  as mutmut's `# pragma: no mutate`, breaks unless the function is listed there too.
+- **The tools are pinned to the rule set** (§7.8). Each adapter names its tools (§5.2), and a new
+  version of a tool cannot change results until the project raises its rule set.
+- **What mutants cannot show:**
+  - **Which test killed a mutant.** Each mutant's judges stop at the first one that fails, so a test
+    that checks nothing can hide behind a test of the same code that checks well (§12).
+  - **Whether a test checks the right thing.** A test whose expected value was copied from the code's
+    own output kills mutants, and still keeps whatever bug the code had. That is judgement (§2.7).
+
+**Getting code with effects checked.** Code with effects is never mutated, so to get its logic
+checked, split it in two:
+- **a pure function makes the decisions.** It has the contract and is declared pure, so it is mutated;
+- **a thin function carries them out.** It makes no decisions of its own, so there is little in it for
+  a mutant to change, and tests with test doubles cover it.
+
+```python
+@deal.has()
+@deal.post(lambda result: result.total >= 0)
+def bill(order: Order) -> Bill:          # prices, discounts and tax: mutated and checked
+    ...
+
+def checkout(order: Order) -> Receipt:   # carries the bill out: never mutated
+    the_bill = bill(order)
+    bank.charge(order.card, the_bill.total)
+    return Receipt(the_bill)
+```
+
+`planned-effects` (§4.1) holds the thin function to this: it may only pass on and branch on what pure
+code decided.
+
+A second, pretend version inside the function, run only by the check, is not the way: the check
+would always run the pretend line and production the real one, so the real line would never be
+tested.
+
+**Getting the effects themselves checked.** One step further, the pure function decides the effects
+too. It returns a plan: each effect written down as data, rather than done. A thin function then
+carries the plan out.
+
+```python
+@dataclass(frozen=True)
+class Charge:                                  # one effect, written down as data
+    card: Card
+    cents: Cents
+
+@deal.has()
+@deal.ensure(lambda order, result: result.charges == (Charge(order.card, bill(order).total),))
+def plan_checkout(order: Order) -> Plan:       # decides every effect: mutated and checked
+    ...
+
+def carry_out(plan: Plan) -> None:             # does what the plan says, and nothing else
+    for c in plan.charges:
+        bank.charge(c.card, c.cents)
+```
+
+- **The contract can say exactly which effects happen.** Here: charge once, to the order's card, for
+  the bill's total. A mutant that charges twice, the wrong card or the wrong amount fails it.
+- **Everything about mutants applies to the effects.** The search looks for an input on which a
+  mutant plans different effects, and nothing real happens during the check, since planning a charge
+  only makes a value.
+- **Only the carrying out is left unchecked,** and it makes no decisions. One such function serves
+  every plan of its kind, and is tested once, with test doubles.
+- **Someone still says what the effects should be.** zigdag cannot know that unless it is written
+  down, in a contract or a test. What it does is make sure the statement exists, is strong enough to
+  notice a change, and is checked against every change to the code.
 
 **Evidence honesty.** A test counts as evidence for a statement only when:
 
@@ -590,9 +803,10 @@ against.
 |---|---|
 | its link resolves | break |
 | it passed in the latest run | break if it failed or errored. If it was skipped, or no run was read, the statement is to do. |
-| it runs code in the statement's DP | break: it is linked to the wrong thing |
+| it runs code in the statement's DP | break: it is linked to the wrong thing. A question when the test started another process. Before any watched run, a guess from what the test imports, so a question |
 | it is the kind the statement needs | to do |
 | it ran against the current code | to do: the evidence is out of date |
+| no mutant in the statement's DP that it ran has survived, unless answered | to do: it misses a change. The finding shows the edit. |
 
 Tests with no link are listed, but they are not errors.
 
@@ -632,8 +846,32 @@ They are supported in this order: Python, Terraform, SQL, TypeScript, Go, Rust.
 | **Dependencies** | imports; `pyproject.toml` | references | foreign keys | imports; `package.json` | imports; `go.mod` | `use`; `Cargo.toml` |
 | **Effects found from** | calls such as `open`, `socket`, `subprocess` | permissions and connections | statements that read or write | `fs`, `fetch`, `child_process`, `process.env` | `os`, `net`, `os/exec`, `time` | `std::fs`, `std::net`, `std::process`, `std::env` |
 | **Link form** | `@verifies(...)` | | | `verifies(...)` in the test name or tag | a `verifies:` line in the test's comment | `#[verifies(...)]` |
-| **Evidence tools** | pytest, Hypothesis, deal, pytest-benchmark, mutmut | | | vitest or jest, fast-check | go test, rapid, testing.B, go-mutesting | cargo test, proptest, Kani or contracts, criterion, cargo-mutants |
-| **Watching tests** | strong: audit hooks, wrapped calls | none | none | partial | partial | weak |
+| **Evidence tools** | pytest, Hypothesis, deal, pytest-benchmark | | | vitest or jest, fast-check | go test, rapid, testing.B | cargo test, proptest, Kani or contracts, criterion |
+| **Mutation tool** | mutmut | | | Stryker | go-mutesting | cargo-mutants |
+| **Watching tests** | strong: audit hooks, wrapped calls, `sys.monitoring` | none | none | partial | partial | weak |
+
+What Python's watching cannot see: reading the clock through `datetime` (its types cannot be wrapped),
+writing to a file that is already open (only opening it is an event), and the content of network
+sends, so protected text is looked for only in console output, log records and written files.
+
+mutmut mutates only code inside functions, so module-level code, such as a constant, is never
+mutated. It needs `fork`, so on Windows it runs under WSL.
+
+mutmut's runner never mutates a decorated function, and a deal contract is a decorator, so it would
+never touch a function with a contract. The Python watcher makes those mutants itself, with mutmut's
+operators: it edits only the function's body, and puts each edit in place of the function's code so the
+contract still wraps it. Then, in the same process, it runs the contract's cases against the edit, and
+then each test that ran the function, without reporting them to pytest. A test that fails when it is run
+again on the function as written is left out. A mutant whose cases and tests run ten times longer than
+they did on the function as written, and at least a second, is stopped and counts as timed out.
+
+The search for an input that shows a survivor's change is CrossHair's `diff_behavior`, which reasons
+about the code with a solver instead of guessing inputs. Both versions run inside the function's
+contract: an input its preconditions reject is passed over, and a version that fails its contract is
+told apart from one that raises another error. CrossHair runs the code it searches, which is one more
+reason only pure functions are mutated. It is imported only when the first search runs, since
+importing it turns deal's contracts off for the whole process (and icontract's); zigdag turns deal
+back on at once. A search that runs three times longer than its `seconds` is stopped from outside.
 
 Typed languages make some checks exact that are guesses in Python. Examples are `data-ownership` in
 Rust, through private fields and `&mut`, and public names in Go and Rust. Python makes up for it at
@@ -643,8 +881,8 @@ runtime.
 
 The infrastructure description is the code for the container level.
 
-**archform never contacts a cloud and never runs the infrastructure tool itself.** A `build` process
-variable renders the plan (for Terraform, `terraform show -json` of a plan), and archform reads that
+**zigdag never contacts a cloud and never runs the infrastructure tool itself.** A `build` process
+variable renders the plan (for Terraform, `terraform show -json` of a plan), and zigdag reads that
 file. It also reads the source files, to give each finding its location. If the plan is older than its
 inputs, findings that depend on it are to do.
 
@@ -667,7 +905,11 @@ inputs, findings that depend on it are to do.
 
 **Linking code to resources.** A call in the code, such as a `boto3` write to a bucket, becomes the
 resource effect `shop.receipts.write` when the bucket's name reaches the call through a setting the
-plan sets. When archform cannot trace the name, the result is a question.
+plan sets. When zigdag cannot trace the name, the result is a question.
+
+**A project that describes no infrastructure** grants nothing and has no resource effects, so
+`permitted-effects` and `least-privilege` hold. They wait only when the project configures an
+infrastructure adapter that this version of zigdag cannot read yet.
 
 **What this gives for free:**
 - `permitted-effects`: the code never needs access the infrastructure doesn't grant. Otherwise it would
@@ -695,7 +937,7 @@ After Terraform, other tools are read the same way, through their rendered outpu
 ## 6. Grammars
 
 Each grammar is checked with word lists (lexicons), not judgement. Every lexicon is built in and can
-be extended or narrowed in `archform.toml`.
+be extended or narrowed in `zigdag.toml`.
 
 ### 6.1 Job
 
@@ -756,8 +998,8 @@ cannot refer to a state or feature that does not exist:
 - **`STRUCTURE`** is the last part of a recorded structure's name;
 - **`FIELD`** is one of its fields. It may be left out when the structure has exactly one field that
   could hold the value: an enum for a state, a `bool` for a feature;
-- **for a state, `VALUE`** is a member of that field's enum. Underscores read as spaces, and case is
-  ignored;
+- **for a state, `VALUE`** is a member of that field's enum, or one of its literal values. Underscores
+  read as spaces, and case is ignored;
 - **a feature** is a `bool` field, and the clause says whether it is enabled or disabled.
 
 All of these are exact checks. Examples:
@@ -806,7 +1048,7 @@ Job and outcome statements are also checked for readability, with a limit of 30 
 ### 6.6 Lexicons
 
 The built-in lexicons are: verbs, solution words, vague words, units, comparatives, pronouns, escape
-clauses, open endings and modals. In `archform.toml`, each can be extended (`add`) or narrowed
+clauses, open endings and modals. In `zigdag.toml`, each can be extended (`add`) or narrowed
 (`remove`), for example when a vague word is a real term in the project's own domain.
 
 ---
@@ -814,7 +1056,7 @@ clauses, open endings and modals. In `archform.toml`, each can be extended (`add
 ## 7. The record
 
 ```
-archform.toml           how archform runs here, and what it has been taught (adapters, effects, checks, lexicons)
+zigdag.toml           how zigdag runs here, and what it has been taught (adapters, effects, checks, lexicons)
 design/
   customer.yaml         Customer domain
   functional.yaml       Functional domain
@@ -824,8 +1066,9 @@ design/
 ```
 
 **Worked out, and never recorded:** levels, interfaces, effects, the design matrix, the process matrix,
-sizes, observations, evidence results and check results. These are cached in `.archform/`, which git
-ignores. Test reports and rendered plans are written there too.
+sizes, observations, evidence results and check results. These are cached in `.zigdag/`, which git
+ignores. Test reports and rendered plans are written there too: `pytest.xml` (the results),
+`watch.json` (what `zigdag test` asks the watcher to watch) and `observed.json` (what it saw).
 
 ### 7.1 Names
 
@@ -856,8 +1099,8 @@ it is a library. A name that is neither is an error.
   "no".
 - No anchors, aliases or tags. Duplicate keys are errors.
 - **Comments are kept.** A comment beside an entry, or directly above it, is the reason for it.
-  archform shows reasons in context and review. A reason is never required.
-- `archform fmt` gives every file one canonical layout.
+  zigdag shows reasons in context and review. A reason is never required.
+- `zigdag fmt` gives every file one canonical layout.
 
 ### 7.3 `design/customer.yaml`
 
@@ -880,7 +1123,7 @@ The name `maintain` is reserved. A project may give it `outcomes` only.
 | `constraints.<name>` | constraint name | | a constraint |
 | `constraints.<name>.on` | one FR name | yes | where it applies: that FR and everything below it |
 | `constraints.<name>.serves` | list of outcome references | yes | why it exists |
-| `constraints.<name>.check` + `.with` | check kind + parameters | exactly one of `check` or `statement` | enforced by archform |
+| `constraints.<name>.check` + `.with` | check kind + parameters | exactly one of `check` or `statement` | enforced by zigdag |
 | `constraints.<name>.statement` | EARS statement | exactly one of `check` or `statement` | verified by evidence |
 | `constraints.<name>.except` | list of code names | no; only with `check` | code the check skips; each entry must resolve to real code |
 
@@ -948,23 +1191,25 @@ The log is append-only, one event per line, ordered by time. Git merges it as a 
 | `at` | every event | UTC timestamp |
 | `by` | every event | who: a person or an agent |
 | `event` | every event | `raised`, `answered`, `critiqued` or `approved` |
-| `id` | `raised`, `answered` | worked out from `at`, `by`, `on` and `say`, so ids made on two branches cannot clash. Questions from guess checks (§4.1) are identified by their check, `on` and `digest` instead. |
-| `on` | `raised`, `critiqued`, `approved` | the name it is about |
+| `id` | `raised`, and `answered` for a thread | on `raised`, worked out from `at`, `by`, `on` and `say`, so ids made on two branches cannot clash, and a line edited by hand is caught; on `answered`, the id of the thread it answers |
+| `check` | `answered` for a question | the rule that asked it. A question a check asks is identified by its `check`, `on` and `digest`, not by an id. |
+| `on` | `raised`, `critiqued`, `approved`, and `answered` for a question | the name it is about: an FR, statement, job, outcome, rule, or an entry. A physical entry is named after its FR: `physical:mojo2verus.cli` |
 | `kind` | `raised` | `defect`, `question` or `idea` |
 | `say` | `raised`, `answered` | the text |
 | `evidence` | `raised` | the exact words or code it is about |
 | `answer` | `answered` | `fixed`, `accepted`, `declined` or `answered` |
 | `countermeasure` | `answered` | a name, when the gate requires one |
-| `digest` | `critiqued`, `approved`, and `answered` for a question | a digest of the content the event is about. When that content changes, the question is asked again. |
+| `digest` | `critiqued`, `approved`, and `answered` for a question | a digest of the content the event is about. When that content changes, the question is asked again, and a critique or approval no longer counts. |
+| `rubric` | `critiqued` | the rubric version the critic answered (§10.1). An entry unchanged since is asked only the newer questions. |
 
 Check results are not logged. They are worked out each time. Only what people and agents raise,
 answer, critique and approve is logged.
 
-### 7.8 `archform.toml`
+### 7.8 `zigdag.toml`
 
 | Section | Keys | Meaning |
 |---|---|---|
-| `[settings]` | `tests`, `test_command`, `test_reports`, `vendor`, `editor` | where tests are and how to run them |
+| `[settings]` | `ruleset`, `tests`, `test_command`, `test_reports`, `vendor`, `editor`, `people` | the rule set the project is pinned to (now `1`; a new zigdag release never changes results until the project raises it), where tests are, how to run them, and who counts as a person for `person-approves-design`: anyone not listed is an agent |
 | `[adapters]` | `default` | the adapter for code names without a prefix |
 | `[adapters.<name>]` | that adapter's settings, for example `source` for a language, or `plan` and `source` for Terraform | where each adapter reads from |
 | `[lexicon.<name>]` | `add`, `remove` | adjust a built-in lexicon |
@@ -973,7 +1218,7 @@ answer, critique and approve is logged.
 
 ### 7.9 Starting from existing code
 
-`archform init` records what is there, so the first check holds. After that, anything new breaks:
+`zigdag init` records what is there, so the first check holds. After that, anything new breaks:
 - **FRs and DPs:** one per deployed resource, package or module, with statements left to do.
 - **Effects:** one `effects` constraint per top-level DP, allowing what it does today.
 - **Dependencies:** `may-depend-on` per top-level DP, allowing what it depends on today.
@@ -1114,7 +1359,7 @@ soundness-oracle:
   on: mojo2verus
   serves: [verify-programs.wrong-proof-passes]
   measures: verify-programs.wrong-proof-passes
-  report: .archform/oracle.xml
+  report: .zigdag/oracle.xml
 
 generated-names:
   kind: build
@@ -1136,10 +1381,11 @@ stop-on-error:
   gate: stop-on-error
 ```
 
-`archform.toml`:
+`zigdag.toml`:
 
 ```toml
 [settings]
+ruleset      = 1
 tests        = ["tests"]
 test_command = "pytest"
 vendor       = ["src/mojo2verus/_vendor"]
@@ -1156,11 +1402,11 @@ calls       = ["mojo2verus.verus.run_verus"]
 
 [checks.no-module-state]
 description = "Modules keep no changeable state at the top level"
-code        = "tools/archform_checks.py:no_module_state"
+code        = "tools/zigdag_checks.py:no_module_state"
 reads       = ["symbols"]
 ```
 
-What archform renders, for example with `archform show mojo2verus.core`:
+What zigdag renders, for example with `zigdag show mojo2verus.core`:
 
 ```
 mojo2verus.core: The core shall translate Mojo source text into Verus source text.
@@ -1261,14 +1507,15 @@ terraform-plan:
   kind: build
   on: shop
   serves: [maintain.unrelated-breakage]
-  step: terraform -chdir=infra plan -out=../.archform/plan && terraform -chdir=infra show -json ../.archform/plan > .archform/plan.json
-  produces: [.archform/plan.json]
+  step: terraform -chdir=infra plan -out=../.zigdag/plan && terraform -chdir=infra show -json ../.zigdag/plan > .zigdag/plan.json
+  produces: [.zigdag/plan.json]
 ```
 
-`archform.toml`:
+`zigdag.toml`:
 
 ```toml
 [settings]
+ruleset      = 1
 tests        = ["tests"]
 test_command = "pytest"
 
@@ -1280,7 +1527,7 @@ source = ["src"]
 
 [adapters.terraform]
 source = "infra"
-plan   = ".archform/plan.json"
+plan   = ".zigdag/plan.json"
 
 [adapters.sql]
 migrations = "migrations"
@@ -1289,7 +1536,7 @@ migrations = "migrations"
 source = ["web"]
 ```
 
-What archform renders with `archform show shop`, at the container level:
+What zigdag renders with `zigdag show shop`, at the container level:
 
 ```
 shop: The shop shall take orders for products from shoppers.
@@ -1319,18 +1566,25 @@ Views are generated from the record and the code. None of them is written by han
 
 | Command | Does |
 |---|---|
-| `archform init` | records what is there (§7.9) |
-| `archform check` | runs every static check, and uses the latest observed results that are still current. Fast enough to run after every edit. |
-| `archform test` | runs the project's tests under observation, then archform's generated tests, then everything `check` does (§4.5) |
-| `archform fmt` | gives every design file its canonical layout |
-| `archform rename <old> <new>` | renames an FR and its DP everywhere it is used: the record, and every `verifies` link in the tests |
-| `archform show [name]` | one level of the zigzag: the FR's statements, its children, the design matrix, the constraints and process variables in force (as sentences), evidence, and what is broken |
-| `archform show --data [name]` | the data model: each structure, what it contains and refers to, with cardinalities; and a create, read, update and delete table of structures against the DPs that access them |
-| `archform context <file or name>` | what an agent needs before changing that code: the chain up to its outcomes and job, its statements, the constraints and process variables in force, the interfaces of what it depends on, and evidence |
-| `archform review <base>` | what a change does to the record, in domain order (customer, functional, physical, process), then what broke |
-| `archform next` | what is to do, in the order the design matrix allows building it |
-| `archform findings` | open threads and unanswered questions from the log, newest first |
-| `archform checks` / `archform effects` | the registered check kinds and effects, with their parameters and meanings |
+| `zigdag init` | records what is there (§7.9) |
+| `zigdag check` | runs every static check, and uses the latest observed results that are still current. Fast enough to run after every edit. |
+| `zigdag test [arguments]` | runs the project's tests under observation, then zigdag's generated tests, then the tests against mutants, then everything `check` does (§4.5). Other arguments go to the test command. |
+| `zigdag fmt` | gives every design file its canonical layout. With `--check`, changes nothing and fails if a file is not in it. |
+| `zigdag rename <old> <new>` | renames an FR and its DP everywhere it is used: the record, and every `verifies` link in the tests |
+| `zigdag show [name]` | one level of the zigzag: the FR's statements, its children, the design matrix, the constraints and process variables in force (as sentences), evidence, and what is broken |
+| `zigdag show --data [name]` | the data model: each structure, what it contains and refers to, with cardinalities; and a create, read, update and delete table of structures against the DPs that access them |
+| `zigdag context <file or name>` | what an agent needs before changing that code: the chain up to its outcomes and job, its statements, the constraints and process variables in force, the interfaces of what it depends on, and evidence |
+| `zigdag review <base>` | what a change does to the record, in domain order (customer, functional, physical, process): each entry added, changed, removed or renamed, with rules shown as sentences, and whether each was critiqued and approved; then the gates, then what the change brought. The base is any git revision. |
+| `zigdag check --base <base>` | everything `check` does, plus the workflow gates for the entries changed since the base |
+| `zigdag approve [entries] [--base <base>] --by <who>` | approves entries at their current content |
+| `zigdag critique --request [entries] [--base <base>]` | writes a request for a fresh critic: each entry, what it serves, and the rubric questions still to ask |
+| `zigdag critique --record <answer> --by <critic>` | records the answer: a `critiqued` event per entry, and a `raised` event per finding. Findings whose evidence is not words from the entry, and entries changed since the request, are refused. |
+| `zigdag agent install claude` | writes the skills, and hooks that start each session with `show` and report the breaks an edit made |
+| `zigdag next` | what is to do, in the order the design matrix allows building it |
+| `zigdag findings` | open threads and unanswered questions from the log, newest first |
+| `zigdag raise <kind> <on> <say> --by <who>` | adds a defect, question or idea to the log |
+| `zigdag answer <thread or question> <answer> <say> --by <who>` | answers an open thread or a question a check asked: `fixed`, `accepted`, `declined` or `answered`, optionally with a countermeasure |
+| `zigdag checks` / `zigdag effects` | the registered check kinds and effects, with their parameters and meanings |
 
 C4's views are cuts of the physical domain: context, containers, components and code are its levels.
 
@@ -1342,6 +1596,9 @@ The methods for arriving at a good record are shipped as agent skills. Each skil
 the record, and is finished when that part's checks hold. A skill is offered when what it produces is
 missing, or when a check result calls for it.
 
+`zigdag agent install claude` writes them, together with a core skill, `zigdag`, that says how to work in a
+project zigdag keeps at all. The skill text names no agent product; only the install does.
+
 | Skill | Produces | Offered when | Finished when |
 |---|---|---|---|
 | `interview-for-jobs` | jobs, performers and outcomes, from a jobs-to-be-done interview with a person | the customer domain is empty, or a request arrives phrased as a solution | the job and outcome grammars hold, and the person has confirmed each outcome |
@@ -1351,9 +1608,26 @@ missing, or when a check result calls for it.
 | `resolve-coupling` | a change that removes a cycle, using TRIZ separation and the ASIT closed world | `no-cycles` breaks, or `co-change` asks | `no-cycles` holds |
 | `set-limits` | constraints, and tuning of built-ins | an FR has statements but nothing limits its DP, or a built-in needs tuning | every constraint serves an outcome and is enforced |
 | `choose-process` | process variables: verification, validation, build steps, gates | statements need evidence that no process variable provides | every statement has the evidence its form and the process in force require |
-| `adopt` | the record for existing code, through `archform init`, then paying down `except` entries | a project has code but no record | the first check holds, and each later run removes debt |
+| `adopt` | the record for existing code, through `zigdag init`, then paying down `except` entries | a project has code but no record | the first check holds, and each later run removes debt |
 | `critique` | `critiqued` log events, from a critic that has seen none of the work | an entry changed since it was last critiqued | every changed entry has a critique for its current content |
 | `review` | `approved` log events, or findings, for a change, read in domain order | a change is ready for review | every changed entry is approved or has an open finding |
+
+
+### 10.1 The critique rubric
+
+A critic answers questions about what checks cannot see, one set for each kind of entry:
+
+| Entry | Asks |
+|---|---|
+| job | is it something the performer is trying to get done, whatever product they use? Is it the whole job, not a step or a way of doing one? Is the performer real? |
+| outcome | would the performer judge the job by it? Is it clear what is counted or timed? Does it stay true whichever solution is used? Is it distinct from the job's other outcomes? |
+| FR | is the ubiquitous statement one function, and the right one? Does each other statement pin it down without adding a function? Could a test decide each? Do the FRs below it achieve it, with nothing missing or extra? Is its code the simplest choice? |
+| constraint | is it a limit, not a function? Does the outcome it serves explain it? Is it placed on the right FR? Is each excepted piece of code a real exception? |
+| process variable | does it change how code is made or checked, not what the system does? Does its outcome explain why it pays off? |
+| tuning | is the change to the built-in justified? Is each excepted piece of code a real exception, rather than debt left unnamed? |
+| physical entry | is this code the right home for the DP, holding nothing that belongs to another? |
+
+**Every question has the rubric version it arrived in.** A `critiqued` event records the version the critic answered. An entry unchanged since is asked only the questions that arrived later. A critic's finding must quote the entry's own words, so a critic cannot judge what is not written.
 
 ---
 
@@ -1369,6 +1643,7 @@ missing, or when a check result calls for it.
 | C4 | the four levels of the physical domain, and its views |
 | Baldwin and Clark (design rules) | structures and named types that other components build against, and `edge-types` |
 | Design by contract (deal) and property tests | the effect vocabulary, contracts and property tests as evidence, generated cases |
+| Mutation testing (DeMillo, Lipton and Sayward) | the built-in `mutation` rule: changes to the code that no test notices |
 | TRIZ and ASIT | the method for when the design matrix has a cycle. Not stored. |
 | Jidoka | the `stop-on-error` and `countermeasure-on-escape` gates, and the log |
 
@@ -1376,24 +1651,27 @@ missing, or when a check result calls for it.
 
 ## 12. Open questions
 
-1. **Build steps:** how archform decides that build outputs are current without running the step
+1. **Build steps:** how zigdag decides that build outputs are current without running the step
    itself, for example by recording a digest of the inputs in the output.
 2. **Validation reports:** the format a measurement report uses to give the outcome's value.
-3. **Who is a person:** how `person-approves-design` tells a person from an agent in `by`.
-4. **Adapters after Python:** the exact link forms and effect lists for TypeScript, Go and Rust, and
+3. **Adapters after Python:** the exact link forms and effect lists for TypeScript, Go and Rust, and
    how much each can observe while tests run.
-5. **Infrastructure:** which resource types count as containers in each provider, and how far setting
+4. **Infrastructure:** which resource types count as containers in each provider, and how far setting
    values can be traced from the plan to a call in the code.
-6. **Defaults on existing systems:** whether `one-writer-per-data-store`, `edge-types` and
-   `declared-errors` should start on (with everything current under `except`) or start off.
-7. **The maintainer job's outcomes:** whether the built-in set is right and complete.
-8. **Performers and containers:** relationships are never written, so how a performer is tied to the
-   containers they use must be worked out. One job is easy. With several jobs, archform can see which
+5. **Defaults on existing systems:** whether `one-writer-per-data-store`, `edge-types` and
+   `declared-errors` should start on (with everything current under `except`) or start off. The same
+   goes for `mutation`, whose first run on existing code is slow and leaves many survivors.
+6. **The maintainer job's outcomes:** whether the built-in set is right and complete.
+7. **Performers and containers:** relationships are never written, so how a performer is tied to the
+   containers they use must be worked out. One job is easy. With several jobs, zigdag can see which
    containers are reachable from outside, but not which performer reaches which.
-9. **The critique rubric:** the questions a critic asks of each term (job, outcome, FR, DP), and how
-   they are versioned.
-10. **Pinning the rule set:** how `archform.toml` names the rule-set version, so that a new archform
-    release never changes results until the project upgrades.
-11. **Compatible changes:** a check that structures crossing containers, or stored, change only in
-    compatible ways compared with the base, unless a migration is recorded.
-12. **The name:** `archform` for the tool and the record.
+8. **Tests that start processes:** following child processes, as coverage tools do, so that a test
+   running the project as a command counts as running its code.
+9. **Compatible changes:** a check that structures crossing containers, or stored, change only in
+   compatible ways compared with the base, unless a migration is recorded.
+10. **Mutating functions without contracts,** judged by their tests alone. Their mutants would run
+    too, so the same limit to pure functions applies, or their effect calls are recorded and compared
+    instead of being made.
+11. **Which test killed a mutant:** tools stop at the first test that fails, so a test that checks
+    nothing can hide behind one that checks well. Finding it means running each statement's tests on
+    their own against the mutants they reach: one more run per statement, for every mutant.
