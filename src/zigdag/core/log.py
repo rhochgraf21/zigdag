@@ -13,14 +13,17 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import NewType
 
-from zigdag.core.findings import Digest, Finding, RecordPath, Report, Result, RuleName, Span, Subject, digest_of, finding
 from zigdag.core.record.read import DESIGN_DIR
+from zigdag.core.findings import Digest, Finding, RecordPath, Report, Result, RuleName, Span, Subject, digest_of, finding
+from zigdag.core.measures import Line, Version
+from zigdag.core.texts import FileText, Say, Written
 
 LOG_FILE = RecordPath(f"{DESIGN_DIR}/log.jsonl")
 LOG_RULE = "log"
 
 Timestamp = NewType("Timestamp", str)  # UTC, to the second: 2026-11-04T14:12:05Z
 Actor = NewType("Actor", str)  # who: a person or an agent
+EventLine = NewType("EventLine", str)  # one event, as one line of the log
 ThreadId = NewType("ThreadId", str)  # worked out from at, by, on and say
 
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -59,13 +62,13 @@ class Answered:
     at: Timestamp
     by: Actor
     answer: Answer
-    say: str
+    say: Say
     id: ThreadId | None
     check: RuleName | None
-    on: str | None
+    on: Subject | None
     digest: Digest | None
-    countermeasure: str | None
-    line: int
+    countermeasure: Subject | None
+    line: Line
 
 
 @dataclass(frozen=True)
@@ -115,10 +118,10 @@ class Log:
     def thread(self, id: ThreadId) -> Thread | None:
         return next((t for t in self.threads if t.raised.id == id), None)
 
-    def critiques(self, on: str, digest: Digest) -> tuple[Critiqued, ...]:
+    def critiques(self, on: Subject, digest: Digest) -> tuple[Critiqued, ...]:
         return tuple(e for e in self.events if isinstance(e, Critiqued) and e.on == on and e.digest == digest)
 
-    def approvals(self, on: str, digest: Digest) -> tuple[Approved, ...]:
+    def approvals(self, on: Subject, digest: Digest) -> tuple[Approved, ...]:
         return tuple(e for e in self.events if isinstance(e, Approved) and e.on == on and e.digest == digest)
 
     @property
@@ -127,7 +130,7 @@ class Log:
                          if isinstance(e, Answered) and e.check is not None and e.on is not None and e.digest)
 
 
-def thread_id(at: Timestamp, by: Actor, on: str, say: str) -> ThreadId:
+def thread_id(at: Timestamp, by: Actor, on: Subject, say: Say) -> ThreadId:
     return ThreadId(digest_of(at, by, on, say))
 
 
@@ -183,7 +186,7 @@ def _event(raw: object, line: int) -> tuple[Event | None, str | None]:
         return None, f"{kind}: {e}"
 
 
-def read_log(text: str | None) -> tuple[Log, tuple[Finding, ...]]:
+def read_log(text: FileText | None) -> tuple[Log, tuple[Finding, ...]]:
     if not text:
         return Log(()), ()
     events: list[Event] = []
@@ -221,28 +224,28 @@ def line_of(fields: Mapping[str, str]) -> str:
     return json.dumps(dict(sorted(fields.items())), ensure_ascii=False, separators=(", ", ": "))
 
 
-def raised(at: Timestamp, by: Actor, kind: Kind, on: str, say: str, evidence: str | None) -> str:
+def raised(at: Timestamp, by: Actor, kind: Kind, on: Subject, say: Say, evidence: Written | None) -> EventLine:
     fields = {"at": at, "by": by, "event": "raised", "id": thread_id(at, by, on, say), "kind": kind.value, "on": on,
               "say": say}
     return line_of({**fields, **({"evidence": evidence} if evidence else {})})
 
 
-def answered_thread(at: Timestamp, by: Actor, id: ThreadId, answer: Answer, say: str,
-                    countermeasure: str | None) -> str:
+def answered_thread(at: Timestamp, by: Actor, id: ThreadId, answer: Answer, say: Say,
+                    countermeasure: Subject | None) -> EventLine:
     fields = {"at": at, "by": by, "event": "answered", "id": id, "answer": answer.value, "say": say}
     return line_of({**fields, **({"countermeasure": countermeasure} if countermeasure else {})})
 
 
-def answered_question(at: Timestamp, by: Actor, question: Finding, answer: Answer, say: str) -> str:
+def answered_question(at: Timestamp, by: Actor, question: Finding, answer: Answer, say: Say) -> EventLine:
     return line_of({"at": at, "by": by, "event": "answered", "check": question.rule, "on": question.about,
                     "digest": question.digest, "answer": answer.value, "say": say})
 
 
-def critiqued(at: Timestamp, by: Actor, on: str, digest: Digest, rubric: int) -> str:
+def critiqued(at: Timestamp, by: Actor, on: Subject, digest: Digest, rubric: Version) -> EventLine:
     return line_of({"at": at, "by": by, "event": "critiqued", "on": on, "digest": digest, "rubric": str(rubric)})
 
 
-def approved(at: Timestamp, by: Actor, on: str, digest: Digest) -> str:
+def approved(at: Timestamp, by: Actor, on: Subject, digest: Digest) -> EventLine:
     return line_of({"at": at, "by": by, "event": "approved", "on": on, "digest": digest})
 
 

@@ -122,6 +122,33 @@ def keep(order: Order, folder) -> None:
 def half(quantity: int) -> int:
     """Half the quantity, rounded down."""
     return quantity // 2
+
+
+@dataclass(frozen=True)
+class Tag:
+    """A label on an order."""
+
+    text: OrderId
+
+    @property
+    def shown(self) -> OrderId:
+        """The tag as it is shown."""
+        return OrderId(self.text.upper())
+
+
+def joined(*parts: OrderId) -> OrderId:
+    """The parts, joined."""
+    return OrderId("-".join(parts))
+
+
+def each(order_ids: list[OrderId]):
+    """Each id, one at a time."""
+    yield from order_ids
+
+
+def matcher(order_id: OrderId):
+    """A test for one id."""
+    return lambda other: other == order_id
 '''
 BILLING = '''"""Billing."""
 from shop import orders
@@ -152,6 +179,13 @@ def lookup(order_id: orders.OrderId) -> Order:
 def label(order: Order) -> orders.OrderId:
     """A shipping label."""
     return orders.pad(order.id, 12)
+
+
+def tags(order: Order) -> orders.OrderId:
+    """Tags for an order, through a property, varargs, a generator and a lambda."""
+    found = list(orders.each([order.id]))
+    orders.matcher(order.id)(order.id)
+    return orders.joined(orders.Tag(order.id).shown, *found)
 '''
 TESTS = '''import pytest
 
@@ -184,6 +218,10 @@ def test_relabel_and_label():
 def test_lookup():
     with pytest.raises(KeyError):
         billing.lookup(OrderId("nope"))
+
+
+def test_tags():
+    assert billing.tags(order()) == "O1-o1"
 
 
 def test_numbers_and_keep(tmp_path):
@@ -225,6 +263,12 @@ def test_zigdag_test_sees_what_reading_the_code_cannot(tmp_path):
     crossings = " | ".join(found(a, "edge-types"))
     assert "receipt was given a str for order, which its annotation, Order, does not allow" in crossings
     assert "pad was given an int for width, and no annotation lets through an int" in crossings
+    crossed = " | ".join(found(a, "edge-types"))
+    assert "Tag.shown returned" not in crossed  # a property's annotation is its getter's
+    assert "was given a tuple for parts" not in crossed  # *parts is judged item by item
+    assert "each returned a NoneType" not in crossed  # a generator's frame returns None when it ends
+    assert "for other" not in crossed  # a lambda's annotations cannot be found, so it is not judged
+    assert "matcher returned a function, and no annotation lets through a function" in crossed  # but its maker is
     assert any("the text of an Email was written to standard output while tests.test_shop::test_notify ran" in s
                for s in found(a, "contact-stays-private"))
     assert any("half breaks its own contract on generated inputs" in s for s in found(a, "contracts"))

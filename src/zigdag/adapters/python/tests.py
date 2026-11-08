@@ -14,7 +14,7 @@ from zigdag.core.names import CodePath
 from zigdag.core.record.model import EvidenceKind
 
 
-def test_module(path: RecordPath) -> str:
+def test_module(path: RecordPath) -> CodePath:
     return path.removesuffix(".py").replace("/", ".")
 
 

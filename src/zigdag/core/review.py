@@ -8,10 +8,13 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.findings import Finding, Report, Result
-from zigdag.core.log import Log
 from zigdag.core.record.entries import Entry, entries
 from zigdag.core.record.model import Domain, Record
+from zigdag.core.findings import Finding, Report, Result
+from zigdag.core.log import Log
+from zigdag.core.log import Actor
+from zigdag.core.names import Revision, RuleId
+from zigdag.core.texts import Say, SentenceText, Shown
 
 
 class ChangeKind(enum.Enum):
@@ -29,7 +32,7 @@ class Change:
     kind: ChangeKind
     entry: Entry  # the entry as it is now; for a removal, as it was
     before: Entry | None
-    details: tuple[str, ...]
+    details: tuple[Say, ...]
 
     @property
     def domain(self) -> Domain:
@@ -85,8 +88,8 @@ def _said(fields: Mapping[str, object], rule: str | None) -> list[str]:
     return out
 
 
-def diff(before: Record, after: Record, sentences_before: Mapping[str, str] | None = None,
-         sentences_after: Mapping[str, str] | None = None) -> list[Change]:
+def diff(before: Record, after: Record, sentences_before: Mapping[RuleId, SentenceText] | None = None,
+         sentences_after: Mapping[RuleId, SentenceText] | None = None) -> list[Change]:
     """What changed between two records, with renames found where an entry left one name and came back under another
     with the same content."""
     old, new = entries(before), entries(after)
@@ -133,8 +136,8 @@ def _status(change: Change, log: Log, people: tuple[str, ...]) -> str:
     return "  [" + "; ".join(parts) + "]"
 
 
-def render(base: str, changes: list[Change], log: Log, people: tuple[str, ...], gates: list[Finding],
-           brought: list[Finding]) -> str:
+def render(base: Revision, changes: list[Change], log: Log, people: tuple[Actor, ...], gates: list[Finding],
+           brought: list[Finding]) -> Shown:
     if not changes and not brought:
         return f"no change to the record or its findings since {base}"
     lines = [f"review against {base}: {len(changes)} entries changed"]

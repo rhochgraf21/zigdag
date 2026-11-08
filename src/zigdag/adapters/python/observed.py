@@ -28,6 +28,7 @@ from zigdag.core.code import (
 )
 from zigdag.core.findings import Digest, RecordPath
 from zigdag.core.names import CodePath
+from zigdag.core.texts import FileText, Say
 
 COLLECTION = TestId("(collecting the tests)")  # what is seen before any test runs, while test modules are imported
 
@@ -58,14 +59,14 @@ class Recording:
     replays: tuple[Replay, ...] = ()
     cases: tuple[Cases, ...] = ()
     mutants: tuple[Mutant, ...] = ()
-    mutation_unavailable: str | None = None  # why no mutants were made
+    mutation_unavailable: Say | None = None  # why no mutants were made
     unwatched: tuple[CodePath, ...] = ()  # units whose running the watcher cannot see: its own
 
-    def to_text(self) -> str:
+    def to_text(self) -> FileText:
         return codec.dumps(self)
 
     @staticmethod
-    def from_text(text: str) -> Recording | codec.Unreadable:
+    def from_text(text: FileText) -> Recording | codec.Unreadable:
         return codec.loads(Recording, text)
 
 

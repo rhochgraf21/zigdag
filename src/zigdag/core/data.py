@@ -24,10 +24,11 @@ from zigdag.core.code import (
     UnitKind,
     Use,
 )
-from zigdag.core.findings import Span
-from zigdag.core.names import AdapterName, FrName
 from zigdag.core.relate import Relations
 from zigdag.core.resolve import Tree
+from zigdag.core.findings import Span
+from zigdag.core.names import AdapterName, FrName
+from zigdag.core.texts import Word
 
 
 class Cardinality(enum.Enum):
@@ -64,7 +65,7 @@ def shape(t: TypeExpr | None) -> tuple[Qualified | None, Cardinality]:
     return None, Cardinality.ONE
 
 
-def choices(model: CodeModel, t: TypeExpr | None) -> tuple[str, ...] | None:
+def choices(model: CodeModel, t: TypeExpr | None) -> tuple[Word, ...] | None:
     """The values a field can hold when it is an enumeration or a literal, looking through `| None`."""
     if t is None:
         return None
@@ -111,7 +112,7 @@ class Structure:
         return next((f for f in self.fields if f.key), None)
 
     @property
-    def name(self) -> str:
+    def name(self) -> Word:
         """The words a statement uses for it: the last part of its DP's name."""
         return self.dp.rpartition(".")[2].replace("_", " ")
 
@@ -165,7 +166,7 @@ class DataModel:
         dp = self.by_type.get(type_name) if type_name else None
         return self.structures[dp] if dp is not None else None
 
-    def named(self, words: str) -> list[Structure]:
+    def named(self, words: Word) -> list[Structure]:
         """The structures a statement can mean by these words: the last part of the DP's name."""
         return [s for _, s in sorted(self.structures.items()) if s.name == words]
 

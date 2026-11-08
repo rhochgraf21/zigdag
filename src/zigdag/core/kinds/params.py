@@ -7,6 +7,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from zigdag.core.effects import Effect
+from zigdag.core.names import ParamName
+from zigdag.core.texts import Word, Written
+
+
+EffectTest = Callable[[str], bool]  # whether a name is an effect the project knows
 
 
 class ParamType(enum.Enum):
@@ -22,7 +27,7 @@ class ParamType(enum.Enum):
 class ParamSpec:
     type: ParamType
     default: object = None  # None means the parameter must be given
-    choices: tuple[str, ...] = ()
+    choices: tuple[Word, ...] = ()
 
 
 ParamSchema = Mapping[str, ParamSpec]
@@ -37,8 +42,8 @@ class ParamProblem:
 
 def convert(
     schema: ParamSchema,
-    raw: Mapping[str, str | tuple[str, ...]],
-    is_effect: Callable[[str], bool],
+    raw: Mapping[ParamName, Written | tuple[Written, ...]],
+    is_effect: EffectTest,
 ) -> tuple[Params, tuple[ParamProblem, ...]]:
     """The typed parameters, with defaults filled in, and what is wrong with the ones given."""
     out: dict[str, object] = {}

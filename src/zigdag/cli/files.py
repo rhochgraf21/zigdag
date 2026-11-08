@@ -10,15 +10,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from zigdag.cli import plans
-from zigdag.cli.plans import Files
+from zigdag.cli.plans import Files, GitError, Presence
 
 GIT = "git"
 ENCODING = "utf-8"
 _ABSENT = (FileNotFoundError, IsADirectoryError, NotADirectoryError)  # what reading a file that is not there raises
-
-
-class GitError(Exception):
-    """A git revision could not be read."""
 
 
 def text(path: Path) -> str | None:
@@ -31,8 +27,8 @@ def text(path: Path) -> str | None:
 
 def from_disk(root: Path) -> Files:
     where = plans.on_disk(root)
-    reading = plans.Reading.of(text(where.settings), where.conventional_source.is_dir())
-    paths = plans.present(root, [(path, path.is_file()) for path in where.always])
+    reading = plans.Reading.of(text(where.settings), Presence(where.conventional_source.is_dir()))
+    paths = plans.present(root, [(path, Presence(path.is_file())) for path in where.always])
     for base in plans.walked(root, reading):
         for here, folders, names in os.walk(base):
             folders[:] = plans.visited(folders)

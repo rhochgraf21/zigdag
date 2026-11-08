@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from zigdag.core.findings import BUILT_IN_SPAN
 from zigdag.core.names import CheckKindName, OutcomeRef, RuleId, Slug
 from zigdag.core.record.model import Domain, Job, Outcome, Sentence
+from zigdag.core.names import ParamName
+from zigdag.core.texts import Written
 
 MAINTAIN = Slug("maintain")
 _HERE = BUILT_IN_SPAN
@@ -41,7 +43,7 @@ class BuiltIn:
     name: RuleId
     domain: Domain
     kind: CheckKindName
-    params: Mapping[str, str | tuple[str, ...]]
+    params: Mapping[ParamName, Written | tuple[Written, ...]]
     serves: OutcomeRef
     always_on: bool
 

@@ -147,6 +147,7 @@ class _Pending:
     caller: _Code | str | None
     span: Span  # the call
     hints: Mapping[str, object] = field(default_factory=dict)
+    judged: bool = False  # its annotations were found, so what crosses can be judged against them
     crossing: bool = False  # it came from another design parameter
     snapshots: list[_Snapshot] = field(default_factory=list)
     replay: tuple[Callable, tuple, dict] | None = None
@@ -489,7 +490,9 @@ class Watcher:
                 caller.place, info.operation, pending.span, self.test))
             pending.crossing = True
             function, pending.hints = self._hints(frame, code)
-            self._crossings(info, code, frame, pending)
+            pending.judged = function is not None  # an inner function or a lambda: its annotations cannot be found
+            if pending.judged:
+                self._crossings(info, code, frame, pending)
         pending.snapshots = self._snapshots(values, info)
         if info.place in self.replayed:
             self._record(frame, code, info, pending)
@@ -521,10 +524,16 @@ class Watcher:
 
     def _crossings(self, info: _Code, code: CodeType, frame: FrameType, pending: _Pending) -> None:
         names = _parameters(code)
+        many = _gathered(code)
         if "." in (info.place.symbol or "") and names and names[0] in ("self", "cls"):
             names = names[1:]
         for name in names:
-            self._crossing(info, name, frame.f_locals.get(name), pending)
+            value = frame.f_locals.get(name)
+            if name in many:  # *args and **kwargs: the annotation is each item's
+                for item in (value.values() if isinstance(value, dict) else value or ()):
+                    self._crossing(info, name, item, pending)
+            else:
+                self._crossing(info, name, value, pending)
 
     def _record(self, frame: FrameType, code: CodeType, info: _Code, pending: _Pending) -> None:
         if len(self.recorded.get(info.place, ())) >= RECORDED_CALLS or info.place in self.uncopyable:
@@ -560,7 +569,8 @@ class Watcher:
         try:
             info = pending.code
             if pending.crossing and error is None:
-                self._crossing(info, RETURNED, value, pending)
+                if pending.judged and not code.co_flags & _LAZY:  # a generator's frame returns None when it ends
+                    self._crossing(info, RETURNED, value, pending)
             elif pending.crossing and not isinstance(error, _NOT_ESCAPES):
                 error_type = Qualified(type_name(error))
                 self.escapes.setdefault((info.place, error_type), Escape(info.place, error_type, pending.span,
@@ -705,6 +715,18 @@ def _parameters(code: CodeType) -> tuple[str, ...]:
     return code.co_varnames[:count]
 
 
+def _gathered(code: CodeType) -> frozenset[str]:
+    """The names of a function's *args and **kwargs, whose annotations are each item's, not the whole's."""
+    at = code.co_argcount + code.co_kwonlyargcount
+    names = []
+    if code.co_flags & inspect.CO_VARARGS:
+        names.append(code.co_varnames[at])
+        at += 1
+    if code.co_flags & inspect.CO_VARKEYWORDS:
+        names.append(code.co_varnames[at])
+    return frozenset(names)
+
+
 def _arguments(code: CodeType, frame: FrameType) -> tuple[tuple, dict]:
     """The arguments a call was made with, read back from the frame as it starts."""
     names, local = code.co_varnames, frame.f_locals
@@ -728,6 +750,7 @@ def _function(frame: FrameType, code: CodeType) -> Callable | None:
     for part in parts[1:]:
         target = getattr(target, part, None)
     target = getattr(target, "__func__", target)
+    target = getattr(target, "fget", None) or getattr(target, "func", None) or target  # a property's, or a cached one's
     inner = inspect.unwrap(target) if callable(target) else None
     return target if inner is not None and getattr(inner, "__code__", None) is code else None
 

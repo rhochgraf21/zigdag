@@ -14,12 +14,13 @@ from pathlib import Path
 
 from zigdag.agents import claude
 from zigdag.cli import plans
-from zigdag.cli.files import GitError, from_disk, from_git, text
-from zigdag.cli.plans import Files, Outcome
+from zigdag.cli.files import from_disk, from_git, text
+from zigdag.cli.plans import Files, GitError, Outcome, Presence
 from zigdag.core import log as lg
 from zigdag.core.checks.run import Analysis
-from zigdag.core.findings import RecordPath
 from zigdag.core.settings import PLAN_FILE
+from zigdag.core.findings import RecordPath
+from zigdag.core.names import Revision
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -75,12 +76,25 @@ def perform(project: Project, outcome: Outcome) -> int:
     return outcome.exit
 
 
-def check(project: Project, as_json: bool, base: str | None) -> int:
+def _earlier(project: Project, base: Revision | None) -> tuple[Analysis, ...]:
+    """The analysis at the base, when there is one; raises GitError when it cannot be read."""
+    return tuple(project.at(revision) for revision in plans.revisions(base))
+
+
+def check(project: Project, base: Revision | None) -> int:
     try:
-        earlier = tuple(project.at(revision) for revision in plans.revisions(base))
+        earlier = _earlier(project, base)
     except GitError as e:
         return perform(project, plans.unreadable(base, e))
-    return perform(project, plans.check(project.analysis, earlier, base, as_json))
+    return perform(project, plans.check(project.analysis, earlier, base))
+
+
+def check_json(project: Project, base: Revision | None) -> int:
+    try:
+        earlier = _earlier(project, base)
+    except GitError as e:
+        return perform(project, plans.unreadable(base, e))
+    return perform(project, plans.check_json(project.analysis, earlier, base))
 
 
 def test(project: Project, extra: list[str]) -> int:
@@ -91,11 +105,16 @@ def test(project: Project, extra: list[str]) -> int:
     project.write(PLAN_FILE, run.watch)
     run.observed.unlink(missing_ok=True)
     ran = subprocess.run(run.command, cwd=run.root, env=run.environment)
-    return perform(project, plans.tested(run, run.observed.is_file(), ran.returncode, Project(run.root).analysis))
+    return perform(project, plans.tested(run, Presence(run.observed.is_file()), ran.returncode,
+                                         Project(run.root).analysis))
 
 
-def fmt(project: Project, only_check: bool) -> int:
-    return perform(project, plans.fmt(project.files, only_check))
+def fmt(project: Project) -> int:
+    return perform(project, plans.fmt(project.files))
+
+
+def fmt_check(project: Project) -> int:
+    return perform(project, plans.fmt_check(project.files))
 
 
 def raise_(project: Project, kind: str, on: str, say: str, by: str, evidence: str | None) -> int:
@@ -114,8 +133,12 @@ def view(project: Project, name: str, target: str | None) -> int:
     return perform(project, plans.view(project.analysis, name, target))
 
 
-def init_project(project: Project, force: bool) -> int:
-    return perform(project, plans.init(project.files, force))
+def init_project(project: Project) -> int:
+    return perform(project, plans.init(project.files))
+
+
+def init_forced(project: Project) -> int:
+    return perform(project, plans.init_forced(project.files))
 
 
 def review(project: Project, base: str) -> int:

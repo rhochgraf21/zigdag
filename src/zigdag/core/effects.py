@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from typing import NewType
+from zigdag.core.names import FrName
+from zigdag.core.texts import Say
 
 Effect = NewType("Effect", str)  # read, network, verus.run, shop.orders_db.write
 
@@ -41,13 +43,13 @@ def expand(effects: Iterable[Effect]) -> frozenset[Effect]:
     return frozenset(out)
 
 
-def resource_container(effect: Effect) -> str | None:
+def resource_container(effect: Effect) -> FrName | None:
     """The container name in a resource effect such as shop.orders_db.write, or None."""
     head, dot, access = effect.rpartition(".")
     return head if dot and access in RESOURCE_ACCESS and "." in head else None
 
 
-def phrase(effect: Effect) -> str:
+def phrase(effect: Effect) -> Say:
     if effect in BUILT_IN:
         return BUILT_IN[effect]
     container = resource_container(effect)

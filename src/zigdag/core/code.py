@@ -12,10 +12,13 @@ from dataclasses import dataclass, field
 from typing import NewType
 
 from zigdag.core.effects import Effect
-from zigdag.core.findings import Digest, Finding, RecordPath, Span
 from zigdag.core.kinds.registry import Part
-from zigdag.core.names import AdapterName, CodePath
 from zigdag.core.record.model import EvidenceKind
+from zigdag.core.findings import Digest, Finding, RecordPath, Span
+from zigdag.core.names import AdapterName, CodePath
+from zigdag.core.measures import Count, LineCount
+from zigdag.core.names import Api, Identifier, Library
+from zigdag.core.texts import Say, Written
 
 SymbolName = NewType("SymbolName", str)  # a name inside a unit: emit_module, Emitter, Emitter.emit_expr
 CONSTRUCTOR_NAME = "__init__"  # a class's constructor
@@ -37,7 +40,7 @@ class Unit:
     kind: UnitKind
     public: bool  # its language marks it public: no part of its name starts with _
     span: Span
-    size: int  # lines
+    size: LineCount  # lines
 
 
 class SymbolKind(enum.Enum):
@@ -55,7 +58,7 @@ class Abstraction(enum.Enum):
     ABSTRACT_BASE = "abstract base class"  # implemented by naming it as a base
 
     @property
-    def with_article(self) -> str:
+    def with_article(self) -> Say:
         return f"{'an' if self.value[0] in 'aeiou' else 'a'} {self.value}"
 
 
@@ -73,10 +76,10 @@ class TypeKind(enum.Enum):
 @dataclass(frozen=True)
 class TypeExpr:
     kind: TypeKind
-    text: str  # as written
+    text: Written  # as written
     name: Qualified | None = None
     args: tuple[TypeExpr, ...] = ()
-    values: tuple[str, ...] = ()  # a literal's values, as written: paid, shipped
+    values: tuple[Written, ...] = ()  # a literal's values, as written: paid, shipped
 
     @property
     def named(self) -> Qualified | None:
@@ -91,11 +94,11 @@ class TypeExpr:
 
 @dataclass(frozen=True)
 class Param:
-    name: str
+    name: Identifier
     type: TypeExpr | None  # None when it has no annotation
     span: Span
     branched_on: bool = False  # the body takes a branch by its value: if flag:, match kind:
-    fields_read: tuple[str, ...] = ()  # the fields of it the body reads, in order of first reading
+    fields_read: tuple[Identifier, ...] = ()  # the fields of it the body reads, in order of first reading
     used_whole: bool = True  # the body also uses it as a whole: passes, returns, compares, changes or calls it
 
 
@@ -108,9 +111,9 @@ class Signature:
 
 @dataclass(frozen=True)
 class Field:
-    name: str
+    name: Identifier
     type: TypeExpr | None
-    description: str | None
+    description: Say | None
     span: Span
     key: bool = False  # the adapter marks it as its structure's identity: a primary key, or a field named id
 
@@ -122,12 +125,12 @@ class Symbol:
     kind: SymbolKind
     public: bool
     span: Span
-    size: int
-    description: str | None  # a docstring's first line, or a comment at the end of the line
+    size: LineCount
+    description: Say | None  # a docstring's first line, or a comment at the end of the line
     signature: Signature | None = None  # functions and methods
     fields: tuple[Field, ...] = ()  # classes
     bases: tuple[TypeExpr, ...] = ()  # classes
-    members: tuple[str, ...] = ()  # an enumeration's members, as written
+    members: tuple[Identifier, ...] = ()  # an enumeration's members, as written
     abstraction: Abstraction | None = None  # classes: a protocol or an abstract base class
     contract: bool = False  # it has a contract that is checked when it runs
     unmutated: tuple[Span, ...] = ()  # functions: lines marked not to be mutated, such as # pragma: no mutate
@@ -148,7 +151,7 @@ class Symbol:
         """Where its code runs."""
         return Place(self.unit, self.name)
 
-    def field(self, name: str) -> Field | None:
+    def field(self, name: Identifier) -> Field | None:
         return next((f for f in self.fields if f.name == name), None)
 
 
@@ -191,7 +194,7 @@ class EffectStart:
 
     at: Place
     effect: Effect
-    via: str  # the API, as written: open, subprocess.run, print
+    via: Api  # the API, as written: open, subprocess.run, print
     span: Span
     seen: TestId | None = None
 
@@ -203,9 +206,9 @@ class TypeOf:
 
     root: Qualified
     called: bool  # the value is what a call to root returns: a constructor's object, or a function's result
-    path: tuple[str, ...] = ()
+    path: tuple[Identifier, ...] = ()
 
-    def field(self, name: str) -> TypeOf:
+    def field(self, name: Identifier) -> TypeOf:
         return TypeOf(self.root, self.called, (*self.path, name))
 
 
@@ -222,7 +225,7 @@ class Access:
 
     at: Place
     value: TypeOf
-    field: str | None  # None: the value as a whole
+    field: Identifier | None  # None: the value as a whole
     kind: AccessKind
     in_place: bool  # changed through the field's own operations (order.lines.append), not by assigning it
     span: Span
@@ -241,7 +244,7 @@ class Use:
     at: Place
     value: TypeOf | None  # None: the adapter cannot tell its type
     kind: UseKind
-    via: str  # str(), an f-string, print, json.dumps
+    via: Api  # str(), an f-string, print, json.dumps
     effect: Effect | None  # for an effect use, the effect
     span: Span
 
@@ -262,7 +265,7 @@ class ValueSource:
     kind: Source
     name: Qualified | None = None  # a call's callee, or a parameter's type, when it can be told
     receiver: TypeOf | None = None  # a method call's receiver, when its type can be told
-    method: str | None = None  # a method call's name
+    method: Identifier | None = None  # a method call's name
     built_from: tuple[ValueSource, ...] = ()  # what a call or a container is made from: its arguments
 
 
@@ -277,7 +280,7 @@ class PlannedUse:
 
     at: Place
     need: Need
-    text: str  # the expression, as written
+    text: Written  # the expression, as written
     sources: tuple[ValueSource, ...]
     span: Span
     call: ValueSource | None = None  # for an argument: the call it is given to
@@ -288,7 +291,7 @@ class Computation:
     """A comparison, arithmetic or logic worked out inside a function."""
 
     at: Place
-    text: str  # as written: total > 100
+    text: Written  # as written: total > 100
     span: Span
 
 
@@ -297,7 +300,7 @@ class Unknown:
     """Code whose behaviour cannot be read statically: eval, exec, a dynamic import."""
 
     at: Place
-    what: str
+    what: Written
     span: Span
 
 
@@ -311,7 +314,7 @@ class Raise:
 
 @dataclass(frozen=True)
 class Link:
-    target: str  # as written: fr#statement, or a constraint name
+    target: Written  # as written: fr#statement, or a constraint name
     span: Span
 
 
@@ -354,7 +357,7 @@ class Replay:
 
     at: Place
     verdict: Verdict
-    detail: str
+    detail: Say
     span: Span  # the operation
     seen: TestId  # the test whose call was replayed
 
@@ -365,7 +368,7 @@ class Cases:
 
     at: Place
     outcome: Outcome
-    detail: str
+    detail: Say
     span: Span
 
 
@@ -384,9 +387,9 @@ _REMOVED, _ADDED, _HEADER = "-", "+", ("---", "+++", "@@")
 class Witness:
     """An input the function and its mutant behave differently on, which nothing noticed."""
 
-    input: str  # the arguments, as written: a=3, b=1
-    written: str  # what the function as written does with it: returns 2
-    mutated: str  # what the mutant does with it: returns 4
+    input: Written  # the arguments, as written: a=3, b=1
+    written: Written  # what the function as written does with it: returns 2
+    mutated: Written  # what the mutant does with it: returns 4
 
 
 @dataclass(frozen=True)
@@ -396,15 +399,15 @@ class Mutant:
 
     at: Place  # the function edited
     of: Digest  # the function's source, as it was when edited: an answer about the mutant stands until it changes
-    edit: str  # the change, as a unified diff of the function
+    edit: Written  # the change, as a unified diff of the function
     fate: MutantFate
-    detail: str  # what killed it, or why it was not run
+    detail: Say  # what killed it, or why it was not run
     span: Span  # the function
     unnoticed_by: tuple[TestId, ...] = ()  # for a survivor: the tests that ran the function and still passed
     witness: Witness | None = None  # for a survivor: an input it behaves differently on, when the search found one
 
     @property
-    def summary(self) -> str:
+    def summary(self) -> Say:
         """The change in one line: what was written, and what it became."""
         lines = [line for line in self.edit.splitlines() if not line.startswith(_HEADER)]
         before = " ".join(line[1:].strip() for line in lines if line.startswith(_REMOVED))
@@ -417,8 +420,8 @@ class Crossing:
     """A value seen crossing into an operation from another design parameter, or back out of it."""
 
     at: Place  # the operation
-    where: str  # a parameter's name, or RETURNED
-    expected: str | None  # its annotation, as written; None when it has none
+    where: Identifier  # a parameter's name, or RETURNED
+    expected: Written | None  # its annotation, as written; None when it has none
     actual: Qualified  # the value's own type
     conforms: bool  # the value fits the annotation (a distinct named type is checked as its base type)
     span: Span  # the call
@@ -444,7 +447,7 @@ class Leak:
 
     data: Qualified  # the protected type
     effect: Effect
-    where: str  # standard output, a log record, a file's path
+    where: Say  # standard output, a log record, a file's path
     at: Place | None  # the code that wrote it, when it can be told
     span: Span | None
     seen: TestId
@@ -462,9 +465,9 @@ class Observations:
     replays: tuple[Replay, ...] = ()
     cases: tuple[Cases, ...] = ()
     mutants: tuple[Mutant, ...] = ()
-    mutation_unavailable: str | None = None  # why no mutants were made, such as the tool not being installed
+    mutation_unavailable: Say | None = None  # why no mutants were made, such as the tool not being installed
     unwatched: tuple[CodePath, ...] = ()  # units whose running the watcher cannot see: its own
-    stale: int = 0  # observations left out because the code they were seen in has changed since
+    stale: Count = 0  # observations left out because the code they were seen in has changed since
 
     def run_of(self, test: TestId) -> Run | None:
         return self.runs.get(test)
@@ -477,9 +480,9 @@ class Observations:
 class Libraries:
     """Third-party packages: the ones the project declares, the ones it vendors, and the standard library."""
 
-    declared: frozenset[str] | None  # import names; None when the project declares nothing readable
-    vendored: frozenset[str]
-    standard: frozenset[str]
+    declared: frozenset[Library] | None  # import names; None when the project declares nothing readable
+    vendored: frozenset[Library]
+    standard: frozenset[Library]
 
 
 @dataclass(frozen=True)
@@ -508,7 +511,7 @@ class CodeModel:
         """The adapters whose code this model holds."""
         return frozenset(u.adapter for u in self.units.values())
 
-    def unit_at(self, path: str) -> Unit | None:
+    def unit_at(self, path: RecordPath) -> Unit | None:
         """The unit read from a file: the most specific one, since a folder with no file of its own is placed at
         the first file inside it."""
         return max((u for u in self.units.values() if u.span.path == path), key=lambda u: u.path.count("."),

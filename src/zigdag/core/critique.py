@@ -10,11 +10,14 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.log import Kind, Log
-from zigdag.core.names import FrName, parent
 from zigdag.core.record.entries import Entry, EntryKind
 from zigdag.core.record.model import Record
 from zigdag.core.rubric import RUBRIC_VERSION, still_to_ask
+from zigdag.core.log import Kind, Log
+from zigdag.core.names import FrName, parent
+from zigdag.core.findings import Subject
+from zigdag.core.measures import Count
+from zigdag.core.texts import FileText, Say
 
 INSTRUCTIONS = (
     "You are an independent critic. Judge each entry only by what is written here. For every question, either "
@@ -54,7 +57,7 @@ def _asked_under(log: Log, entry: Entry) -> int | None:
     return max(versions) if versions else None
 
 
-def request(record: Record, log: Log, chosen: list[Entry]) -> tuple[str, int]:
+def request(record: Record, log: Log, chosen: list[Entry]) -> tuple[FileText, Count]:
     """The request as JSON text, and how many entries in it still have questions to answer."""
     items = []
     for e in chosen:
@@ -91,7 +94,7 @@ def _texts(value: object) -> list[str]:
     return []
 
 
-def read_answer(current: Mapping[str, Entry], text: str) -> tuple[list[Judged], list[str]]:
+def read_answer(current: Mapping[Subject, Entry], text: FileText) -> tuple[list[Judged], list[Say]]:
     """The entries the critic judged at their current content, and why anything else was refused."""
     try:
         raw = json.loads(text)

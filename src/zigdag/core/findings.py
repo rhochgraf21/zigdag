@@ -7,6 +7,8 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import NewType
+from zigdag.core.measures import Column, Line
+from zigdag.core.texts import Content, Say
 
 RuleName = NewType("RuleName", str)  # the rule that reported: a check kind, a built-in, or a record rule such as "names"
 Subject = NewType("Subject", str)  # the name a finding is about: an FR, an outcome reference, a rule, a file
@@ -28,8 +30,8 @@ class Span:
     """Where something is written. Line and column count from 1."""
 
     path: RecordPath
-    line: int
-    column: int
+    line: Line
+    column: Column
 
     def __str__(self) -> str:
         return f"{self.path}:{self.line}:{self.column}"
@@ -49,7 +51,7 @@ class Finding:
     rule: RuleName
     about: Subject
     span: Span | None
-    say: str
+    say: Say
     digest: Digest
 
     def sort_key(self) -> tuple:
@@ -57,11 +59,11 @@ class Finding:
         return (*where, self.rule, self.about, self.say)
 
 
-def digest_of(*parts: str) -> Digest:
+def digest_of(*parts: Content) -> Digest:
     return Digest(hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16])
 
 
-def finding(result: Result, rule: str, about: str, span: Span | None, say: str, *content: str) -> Finding:
+def finding(result: Result, rule: RuleName, about: Subject, span: Span | None, say: Say, *content: Content) -> Finding:
     """A finding whose digest covers what it is about, so an answered question returns when that content changes."""
     return Finding(result, RuleName(rule), Subject(about), span, say, digest_of(rule, about, *(content or (say,))))
 

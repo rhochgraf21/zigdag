@@ -27,6 +27,10 @@ from zigdag.core.record.read import read_record
 from zigdag.core.relate import Relations, relate
 from zigdag.core.resolve import Tree, resolve
 from zigdag.core.settings import Settings, read_settings
+from zigdag.core.findings import Subject
+from zigdag.core.log import Actor
+from zigdag.core.names import RuleId
+from zigdag.core.texts import FileText, SentenceText, Written
 
 FMT = "fmt"
 EXCEPT = "except"
@@ -36,9 +40,9 @@ EXCEPT = "except"
 class ProjectFiles:
     """The project's text, as the shell read it. None means the file is absent."""
 
-    settings: str | None
-    design: Mapping[RecordPath, str]
-    log: str | None = None
+    settings: FileText | None
+    design: Mapping[RecordPath, FileText]
+    log: FileText | None = None
 
 
 @dataclass(frozen=True)
@@ -56,7 +60,7 @@ class Analysis:
     rules: tuple[RuleUse, ...] = ()
 
     @property
-    def entries(self) -> Mapping[str, Entry]:
+    def entries(self) -> Mapping[Subject, Entry]:
         return entries(self.record)
 
     @property
@@ -68,17 +72,17 @@ class Analysis:
                        self.log.answered_questions, declared_pure(self.code, self.tree, self.rules))
 
     @property
-    def people(self) -> tuple[str, ...]:
+    def people(self) -> tuple[Actor, ...]:
         return self.settings.people
 
     @property
-    def sentences(self) -> Mapping[str, str]:
+    def sentences(self) -> Mapping[RuleId, SentenceText]:
         """Each rule in force, as the EARS sentence zigdag renders for it."""
         kinds = registry(self.settings)
         return {r.name: kinds[r.kind].sentence(subject(r.on), r.params, tuple(str(e.code) for e in r.excepted))
                 for r in self.rules if r.kind in kinds}
 
-    def dp_of(self, target: str) -> FrName | None:
+    def dp_of(self, target: Written) -> FrName | None:
         """The DP an FR name, a unit's name or a source file names."""
         if target in self.record.frs:
             return FrName(target)
@@ -87,7 +91,7 @@ class Analysis:
         unit = self.code.unit_at(target)
         return self.tree.owner(unit.path if unit is not None else target)
 
-    def dp_of_file(self, path: str) -> FrName | None:
+    def dp_of_file(self, path: RecordPath) -> FrName | None:
         unit = self.code.unit_at(path) if self.code is not None else None
         return self.tree.owner(unit.path) if unit is not None and self.tree is not None else None
 
@@ -107,7 +111,7 @@ class Analysis:
         return [f for f in self.report.findings if self.is_under(f, dp)]
 
     @property
-    def known_names(self) -> frozenset[str]:
+    def known_names(self) -> frozenset[Subject]:
         """Every name a log event can be about: FRs, statements, jobs, outcomes, rules and entries."""
         record = self.record
         return frozenset({
@@ -171,7 +175,7 @@ def analyse(files: ProjectFiles, code: CodeModel | None = None) -> Analysis:
                   *check_code(Context(record, settings, code, tree, relations, data, log.answered_questions,
                                       declared_pure(code, tree, rules)), rules, supplied_kinds),
                   *check_clauses(record, code, data, lexicons), *check_evidence(record, code, tree)]
-    found += check_gates(record, log, settings.people, None, False)
+    found += check_gates(record, log, settings.people, None, Report.of(found))
     report = without_answered(Report.of(found), log)
     return Analysis(record, settings, log, report, code, tree, relations, data, tuple(rules))
 

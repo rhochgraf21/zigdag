@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from zigdag.core.findings import Finding, Result, finding
-from zigdag.core.log import Answer, Answered, Kind, Log
-from zigdag.core.names import is_within
 from zigdag.core.record.entries import Entry
 from zigdag.core.record.model import Gate, Record, Workflow
 from zigdag.core.rubric import RUBRIC_VERSION
+from zigdag.core.findings import Report, Finding, Result, finding
+from zigdag.core.log import Answer, Answered, Kind, Log
+from zigdag.core.names import is_within
+from zigdag.core.log import Actor
 
 
 def _gates(record: Record) -> list[tuple[str, Gate, str]]:
@@ -25,8 +26,8 @@ def _covers(on: str, entry: Entry, root: str | None) -> bool:
     return is_within(entry.scope, on) if entry.scope is not None else on == root
 
 
-def check_gates(record: Record, log: Log, people: tuple[str, ...], changed: list[Entry] | None,
-                breaks: bool) -> Iterable[Finding]:
+def check_gates(record: Record, log: Log, people: tuple[Actor, ...], changed: list[Entry] | None,
+                report: Report) -> Iterable[Finding]:
     root = record.root.name if record.root else None
     for name, gate, on in _gates(record):
         if gate is Gate.COUNTERMEASURE_ON_ESCAPE:
@@ -35,7 +36,7 @@ def check_gates(record: Record, log: Log, people: tuple[str, ...], changed: list
         if changed is None:
             continue
         if gate is Gate.STOP_ON_ERROR:
-            if breaks:
+            if report.breaks:
                 yield finding(Result.BREAKS, name, "change", None, "the change cannot be accepted while a check breaks")
             continue
         for entry in changed:

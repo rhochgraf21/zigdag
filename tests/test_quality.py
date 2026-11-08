@@ -8,7 +8,8 @@ L = Lexicons()
 def problems(text, solution_free=False, lexicons=L):
     parsed, found = parse_ears(text, lexicons)
     assert parsed is not None, found
-    return {(p.rule, p.exact) for p in q.ears_quality(parsed, lexicons, solution_free)}
+    found = (*q.ears_quality(parsed, lexicons), *(q.named_solutions(parsed, lexicons) if solution_free else ()))
+    return {(p.rule, p.exact) for p in found}
 
 
 def test_a_clean_statement_has_no_problems():

@@ -38,6 +38,10 @@ planned-effects:  # the watcher's functions with effects react to the tests as t
 
 contracted-interfaces:  # known breaks when the rule arrived: each pure function an interface offers, still with no contract; debt to pay down
   except:
+    - cli.plans.check_json
+    - cli.plans.fmt_check
+    - cli.plans.init_forced
+    - core.language.quality.named_solutions
     - core.checks.context.Context.in_scope
     - core.checks.context.Context.is_answered
     - core.checks.context.Context.observed

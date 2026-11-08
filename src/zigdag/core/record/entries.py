@@ -10,7 +10,6 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.findings import Digest, Span, digest_of
 from zigdag.core.record.builtins import BUILT_INS
 from zigdag.core.record.model import (
     Build,
@@ -23,6 +22,10 @@ from zigdag.core.record.model import (
     Verification,
     Workflow,
 )
+from zigdag.core.findings import Digest, Span, digest_of
+from zigdag.core.findings import Subject
+from zigdag.core.names import Key
+from zigdag.core.texts import Content
 
 
 class EntryKind(enum.Enum):
@@ -41,14 +44,14 @@ PHYSICAL_PREFIX = "physical:"  # a physical entry is named after its FR: physica
 @dataclass(frozen=True)
 class Entry:
     kind: EntryKind
-    name: str  # what a log event's `on` names
-    fields: Mapping[str, object]  # what it says, as plain values
+    name: Subject  # what a log event's `on` names
+    fields: Mapping[Key, object]  # what it says, as plain values
     span: Span
-    scope: str | None  # the FR it is about, for gates placed on part of the tree; None for the customer domain
+    scope: Subject | None  # the FR it is about, for gates placed on part of the tree; None for the customer domain
     domain: Domain
 
     @property
-    def content(self) -> str:
+    def content(self) -> Content:
         return json.dumps(self.fields, sort_keys=True, ensure_ascii=False)
 
     @property
@@ -65,7 +68,7 @@ def _check(use: CheckUse) -> dict[str, object]:
             "except": _excepted(use.excepted)}
 
 
-def entries(record: Record) -> dict[str, Entry]:
+def entries(record: Record) -> dict[Subject, Entry]:
     """Every entry the record holds, by the name a log event uses for it."""
     out: dict[str, Entry] = {}
     for job in record.jobs:

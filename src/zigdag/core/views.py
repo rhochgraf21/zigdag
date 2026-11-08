@@ -12,13 +12,14 @@ from zigdag.core.checks.evidence import EVIDENCE_RULES
 from zigdag.core.checks.record_rules import registry
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.checks.run import Analysis
-from zigdag.core.code import AccessKind, Qualified, SymbolKind
-from zigdag.core.findings import Result
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Pattern, parse_ears
-from zigdag.core.names import FrName, is_within, parent, subject
 from zigdag.core.record.builtins import BUILT_INS
 from zigdag.core.record.model import Domain
+from zigdag.core.code import AccessKind, Qualified, SymbolKind
+from zigdag.core.findings import Result
+from zigdag.core.names import FrName, is_within, parent, subject
+from zigdag.core.texts import Shown, Written
 
 _LEXICONS = Lexicons()
 
@@ -76,7 +77,7 @@ def _evidence(a: Analysis, ref: str) -> str:
     return "passing" if a.code is not None else "not read"
 
 
-def show(a: Analysis, name: FrName | None = None) -> str:
+def show(a: Analysis, name: FrName | None = None) -> Shown:
     root = a.record.root
     if root is None:
         return "no root FR yet: write it in design/functional.yaml"
@@ -131,7 +132,7 @@ def _matrix(a: Analysis, name: FrName) -> list[str]:
 _CRUD = ((AccessKind.CREATES, "C"), (AccessKind.READS, "R"), (AccessKind.UPDATES, "U"), (AccessKind.DELETES, "D"))
 
 
-def data(a: Analysis, name: FrName | None = None) -> str:
+def data(a: Analysis, name: FrName | None = None) -> Shown:
     if a.data is None:
         return "the code was not read, so there is no data model"
     root = name or (a.record.root.name if a.record.root else None)
@@ -165,7 +166,7 @@ def data(a: Analysis, name: FrName | None = None) -> str:
     return "\n".join(lines)
 
 
-def context(a: Analysis, target: str) -> str:
+def context(a: Analysis, target: Written) -> Shown:
     name = a.dp_of(target)
     if name is None:
         return f'no FR, and no code zigdag read, is "{target}"'
@@ -241,7 +242,7 @@ def _build_order(a: Analysis) -> list[FrName]:
     return out + sorted(set(a.record.frs) - set(out))
 
 
-def next_steps(a: Analysis) -> str:
+def next_steps(a: Analysis) -> Shown:
     order = {n: i for i, n in enumerate(_build_order(a))}
     todo = [f for f in a.report.findings if f.result is Result.TODO]
     ranked = sorted(todo, key=lambda f: (order.get(a.dp_of_finding(f) or "", len(order)), f.about, f.say))

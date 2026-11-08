@@ -11,12 +11,14 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.findings import RecordPath
-from zigdag.core.names import STATEMENT_SEPARATOR, FrName, subject
 from zigdag.core.record import tree as t
 from zigdag.core.record.fmt import format_text
 from zigdag.core.record.model import Domain
 from zigdag.core.record.read import domain_file, domain_of
+from zigdag.core.findings import RecordPath
+from zigdag.core.names import STATEMENT_SEPARATOR, FrName, subject
+from zigdag.core.code import Qualified
+from zigdag.core.texts import FileText, Say, Written
 
 
 @dataclass(frozen=True)
@@ -27,7 +29,7 @@ class _Edit:
     new: str
 
 
-def renamed(name: str, old: FrName, new: FrName) -> str | None:
+def renamed(name: Written, old: FrName, new: FrName) -> Written | None:
     """The name after the rename, or None when the rename does not touch it."""
     for sep in ("", ".", STATEMENT_SEPARATOR):
         if name == old if not sep else name.startswith(old + sep):
@@ -125,8 +127,8 @@ def _python_edits(path: RecordPath, text: str, old: FrName, new: FrName) -> list
     return out
 
 
-def rename(design: Mapping[RecordPath, str], tests: Mapping[RecordPath, str], old: FrName,
-           new: FrName) -> tuple[dict[RecordPath, str], list[str]]:
+def rename(design: Mapping[RecordPath, FileText], tests: Mapping[RecordPath, FileText], old: FrName,
+           new: FrName) -> tuple[dict[RecordPath, FileText], list[Say]]:
     """The files the rename changes, as their new text, and any place a name could not be found where it was read."""
     changed: dict[RecordPath, str] = {}
     problems: list[str] = []
@@ -148,7 +150,7 @@ def rename(design: Mapping[RecordPath, str], tests: Mapping[RecordPath, str], ol
     return changed, problems
 
 
-def keep_code(physical: str | None, placements: Mapping[FrName, tuple[str, ...]]) -> str:
+def keep_code(physical: FileText | None, placements: Mapping[FrName, tuple[Qualified, ...]]) -> FileText:
     """physical.yaml with entries added, so renamed DPs keep the code their old names pointed at."""
     text = (physical or "").rstrip("\n")
     lines = [text] if text else []

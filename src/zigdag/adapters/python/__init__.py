@@ -18,6 +18,7 @@ from zigdag.core.findings import Finding, RecordPath, Result, Span, digest_of, f
 from zigdag.core.kinds.registry import Part
 from zigdag.core.settings import OBSERVED_FILE
 from zigdag.core.names import AdapterName, CodePath
+from zigdag.core.texts import FileText
 
 PYTHON = AdapterName("python")
 ADAPTER_RULE = "python"
@@ -27,13 +28,13 @@ ADAPTER_RULE = "python"
 class PythonFiles:
     """What the shell read for the Python adapter."""
 
-    sources: Mapping[RecordPath, str]  # every .py file under the source roots
-    roots: tuple[str, ...]  # the source roots, such as "src"
-    vendor: tuple[str, ...]  # folders of vendored code, which is a library, not part of the design
-    tests: Mapping[RecordPath, str]
-    pyproject: str | None
-    reports: Mapping[RecordPath, str]  # JUnit XML
-    observed: str | None = None  # what the watcher saw in the latest watched run of the tests
+    sources: Mapping[RecordPath, FileText]  # every .py file under the source roots
+    roots: tuple[RecordPath, ...]  # the source roots, such as "src"
+    vendor: tuple[RecordPath, ...]  # folders of vendored code, which is a library, not part of the design
+    tests: Mapping[RecordPath, FileText]
+    pyproject: FileText | None
+    reports: Mapping[RecordPath, FileText]  # JUnit XML
+    observed: FileText | None = None  # what the watcher saw in the latest watched run of the tests
 
 
 def _module_path(path: RecordPath, roots: tuple[str, ...]) -> tuple[list[str], bool] | None:

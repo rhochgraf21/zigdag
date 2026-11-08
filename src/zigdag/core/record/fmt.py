@@ -16,11 +16,12 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from zigdag.core.findings import Finding, RecordPath
 from zigdag.core.record import tree as t
 from zigdag.core.record.comments import Comments, scan
 from zigdag.core.record.model import Domain
 from zigdag.core.record.read import domain_of
+from zigdag.core.findings import Finding, RecordPath
+from zigdag.core.texts import FileText, Say
 
 FLOW_WIDTH = 100
 _INDICATORS = frozenset("-?:,[]{}#&*!|>'\"%@`")
@@ -182,7 +183,7 @@ class _Writer:
                 self.seq(item, indent + 2, path)
 
 
-def format_text(path: RecordPath, text: str) -> tuple[str | None, tuple[Finding, ...]]:
+def format_text(path: RecordPath, text: FileText) -> tuple[FileText | None, tuple[Finding, ...]]:
     """The file in its canonical layout, or None (with the reasons) when it cannot be read."""
     root, problems = t.read_tree(path, text)
     if root is None:
@@ -210,7 +211,7 @@ def format_text(path: RecordPath, text: str) -> tuple[str | None, tuple[Finding,
     return ("\n".join(lines) + "\n" if lines else ""), ()
 
 
-def content(path: RecordPath, text: str) -> tuple[object, tuple[str, ...]] | None:
+def content(path: RecordPath, text: FileText) -> tuple[object, tuple[Say, ...]] | None:
     """What a file says, ignoring layout: its values (maps compared without order) and all its comment texts."""
     root, _ = t.read_tree(path, text)
     if root is None:

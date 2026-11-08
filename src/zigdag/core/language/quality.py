@@ -5,6 +5,8 @@ from __future__ import annotations
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Ears, Problem
 from zigdag.core.language.tokens import Token, contains_phrase, tokenize, words
+from zigdag.core.measures import Count
+from zigdag.core.texts import SentenceText, Word
 
 ATOMIC = "quality.atomic"
 MEASURABLE = "quality.measurable"
@@ -25,7 +27,7 @@ understood won written
 """.split())
 
 
-def readable(text: str, limit: int) -> tuple[Problem, ...]:
+def readable(text: SentenceText, limit: Count) -> tuple[Problem, ...]:
     tokens = tokenize(text)
     problems = []
     inner = tokens[:-1] if tokens and tokens[-1].text == "." else tokens
@@ -45,12 +47,12 @@ def _found(word_list: tuple[str, ...], lexicon: frozenset[str]) -> list[str]:
     return sorted(e for e in lexicon if (" " in e and contains_phrase(word_list, e)) or (" " not in e and e in word_list))
 
 
-def solution_words(text: str, lexicons: Lexicons, ignore: tuple[str, ...] = ()) -> tuple[Problem, ...]:
+def solution_words(text: SentenceText, lexicons: Lexicons, ignore: tuple[Word, ...] = ()) -> tuple[Problem, ...]:
     w = tuple(x for x in words(tokenize(text)) if x not in ignore)
     return tuple(Problem(SOLUTION_FREE, False, f'"{x}" names a solution, not a need') for x in _found(w, lexicons.solution_words))
 
 
-def vague_words(text: str, lexicons: Lexicons) -> tuple[Problem, ...]:
+def vague_words(text: SentenceText, lexicons: Lexicons) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     return tuple(Problem(MEASURABLE, False, f'"{x}" is vague: give a number or an observable condition')
                  for x in _found(w, lexicons.vague_words))
@@ -77,7 +79,7 @@ def _unitless_bounds(tokens: tuple[Token, ...], lexicons: Lexicons) -> list[str]
     return out
 
 
-def ears_quality(ears: Ears, lexicons: Lexicons, solution_free: bool) -> tuple[Problem, ...]:
+def ears_quality(ears: Ears, lexicons: Lexicons) -> tuple[Problem, ...]:
     tokens = ears.tokens
     w = words(tokens)
     text = " ".join(t.text for t in tokens)
@@ -106,7 +108,12 @@ def ears_quality(ears: Ears, lexicons: Lexicons, solution_free: bool) -> tuple[P
     for i, x in enumerate(w[:-2]):
         if x == "shall" and w[i + 1] == "be" and (w[i + 2].endswith("ed") or w[i + 2] in _IRREGULAR_PARTICIPLES):
             problems.append(Problem(ACTIVE, False, f'"shall be {w[i + 2]}" is passive: say who does it'))
-    if solution_free:
-        problems += solution_words(text, lexicons, ignore=tuple(ears.subject.split()))
     problems += readable(text, STATEMENT_WORDS)
     return tuple(problems)
+
+
+def named_solutions(ears: Ears, lexicons: Lexicons) -> tuple[Problem, ...]:
+    """The words of an EARS statement that name a solution rather than a need: for statements that must stay free
+    of them."""
+    return tuple(solution_words(Word(" ".join(t.text for t in ears.tokens)), lexicons,
+                                ignore=tuple(Word(w) for w in ears.subject.split())))

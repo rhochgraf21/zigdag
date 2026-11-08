@@ -9,8 +9,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
-from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
-from zigdag.core.names import CheckKindName, CodeName, FrName, OutcomeRef, RuleId, StatementRef, fr_name, slug
 from zigdag.core.record.builtins import BUILT_INS, MAINTAIN, MAINTAIN_JOB
 from zigdag.core.record import tree as t
 from zigdag.core.record.model import (
@@ -38,6 +36,9 @@ from zigdag.core.record.model import (
     Verification,
     Workflow,
 )
+from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
+from zigdag.core.names import CheckKindName, CodeName, FrName, OutcomeRef, RuleId, StatementRef, fr_name, slug
+from zigdag.core.texts import FileText
 
 SCHEMA = "schema"
 NAMES = "names"
@@ -382,7 +383,7 @@ def _span(item) -> Span:
     return item.span
 
 
-def read_record(files: Mapping[RecordPath, str]) -> tuple[Record, tuple[Finding, ...]]:
+def read_record(files: Mapping[RecordPath, FileText]) -> tuple[Record, tuple[Finding, ...]]:
     """The record from the design files, given as path to text. Paths are relative to the project root."""
     r = _Reader()
     jobs: list[Job] = []

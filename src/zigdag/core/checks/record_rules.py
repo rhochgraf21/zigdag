@@ -11,17 +11,17 @@ from dataclasses import dataclass, field
 
 from zigdag.core.effects import BUILT_IN as BUILT_IN_EFFECTS
 from zigdag.core.effects import resource_container
-from zigdag.core.findings import BUILT_IN_SPAN, Finding, Result, Span, finding
 from zigdag.core.kinds.params import Params, convert
 from zigdag.core.kinds.registry import BUILT_IN_KINDS, CheckKind, Part
 from zigdag.core.language import quality
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Pattern, Problem, parse_ears, parse_job, parse_outcome, parse_performer
 from zigdag.core.language.tokens import tokenize, words
-from zigdag.core.names import CheckKindName, FrName, OutcomeRef, RuleId, depth, is_within, parent, subject
 from zigdag.core.record.builtins import BUILT_INS, BuiltIn
 from zigdag.core.record.model import At, CheckUse, CodeRule, Excepted, Record, Sentence, Validation
 from zigdag.core.settings import Settings
+from zigdag.core.findings import BUILT_IN_SPAN, Finding, Result, Span, finding
+from zigdag.core.names import CheckKindName, FrName, OutcomeRef, RuleId, depth, is_within, parent, subject
 
 ROOT = "root"
 PARENTS = "parents"
@@ -155,7 +155,9 @@ def _statement(sentence: Sentence, name: FrName, about: str, lexicons: Lexicons,
         out.append(finding(Result.BREAKS, SUBJECT, about, sentence.span,
                            f'the subject is "the {expected}", the last part of {name}, not "the {ears.subject}"',
                            sentence.text))
-    out += _problems(quality.ears_quality(ears, lexicons, solution_free), about, sentence.span, sentence.text)
+    out += _problems(quality.ears_quality(ears, lexicons), about, sentence.span, sentence.text)
+    if solution_free:
+        out += _problems(quality.named_solutions(ears, lexicons), about, sentence.span, sentence.text)
     if Part.STRUCTURES not in waiting.supplied:
         waiting.clauses += (ears.where is not None) + (ears.while_ is not None)
     return out, ears.pattern, ears.negated
@@ -260,7 +262,7 @@ def _rendered(kind: CheckKind, params: Params, excepted: tuple[Excepted, ...], o
               lexicons: Lexicons) -> list[Finding]:
     text = kind.sentence(subject(on), params, tuple(str(e.code) for e in excepted))
     ears, problems = parse_ears(text, lexicons)
-    problems = [*problems, *(quality.ears_quality(ears, lexicons, False) if ears else ())]
+    problems = [*problems, *(quality.ears_quality(ears, lexicons) if ears else ())]
     return [finding(Result.BREAKS, RENDERED, about, span, f'its sentence "{text}" is not valid EARS: {p.say}', text)
             for p in problems if p.exact]
 

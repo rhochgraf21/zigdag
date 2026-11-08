@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
+from zigdag.core.texts import Word
 
 
 class LexiconName(enum.Enum):
@@ -96,17 +97,17 @@ MODALS = _words("should, may, will, must, might, could, would")
 
 @dataclass(frozen=True)
 class Lexicons:
-    verbs: frozenset[str] = VERBS
-    solution_words: frozenset[str] = SOLUTION_WORDS
-    vague_words: frozenset[str] = VAGUE_WORDS
-    units: frozenset[str] = UNITS
-    comparatives: frozenset[str] = COMPARATIVES
-    pronouns: frozenset[str] = PRONOUNS
-    escape_clauses: frozenset[str] = ESCAPE_CLAUSES
-    open_endings: frozenset[str] = OPEN_ENDINGS
-    modals: frozenset[str] = MODALS
+    verbs: frozenset[Word] = VERBS
+    solution_words: frozenset[Word] = SOLUTION_WORDS
+    vague_words: frozenset[Word] = VAGUE_WORDS
+    units: frozenset[Word] = UNITS
+    comparatives: frozenset[Word] = COMPARATIVES
+    pronouns: frozenset[Word] = PRONOUNS
+    escape_clauses: frozenset[Word] = ESCAPE_CLAUSES
+    open_endings: frozenset[Word] = OPEN_ENDINGS
+    modals: frozenset[Word] = MODALS
 
-    def tuned(self, changes: Mapping[LexiconName, tuple[Iterable[str], Iterable[str]]]) -> Lexicons:
+    def tuned(self, changes: Mapping[LexiconName, tuple[Iterable[Word], Iterable[Word]]]) -> Lexicons:
         """Add, then remove, the words given for each lexicon."""
         out = self
         for name, (add, remove) in changes.items():

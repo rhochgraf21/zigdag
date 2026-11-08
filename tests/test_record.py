@@ -171,5 +171,5 @@ def test_every_rendered_sentence_is_valid_ears():
             text = kind.sentence("core", params, excepted)
             parsed, problems = parse_ears(text, lexicons)
             assert parsed is not None and not problems, (kind.name, text, problems)
-            exact = [p.say for p in ears_quality(parsed, lexicons, False) if p.exact]
+            exact = [p.say for p in ears_quality(parsed, lexicons) if p.exact]
             assert not exact, (kind.name, text, exact)

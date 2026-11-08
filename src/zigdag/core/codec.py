@@ -14,6 +14,7 @@ import typing
 from collections.abc import Mapping
 from functools import cache
 from typing import TypeVar
+from zigdag.core.texts import FileText, Say
 
 T = TypeVar("T")
 
@@ -26,7 +27,7 @@ class _Misfit(Exception):
 class Unreadable:
     """Text that was refused, and why."""
 
-    say: str
+    say: Say
 
 
 def encode(value: object) -> object:
@@ -46,11 +47,11 @@ def encode(value: object) -> object:
     return repr(value)  # not a value of the code model: kept as text, and refused when it is read back
 
 
-def dumps(value: object) -> str:
+def dumps(value: object) -> FileText:
     return json.dumps(encode(value), indent=1, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def loads(kind: type[T], text: str) -> T | Unreadable:
+def loads(kind: type[T], text: FileText) -> T | Unreadable:
     """The value of the given type that the text holds, or why it holds none."""
     try:
         return _decode(kind, json.loads(text))

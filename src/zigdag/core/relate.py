@@ -8,11 +8,12 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.code import CodeModel, Dependency, DependencyKind, Place, Qualified, SymbolKind, SymbolName, TestId
 from zigdag.core.effects import Effect
+from zigdag.core.resolve import Tree
+from zigdag.core.code import CodeModel, Dependency, DependencyKind, Place, Qualified, SymbolKind, SymbolName, TestId
 from zigdag.core.findings import Span
 from zigdag.core.names import CodePath, FrName
-from zigdag.core.resolve import Tree
+from zigdag.core.names import Api
 
 
 class Where(enum.Enum):
@@ -126,7 +127,7 @@ def _places_in(model: CodeModel) -> set[Place]:
             *(r.at for r in model.raises)}
 
 
-def relate(model: CodeModel, tree: Tree, custom_calls: Mapping[str, Effect]) -> Relations:
+def relate(model: CodeModel, tree: Tree, custom_calls: Mapping[Api, Effect]) -> Relations:
     places: dict[Place, FrName] = {}
     for symbol in model.symbols.values():
         if symbol.kind in (SymbolKind.FUNCTION, SymbolKind.METHOD) and (dp := tree.owner(symbol.qualified)):

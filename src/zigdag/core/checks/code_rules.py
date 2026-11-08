@@ -4,6 +4,7 @@ the DP tree and the relationships. A rule's findings never depend on the languag
 
 from __future__ import annotations
 
+import enum
 from collections.abc import Iterable, Mapping
 
 from zigdag.core.checks import data_rules, interface_rules, mutation_rules, plan_rules
@@ -22,10 +23,10 @@ from zigdag.core.code import (
     Verdict,
 )
 from zigdag.core.effects import Effect, expand, phrase
-from zigdag.core.findings import Finding, Result, finding
-from zigdag.core.names import CheckKindName, FrName
 from zigdag.core.relate import Edge, Where, classify
 from zigdag.core.resolve import Level
+from zigdag.core.findings import Finding, Result, finding
+from zigdag.core.names import CheckKindName, FrName
 
 NOT_CHECKED = "not-checked"
 DECLARED_EFFECTS = "declared-effects"
@@ -243,11 +244,19 @@ def _leaves(t: TypeExpr) -> list[TypeExpr]:
     return [t]
 
 
-def _leaf_problem(ctx: Context, leaf: TypeExpr, returned: bool, bool_returns: bool) -> tuple[Result, str] | None:
+class Passes(enum.Enum):
+    """Where a type crosses an edge: as a parameter, as what is returned, or as a field of a class."""
+
+    PARAMETER = "parameter"
+    RETURN = "return"
+    FIELD = "field"
+
+
+def _leaf_problem(ctx: Context, leaf: TypeExpr, passes: Passes, bools: frozenset[Passes]) -> tuple[Result, str] | None:
     if leaf.kind in (TypeKind.NONE, TypeKind.LITERAL):
         return None
-    if leaf.kind is TypeKind.BOOL:
-        return None if returned and bool_returns else (Result.BREAKS, f"{leaf.text} is not project-defined")
+    if leaf.kind is TypeKind.BOOL:  # a yes-or-no answer, or field, means what its name says; a parameter is a mode
+        return None if passes in bools else (Result.BREAKS, f"{leaf.text} is not project-defined")
     if leaf.kind in (TypeKind.ANY, TypeKind.UNKNOWN):
         return Result.QUESTION, f"{leaf.text} cannot be checked"
     if leaf.kind is TypeKind.CONTAINER:  # a bare container, such as list, with nothing inside
@@ -264,35 +273,44 @@ def _leaf_problem(ctx: Context, leaf: TypeExpr, returned: bool, bool_returns: bo
     return Result.QUESTION, f"{leaf.text} is a {symbol.kind.value}, not a type"
 
 
-def _signature_types(ctx: Context, symbol: Symbol) -> list[tuple[str, TypeExpr | None, bool]]:
-    """(where, type, whether it is returned) for everything a use of the symbol passes across the edge."""
-    out: list[tuple[str, TypeExpr | None, bool]] = []
+def _signature_types(ctx: Context, symbol: Symbol) -> list[tuple[str, TypeExpr | None, Passes]]:
+    """(where, type, how it crosses) for everything a use of the symbol passes across the edge."""
+    out: list[tuple[str, TypeExpr | None, Passes]] = []
     targets = [symbol] if symbol.kind in (SymbolKind.FUNCTION, SymbolKind.METHOD) else []
     if symbol.kind is SymbolKind.CLASS:
         targets = ctx.model.members_of(symbol)
-        out += [(f"field {f.name}", f.type, False) for f in symbol.fields if not f.name.startswith("_")]
+        out += [(f"field {f.name}", f.type, Passes.FIELD) for f in symbol.fields if not f.name.startswith("_")]
     for s in targets:
         if s.signature is None:
             continue
-        out += [(f"{s.name}({p.name})", p.type, False) for p in s.signature.params]
+        out += [(f"{s.name}({p.name})", p.type, Passes.PARAMETER) for p in s.signature.params]
         if not s.name.endswith("__init__"):
-            out.append((f"{s.name} returns", s.signature.returns, True))
+            out.append((f"{s.name} returns", s.signature.returns, Passes.RETURN))
     return out
 
 
+_BOOL_PARAMS = {"bool-returns": Passes.RETURN, "bool-fields": Passes.FIELD}
+_ALLOWED = "allowed"
+
+
+def _bools(rule: RuleUse) -> frozenset[Passes]:
+    """Where a rule lets a bool cross."""
+    return frozenset(passes for param, passes in _BOOL_PARAMS.items() if rule.params[param] == _ALLOWED)
+
+
 def edge_types(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
-    bool_returns = rule.params["bool-returns"] == "allowed"
+    bools = _bools(rule)
     for name, span in sorted(ctx.used_from_other_dps(rule).items()):
         symbol = ctx.model.symbols[name]
         if rule.skips(ctx.tree, name):
             continue
         breaks, questions = [], []
-        for where, t, returned in _signature_types(ctx, symbol):
+        for where, t, passes in _signature_types(ctx, symbol):
             if t is None:
                 questions.append(f"{where} has no type")
                 continue
             for leaf in _leaves(t):
-                problem = _leaf_problem(ctx, leaf, returned, bool_returns)
+                problem = _leaf_problem(ctx, leaf, passes, bools)
                 if problem:
                     (breaks if problem[0] is Result.BREAKS else questions).append(f"{where}: {problem[1]}")
         owner = ctx.tree.owner(name)
@@ -307,7 +325,7 @@ def edge_types(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
         operation = Qualified(str(c.at))
         if not ctx.in_scope(rule, ctx.relations.dp_of(c.at)) or rule.skips(ctx.tree, operation):
             continue
-        if (problem := _crossing_problem(ctx, c, bool_returns)) is not None:
+        if (problem := _crossing_problem(ctx, c, Passes.RETURN in bools)) is not None:
             yield broken(rule, operation, c.span, f"{_crossed(c)}, {problem} (seen while {c.seen} ran)",
                          c.where, c.actual)
 

@@ -9,10 +9,10 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from zigdag.core.record.model import Record
 from zigdag.core.code import CodeModel, Place, Qualified, SymbolKind
 from zigdag.core.findings import Finding, Result, Span, finding
 from zigdag.core.names import AdapterName, CodePath, FrName, parent
-from zigdag.core.record.model import Record
 
 COVERAGE = "coverage"
 LEVELS = "levels"
@@ -69,12 +69,12 @@ class Tree:
     def subtree(self, name: FrName) -> frozenset[FrName]:
         return frozenset(n for n in self.dps if self.within(n, name))
 
-    def claims_of(self, name: FrName) -> tuple[str, ...]:
+    def claims_of(self, name: FrName) -> tuple[Qualified, ...]:
         """The code a DP is, as full names: its units and types."""
         dp = self.dps.get(name)
         return tuple(c.type or c.unit for c in dp.claims) if dp else ()
 
-    def code_base(self, name: FrName) -> tuple[str, ...]:
+    def code_base(self, name: FrName) -> tuple[Qualified, ...]:
         """What code names written for a DP are read relative to: the code of the nearest DP at or above it that has
         code of its own (§7.5)."""
         at: FrName | None = name
@@ -84,7 +84,7 @@ class Tree:
             at = parent(at)
         return ()
 
-    def claims_under(self, name: FrName) -> dict[FrName, tuple[str, ...]]:
+    def claims_under(self, name: FrName) -> dict[FrName, tuple[Qualified, ...]]:
         """The code of every DP at or below a name that has code of its own."""
         return {n: self.claims_of(n) for n in sorted(self.subtree(name)) if self.claims_of(n)}
 

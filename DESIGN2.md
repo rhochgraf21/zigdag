@@ -329,7 +329,7 @@ Each check kind defines:
 | `data-ownership` | none | a structure is changed by code outside the component that owns it | exact when seen or when the language enforces it; otherwise a guess |
 | `no-cycles` | none | siblings depend on each other in a cycle, through any relationship | exact |
 | `declared-libraries` | none | code imports a third-party package the project does not declare | exact |
-| `edge-types` | `bool-returns`: allowed or not (default allowed) | a type crossing a component boundary is not defined by the project (see below) | exact |
+| `edge-types` | `bool-returns`, `bool-fields`: allowed or not (default allowed) | a type crossing a component boundary is not defined by the project (see below) | exact |
 | `declared-errors` | none | an error that can leave an operation used across a component boundary is not a project-defined type, or is not declared on that operation (see below) | exact where the adapter can trace what is raised; otherwise a question |
 | `representations-agree` | none | representations of one structure differ in fields, optionality, named types or references | exact |
 | `messages-agree` | none | senders and receivers on one queue use different structures | exact when the queue can be traced; otherwise a question |
@@ -380,8 +380,10 @@ around project-defined leaves:
 - `list[Order]`, `Order | None` and `Callable[[Order], Receipt]` are fine;
 - `list[str]` breaks, and so does `dict[str, Order]`, because of its `str` keys.
 
-**One exception, which can be turned off:** a `bool` return value is allowed. A yes-or-no answer means
-what the function's name says.
+**Two exceptions, each of which can be turned off:** a `bool` return value, and a `bool` field, are
+allowed. A yes-or-no answer means what the function's name says, and a yes-or-no field what the
+field's name says. A `bool` parameter is never allowed: it picks a mode (`no-mode-parameters`), and a
+fact that arrives as a `bool` is given a name with two values instead.
 
 **Named types are the minimum, not the ideal.**
 - A plain alias gives the value a name but no protection, since any `str` still fits.
@@ -591,7 +593,7 @@ job, placed on the root:
 | Name | Domain | Check | Default |
 |---|---|---|---|
 | `declared-libraries` | constraint | `declared-libraries` | the project's declared dependencies, plus vendored packages |
-| `edge-types` | constraint | `edge-types` | `bool` returns allowed |
+| `edge-types` | constraint | `edge-types` | `bool` returns and fields allowed |
 | `declared-errors` | constraint | `declared-errors` | |
 | `access-sanity` | constraint | `access-sanity` | |
 | `one-writer-per-data-store` | constraint | `one-writer-per-data-store` | |

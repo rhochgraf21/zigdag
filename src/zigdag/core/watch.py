@@ -12,11 +12,13 @@ from dataclasses import dataclass
 from zigdag.core import codec
 from zigdag.core.checks.data_rules import protected_types
 from zigdag.core.checks.run import Analysis
+from zigdag.core.kinds.registry import DATA_FLOW, EFFECTS, MUTATION
+from zigdag.core.settings import OBSERVED_FILE
 from zigdag.core.code import CodeModel, Place, Qualified, SymbolKind
 from zigdag.core.findings import RecordPath
-from zigdag.core.kinds.registry import DATA_FLOW, EFFECTS, MUTATION
 from zigdag.core.names import CodePath, FrName
-from zigdag.core.settings import OBSERVED_FILE
+from zigdag.core.measures import Count, Seconds
+from zigdag.core.texts import FileText
 
 PLAN_VARIABLE = "ZIGDAG_WATCH"  # the environment variable that gives the watcher the plan's path
 
@@ -37,8 +39,8 @@ class Mutated:
     code declares so and nothing zigdag reads in it, or in what it calls, says otherwise."""
 
     place: Place
-    paths: int  # at most this many paths through the code are explored
-    seconds: float  # and for at most this long
+    paths: Count  # at most this many paths through the code are explored
+    seconds: Seconds  # and for at most this long
 
 
 @dataclass(frozen=True)
@@ -53,11 +55,11 @@ class WatchPlan:
     mutated: tuple[Mutated, ...] = ()  # operations with contracts whose mutants are judged
     observed: RecordPath = OBSERVED_FILE
 
-    def to_text(self) -> str:
+    def to_text(self) -> FileText:
         return codec.dumps(self)
 
     @staticmethod
-    def from_text(text: str) -> WatchPlan | codec.Unreadable:
+    def from_text(text: FileText) -> WatchPlan | codec.Unreadable:
         return codec.loads(WatchPlan, text)
 
 

@@ -12,6 +12,10 @@ from zigdag.core.effects import Effect
 from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
 from zigdag.core.language.lexicons import LexiconName
 from zigdag.core.names import ADAPTERS, AdapterName, CheckKindName
+from zigdag.core.log import Actor
+from zigdag.core.measures import Version
+from zigdag.core.names import Api, Glob, Key, ShellCommand
+from zigdag.core.texts import FileText, Word
 
 SETTINGS_FILE = RecordPath("zigdag.toml")
 SETTINGS_RULE = "settings"
@@ -35,35 +39,35 @@ class CustomCheck:
 
 @dataclass(frozen=True)
 class Settings:
-    ruleset: int | None = None
-    tests: tuple[str, ...] = ()
-    test_command: str | None = None
-    test_reports: tuple[str, ...] = ()
-    vendor: tuple[str, ...] = ()
-    editor: str | None = None
-    people: tuple[str, ...] = ()  # who counts as a person for person-approves-design; everyone else is an agent
+    ruleset: Version | None = None
+    tests: tuple[RecordPath, ...] = ()
+    test_command: ShellCommand | None = None
+    test_reports: tuple[Glob, ...] = ()
+    vendor: tuple[RecordPath, ...] = ()
+    editor: ShellCommand | None = None
+    people: tuple[Actor, ...] = ()  # who counts as a person for person-approves-design; everyone else is an agent
     default_adapter: AdapterName | None = None
-    adapters: Mapping[AdapterName, Mapping[str, object]] = field(default_factory=dict)
-    lexicon: Mapping[LexiconName, tuple[tuple[str, ...], tuple[str, ...]]] = field(default_factory=dict)
+    adapters: Mapping[AdapterName, Mapping[Key, object]] = field(default_factory=dict)
+    lexicon: Mapping[LexiconName, tuple[tuple[Word, ...], tuple[Word, ...]]] = field(default_factory=dict)
     effects: Mapping[Effect, CustomEffect] = field(default_factory=dict)
     checks: Mapping[CheckKindName, CustomCheck] = field(default_factory=dict)
 
     @property
-    def custom_effect_calls(self) -> Mapping[str, Effect]:
+    def custom_effect_calls(self) -> Mapping[Api, Effect]:
         """Each call that performs a custom effect, and the effect it performs."""
         return {call: name for name, effect in self.effects.items() for call in effect.calls}
 
     @property
-    def test_roots(self) -> tuple[str, ...]:
+    def test_roots(self) -> tuple[RecordPath, ...]:
         """Where the tests are: as set, or the conventional folder."""
         return self.tests or DEFAULT_TEST_ROOTS
 
     @property
-    def report_patterns(self) -> tuple[str, ...]:
+    def report_patterns(self) -> tuple[Glob, ...]:
         """Where test reports are: as set, or zigdag's own folder."""
         return self.test_reports or DEFAULT_REPORTS
 
-    def source_roots(self, adapter: AdapterName) -> tuple[str, ...] | None:
+    def source_roots(self, adapter: AdapterName) -> tuple[RecordPath, ...] | None:
         """The folders an adapter reads source from, as set; None when they are not set."""
         configured = self.adapters.get(adapter, {}).get(SOURCE_KEY)
         if not isinstance(configured, list) or not all(isinstance(r, str) for r in configured):
@@ -92,7 +96,7 @@ def _texts(value: object) -> tuple[str, ...] | None:
     return None
 
 
-def read_settings(text: str | None) -> tuple[Settings, tuple[Finding, ...]]:
+def read_settings(text: FileText | None) -> tuple[Settings, tuple[Finding, ...]]:
     """The settings, or the defaults with what is wrong. A missing file means every default."""
     if text is None:
         return Settings(), (_problem(Result.TODO, "no zigdag.toml: add one with [settings] ruleset = 1"),)

@@ -100,21 +100,27 @@ def main(argv: list[str] | None = None) -> int:
     a = route.args
     match route.command:
         case plans.Command.CHECK:
-            return c.check(project, a.json, a.base)
+            return c.check(project, a.base)
+        case plans.Command.CHECK_JSON:
+            return c.check_json(project, a.base)
         case plans.Command.TEST:
             return c.test(project, list(route.passed_on))
         case plans.Command.FMT:
-            return c.fmt(project, a.check)
+            return c.fmt(project)
+        case plans.Command.FMT_CHECK:
+            return c.fmt_check(project)
         case plans.Command.RAISE:
-            return c.raise_(project, a.kind, a.on, a.say, a.by, a.evidence)
+            return c.raise_(project, lg.Kind(a.kind), a.on, a.say, a.by, a.evidence)
         case plans.Command.ANSWER:
-            return c.answer(project, a.ref, a.answer, a.say, a.by, a.countermeasure)
+            return c.answer(project, a.ref, lg.Answer(a.answer), a.say, a.by, a.countermeasure)
         case plans.Command.FINDINGS:
             return c.findings(project)
         case plans.Command.VIEW:
             return c.view(project, route.view, route.target)
         case plans.Command.INIT:
-            return c.init_project(project, a.force)
+            return c.init_project(project)
+        case plans.Command.INIT_FORCED:
+            return c.init_forced(project)
         case plans.Command.REVIEW:
             return c.review(project, a.base)
         case plans.Command.APPROVE:

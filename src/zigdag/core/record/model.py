@@ -9,6 +9,9 @@ from typing import Generic, TypeVar
 
 from zigdag.core.findings import Span
 from zigdag.core.names import CheckKindName, CodeName, FrName, OutcomeRef, RuleId, Slug, StatementRef
+from zigdag.core.findings import RecordPath
+from zigdag.core.names import Glob, ParamName, ShellCommand
+from zigdag.core.texts import Say, SentenceText
 
 T = TypeVar("T")
 
@@ -23,7 +26,7 @@ class At(Generic[T]):
 
 @dataclass(frozen=True)
 class Sentence:
-    text: str
+    text: SentenceText
     span: Span
 
 
@@ -63,14 +66,14 @@ ParamValue = str | tuple[str, ...]  # parameters are text until a check kind's s
 @dataclass(frozen=True)
 class Excepted:
     code: CodeName
-    reason: str | None
+    reason: Say | None
     span: Span
 
 
 @dataclass(frozen=True)
 class CheckUse:
     kind: At[CheckKindName]
-    params: Mapping[str, At[ParamValue]]
+    params: Mapping[ParamName, At[ParamValue]]
     excepted: tuple[Excepted, ...]
 
 
@@ -81,7 +84,7 @@ class Constraint:
     serves: tuple[At[OutcomeRef], ...]
     check: CheckUse | None
     statement: Sentence | None
-    reason: str | None
+    reason: Say | None
     span: Span
 
 
@@ -108,19 +111,19 @@ class CodeRule:
 @dataclass(frozen=True)
 class Verification:
     evidence: EvidenceKind
-    report: str | None
+    report: Glob | None
 
 
 @dataclass(frozen=True)
 class Validation:
     measures: At[OutcomeRef]
-    report: str
+    report: RecordPath
 
 
 @dataclass(frozen=True)
 class Build:
-    step: str
-    produces: tuple[str, ...]
+    step: ShellCommand
+    produces: tuple[RecordPath, ...]
 
 
 @dataclass(frozen=True)
@@ -137,7 +140,7 @@ class ProcessVariable:
     on: At[FrName]
     serves: tuple[At[OutcomeRef], ...]
     kind: ProcessKind
-    reason: str | None
+    reason: Say | None
     span: Span
 
 
@@ -153,11 +156,11 @@ class Tuning:
     """An entry that tunes a built-in rule (DESIGN2 §4.4): it may only change parameters, except, scope or switch it off."""
 
     name: RuleId
-    params: Mapping[str, At[ParamValue]]
+    params: Mapping[ParamName, At[ParamValue]]
     excepted: tuple[Excepted, ...]
     on: At[FrName] | None
     off: bool
-    reason: str | None
+    reason: Say | None
     span: Span
 
 

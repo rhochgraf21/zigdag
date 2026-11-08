@@ -25,6 +25,10 @@ frs:
     statements:
       hold: The outcome ref shall name an outcome by the job of the outcome and the name of the outcome.
 
+  zigdag.core.vocabulary.names.statement_ref:
+    statements:
+      hold: The statement ref shall name a statement by the FR and the name of the statement.
+
   zigdag.core.vocabulary.findings:
     statements:
       carry: The findings shall give each result the rule, the subject and the place that produced the result.
@@ -73,6 +77,14 @@ frs:
     statements:
       hold: The part shall name a part of the code model that a check reads.
 
+  zigdag.core.vocabulary.texts:
+    statements:
+      name: The texts shall name each kind of text that zigdag reads, writes or shows.
+
+  zigdag.core.vocabulary.measures:
+    statements:
+      name: The measures shall name each number that zigdag counts or places things by.
+
   zigdag.core.vocabulary.codec:
     statements:
       round-trip: The codec shall write each value that one process hands another as text that reads back to the same value.
@@ -105,6 +117,14 @@ frs:
   zigdag.core.language.token:
     statements:
       hold: The token shall hold one word of a sentence with the position of the word.
+
+  zigdag.core.language.pattern:
+    statements:
+      hold: The pattern shall name the EARS pattern that a statement follows.
+
+  zigdag.core.language.data_clause:
+    statements:
+      hold: The data clause shall hold the structure, the field and the value that a clause of a statement names.
 
   zigdag.core.record:
     statements:
@@ -193,6 +213,18 @@ frs:
   zigdag.core.record.entries.entry_kind:
     statements:
       hold: The entry kind shall name what kind of entry an entry is.
+
+  zigdag.core.record.sentences:
+    statements:
+      hold: The sentences shall hold the sentences of the record with the place of each sentence.
+
+  zigdag.core.record.sentences.sentence:
+    statements:
+      hold: The sentence shall hold one sentence of the record with the place of the sentence.
+
+  zigdag.core.record.sentences.statement:
+    statements:
+      hold: The statement shall hold one named statement of an FR.
 
   zigdag.core.settings:
     statements:
@@ -673,6 +705,18 @@ frs:
     statements:
       hold: The write shall hold one file with the text to write to the file.
 
+  zigdag.cli.plans.presence:
+    statements:
+      hold: The presence shall name whether the shell found something that the cli looked for.
+
+  zigdag.cli.plans.view:
+    statements:
+      hold: The view shall name which view of the record a command shows.
+
+  zigdag.cli.plans.git_error:
+    statements:
+      hold: The git error shall give the reason that git failed to read a revision.
+
 constraints:
   pure-core:  # the same text must always give the same findings
     on: zigdag.core
@@ -744,6 +788,3 @@ constraints:
       - python.mutants._searched
       - python.search.search
       - python.search._crosshair
-
-  edge-types:
-    off: true  # being switched on: zigdag's structures are recorded, its plain types are being named

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from zigdag.core.measures import Offset
+from zigdag.core.texts import SentenceText, Word
 
 # Numbers (10,000-line), words with dots, hyphens or underscores (emit.translator_names), possessives, punctuation.
 _TOKEN = re.compile(r"\d[\d,]*(?:\.\d+)?(?:-\w+)*|\w+(?:[-.]\w+)*|'s\b|['’]|[^\s\w]")
@@ -12,11 +14,11 @@ _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?(?:-\w+)*")
 
 @dataclass(frozen=True)
 class Token:
-    text: str
-    start: int  # character offset in the sentence
+    text: Word
+    start: Offset  # character offset in the sentence
 
     @property
-    def lower(self) -> str:
+    def lower(self) -> Word:
         return self.text.lower()
 
     @property
@@ -28,17 +30,17 @@ class Token:
         return bool(_NUMBER.fullmatch(self.text))
 
     @property
-    def hyphen_unit(self) -> str | None:
+    def hyphen_unit(self) -> Word | None:
         """For a number such as 10,000-line, the unit after the hyphen."""
         number, dash, unit = self.text.partition("-")
         return unit.lower() if dash and _NUMBER.fullmatch(number) else None
 
 
-def tokenize(text: str) -> tuple[Token, ...]:
+def tokenize(text: SentenceText) -> tuple[Token, ...]:
     return tuple(Token(m.group(), m.start()) for m in _TOKEN.finditer(text))
 
 
-def words(tokens: tuple[Token, ...]) -> tuple[str, ...]:
+def words(tokens: tuple[Token, ...]) -> tuple[Word, ...]:
     """The words, lowercased, in order."""
     return tuple(t.lower for t in tokens if t.is_word)
 

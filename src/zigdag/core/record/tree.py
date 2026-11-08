@@ -15,8 +15,10 @@ from ruamel.yaml.events import AliasEvent, CollectionStartEvent, ScalarEvent
 from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.resolver import VersionedResolver
 
-from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
 from zigdag.core.record.comments import Comments, scan
+from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
+from zigdag.core.names import Key
+from zigdag.core.texts import FileText, Say, Written
 
 YAML_RULE = "yaml"
 
@@ -32,9 +34,9 @@ class _TextResolver(VersionedResolver):
 
 @dataclass(frozen=True)
 class Text:
-    text: str
+    text: Written
     span: Span
-    reason: str | None  # the comment beside it, if any
+    reason: Say | None  # the comment beside it, if any
 
 
 @dataclass(frozen=True)
@@ -45,10 +47,10 @@ class Seq:
 
 @dataclass(frozen=True)
 class Entry:
-    key: str
+    key: Key
     key_span: Span
     value: Node
-    reason: str | None  # the comment beside the key, or directly above it
+    reason: Say | None  # the comment beside the key, or directly above it
 
 
 @dataclass(frozen=True)
@@ -56,7 +58,7 @@ class Map:
     entries: tuple[Entry, ...]
     span: Span
 
-    def get(self, key: str) -> Entry | None:
+    def get(self, key: Key) -> Entry | None:
         return next((e for e in self.entries if e.key == key), None)
 
     def __iter__(self) -> Iterator[Entry]:
@@ -103,7 +105,7 @@ def _convert(value: object, path: RecordPath, line: int, column: int, comments: 
     return Text("" if value is None else str(value), Span(path, line, column), None)
 
 
-def read_tree(path: RecordPath, text: str) -> tuple[Node | None, tuple[Finding, ...]]:
+def read_tree(path: RecordPath, text: FileText) -> tuple[Node | None, tuple[Finding, ...]]:
     """The file's node tree, or None with the findings that explain why it could not be read."""
     problems: list[Finding] = []
     y = _yaml()

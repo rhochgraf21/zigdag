@@ -231,7 +231,7 @@ def test_the_log_gets_its_union_merge_rule_once():
 def test_the_route_names_the_command_and_the_project(tmp_path):
     args, rest = _parser().parse_known_args(["--project", "sub", "show", "--data"])
     shown = plans.route(args, rest, tmp_path)
-    assert shown.command is plans.Command.VIEW and shown.view == plans.DATA_VIEW and shown.root == tmp_path / "sub"
+    assert shown.command is plans.Command.VIEW and shown.view is plans.View.DATA and shown.root == tmp_path / "sub"
     args, rest = _parser().parse_known_args(["check", "--unknown"])
     assert plans.route(args, rest, tmp_path).rejected
     args, rest = _parser().parse_known_args(["critique", "--record", "answer.json"])

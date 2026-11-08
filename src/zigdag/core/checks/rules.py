@@ -7,17 +7,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.code import Place, Qualified
 from zigdag.core.effects import BUILT_IN as BUILT_IN_EFFECTS
 from zigdag.core.effects import resource_container
-from zigdag.core.findings import BUILT_IN_SPAN, Span
 from zigdag.core.kinds.params import Params, convert
 from zigdag.core.kinds.registry import CheckKind
-from zigdag.core.names import CheckKindName, FrName, RuleId
 from zigdag.core.record.builtins import BUILT_INS
 from zigdag.core.record.model import CodeRule, Excepted, Record
 from zigdag.core.resolve import Tree
 from zigdag.core.settings import Settings
+from zigdag.core.code import Place, Qualified
+from zigdag.core.findings import BUILT_IN_SPAN, Span
+from zigdag.core.names import CheckKindName, FrName, RuleId
+from zigdag.core.names import CodePath
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class RuleUse:
     excepted: tuple[Excepted, ...]
     span: Span
 
-    def skips(self, tree: Tree, where: Place | Qualified | str) -> bool:
+    def skips(self, tree: Tree, where: Place | Qualified | CodePath) -> bool:
         """Whether the code is excepted: it is, or is inside, a name under `except`."""
         text = str(where)
         return any(text == c or text.startswith(c + ".") for c in self._candidates(tree))

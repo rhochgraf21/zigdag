@@ -7,15 +7,17 @@ from dataclasses import dataclass
 
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.tokens import Token, tokenize, words
+from zigdag.core.findings import RuleName
+from zigdag.core.texts import Say, SentenceText, Word
 
 
 @dataclass(frozen=True)
 class Problem:
     """Something wrong with a sentence. An exact problem breaks; a guess is a question."""
 
-    rule: str
+    rule: RuleName
     exact: bool
-    say: str
+    say: Say
 
 
 class Pattern(enum.Enum):
@@ -31,9 +33,9 @@ class Pattern(enum.Enum):
 class DataClause:
     """A While or Where clause: the structure, its field (when named), and the value it must have."""
 
-    structure: str
-    field: str | None
-    value: str
+    structure: Word
+    field: Word | None
+    value: Word
 
 
 @dataclass(frozen=True)
@@ -41,9 +43,9 @@ class Ears:
     tokens: tuple[Token, ...]
     where: DataClause | None
     while_: DataClause | None
-    when: str | None
-    if_: str | None
-    subject: str
+    when: SentenceText | None
+    if_: SentenceText | None
+    subject: SentenceText
     negated: bool
     response: tuple[Token, ...]
 
@@ -87,7 +89,7 @@ def _lowered(tokens: tuple[Token, ...]) -> str:
     return " ".join(t.lower for t in tokens)
 
 
-def parse_ears(text: str, lexicons: Lexicons) -> tuple[Ears | None, tuple[Problem, ...]]:
+def parse_ears(text: SentenceText, lexicons: Lexicons) -> tuple[Ears | None, tuple[Problem, ...]]:
     tokens = tokenize(text)
     if not tokens or tokens[-1].text != ".":
         return None, (Problem(EARS, True, "an EARS statement ends with a full stop"),)
@@ -159,7 +161,7 @@ _MEASURES = (
 )
 
 
-def parse_outcome(text: str) -> tuple[Problem, ...]:
+def parse_outcome(text: SentenceText) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     if w[:2] != ("minimize", "the"):
         return (Problem(OUTCOME, True, 'an outcome starts "Minimize the"'),)
@@ -177,7 +179,7 @@ def parse_outcome(text: str) -> tuple[Problem, ...]:
     return ()
 
 
-def parse_job(text: str, lexicons: Lexicons) -> tuple[Problem, ...]:
+def parse_job(text: SentenceText, lexicons: Lexicons) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     if not w:
         return (Problem(JOB, True, "a job cannot be empty"),)
@@ -188,5 +190,5 @@ def parse_job(text: str, lexicons: Lexicons) -> tuple[Problem, ...]:
     return ()
 
 
-def parse_performer(text: str) -> tuple[Problem, ...]:
+def parse_performer(text: SentenceText) -> tuple[Problem, ...]:
     return () if words(tokenize(text)) else (Problem(PERFORMER, True, "a performer cannot be empty"),)

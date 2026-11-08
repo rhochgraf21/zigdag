@@ -7,16 +7,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from zigdag.core.checks.run import ProjectFiles, analyse
-from zigdag.core.code import CodeModel
-from zigdag.core.findings import RecordPath, Result
 from zigdag.core.kinds.registry import BUILT_IN_KINDS
-from zigdag.core.names import PYTHON, CheckKindName, FrName, RuleId, fr_name, parent
 from zigdag.core.record.builtins import BUILT_INS, UNRELATED_BREAKAGE
 from zigdag.core.record.fmt import format_text
 from zigdag.core.record.model import Domain
 from zigdag.core.record.read import domain_file
 from zigdag.core.relate import Where, classify
 from zigdag.core.settings import DEFAULT_REPORT, DEFAULT_TEST_ROOTS, RULESET, SOURCE_KEY
+from zigdag.core.code import CodeModel
+from zigdag.core.findings import RecordPath, Result
+from zigdag.core.names import PYTHON, CheckKindName, FrName, RuleId, fr_name, parent
+from zigdag.core.texts import FileText, Say
 
 FUNCTIONAL = domain_file(Domain.FUNCTIONAL)
 PROCESS = domain_file(Domain.PROCESS)
@@ -27,7 +28,7 @@ def _toml_list(items: tuple[str, ...]) -> str:
     return "[" + ", ".join(f'"{i}"' for i in items) + "]"
 
 
-def settings_text(source_roots: tuple[str, ...]) -> str:
+def settings_text(source_roots: tuple[RecordPath, ...]) -> FileText:
     """A zigdag.toml for a project whose Python source is in the given folders."""
     return "\n".join([
         "[settings]",
@@ -127,7 +128,7 @@ def _children_limit(root: FrName, names: list[FrName]) -> int:
     return max(counts.values(), default=0)
 
 
-def init(files: ProjectFiles, code: CodeModel) -> tuple[Mapping[RecordPath, str], list[str]]:
+def init(files: ProjectFiles, code: CodeModel) -> tuple[Mapping[RecordPath, FileText], list[Say]]:
     """The design files for the code as it is, and what could not be recorded."""
     root, names = _frs(code)
     if root is None:
