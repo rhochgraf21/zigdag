@@ -57,8 +57,15 @@ def _or(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " or " + items[-1]
 
 
+EXCEPTIONS_NAMED = 4  # at most this many exceptions are named in a sentence; more are counted, so it stays short
+
+
 def _excepted(excepted: tuple[str, ...]) -> str:
-    return f", except in {_and(list(excepted))}" if excepted else ""
+    if not excepted:
+        return ""
+    if len(excepted) > EXCEPTIONS_NAMED:
+        return f", except in the {len(excepted)} places that the rule lists"
+    return f", except in {_and(list(excepted))}"
 
 
 def _last(name: str) -> str:
@@ -84,6 +91,7 @@ EFFECTS = CheckKindName("effects")
 DATA_FLOW = CheckKindName("data-flow")
 MUTATION = CheckKindName("mutation")
 PLANNED_EFFECTS = CheckKindName("planned-effects")
+CONTRACTED_INTERFACES = CheckKindName("contracted-interfaces")
 
 _C = frozenset
 _P = Part
@@ -157,6 +165,8 @@ _KINDS = (
                      "the function")),
     CheckKind(PLANNED_EFFECTS, {}, _C({_P.SYMBOLS, _P.CALLS_AND_EFFECTS}), Exactness.BOTH,
               _fixed("make every decision in a function that is declared without effects")),
+    CheckKind(CONTRACTED_INTERFACES, {}, _C({_P.SYMBOLS, _P.DEPENDENCIES, _P.CALLS_AND_EFFECTS}), Exactness.EXACT,
+              _fixed("give a contract to each function declared without effects that an interface offers")),
     CheckKind(CheckKindName("co-change"),
               {"commits": ParamSpec(ParamType.COUNT, 500), "threshold": ParamSpec(ParamType.RATIO, 0.5)},
               _C({_P.HISTORY, _P.DEPENDENCIES}), Exactness.GUESS,

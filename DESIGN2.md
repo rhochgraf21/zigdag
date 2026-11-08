@@ -349,7 +349,11 @@ Each check kind defines:
 | `no-single-implementations` | none | an abstraction has exactly one implementation | guess |
 | `co-change` | `commits`, `threshold` | DPs keep changing together in git history without one depending on the other | guess |
 | `planned-effects` | none | a function that is not declared pure (§3) passes a call something other than a plan value or its own parameter, branches on something other than a plan value, or computes (see below) | exact; a question where a value cannot be traced |
+| `contracted-interfaces` | none | a function declared pure (§3) that another DP uses, or that code not declared pure calls, has no contract | exact |
 | `mutation` | `paths` (default 200), `seconds` (default 10) | a mutant of a pure function with a contract survives its contract cases and every test that runs it, and a search within the bound finds an input that shows the change (§4.5) | guess |
+
+A rule's sentence names the places under its `except` when there are at most four, and counts them
+when there are more, so that a long list of debt never makes the sentence too long to read.
 
 Examples of the sentences zigdag renders:
 - `effects`: "The core shall have no side effects." / "…no side effects other than reading files."
@@ -494,6 +498,16 @@ def sync(plan: SyncPlan) -> None:      # SyncPlan is what the pure plan_sync ret
 - On existing code, `zigdag init` lists every function that breaks the rule under its `except`
   (§7.9), so that new code follows it from the start.
 
+**Why `contracted-interfaces` asks for contracts only at boundaries.** A contract earns its keep where
+one part relies on another: it says what a function promises, so callers can rely on it, and it is what
+mutants of the function are judged by (§4.5). So the rule asks for one on each function declared pure
+that is part of an interface: one another DP uses, or one that code with effects calls, which is where
+plans come from (`planned-effects`).
+- An inner helper is covered by the tests, and by the contracts of the functions that use it. A
+  contract on it could often only repeat its code.
+- A method counts as having a contract when its class has an invariant.
+- On existing code, `zigdag init` lists every function that breaks the rule under its `except`.
+
 ### 4.2 Custom check kinds
 
 A custom check is a function registered in `zigdag.toml`:
@@ -591,6 +605,7 @@ job, placed on the root:
 | `no-single-implementations` | process | `no-single-implementations` | |
 | `co-change` | process | `co-change` | the last 500 commits |
 | `planned-effects` | process | `planned-effects` | |
+| `contracted-interfaces` | process | `contracted-interfaces` | |
 | `mutation` | process | `mutation` | |
 
 **Tuning a built-in:** write an entry with the built-in's name, in the file of its domain. The entry

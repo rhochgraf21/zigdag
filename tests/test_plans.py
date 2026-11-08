@@ -48,6 +48,8 @@ CORE = '''"""What each order is charged: decided here, without effects."""
 from dataclasses import dataclass
 from typing import NewType
 
+import deal
+
 Card = NewType("Card", str)
 Cents = NewType("Cents", int)
 
@@ -77,6 +79,7 @@ class Plan:
     note: str  # what to say when asking for approval
 
 
+@deal.ensure(lambda order, result: result.charges == (Charge(order.card, order.cents),))
 def plan_checkout(order: Order) -> Plan:
     """Charge the order once; ask for approval above a hundred."""
     charges = (Charge(order.card, order.cents),)
@@ -204,6 +207,16 @@ def test_init_lists_each_function_that_breaks_the_rule_as_debt(tmp_path):
     process = (root / "design/process.yaml").read_text()
     assert "planned-effects:" in process and "shop.shell.discount" in process and "shop.shell.checkout" not in process
     assert not found(run(root), "planned-effects")
+
+
+@verifies("zigdag.core.analysis.checks#contracted")
+def test_a_pure_function_an_interface_offers_states_a_contract(tmp_path):
+    said = {f.about.rpartition(".")[2]: f.say for f in run(build(tmp_path)).report.findings
+            if f.rule == "contracted-interfaces"}
+    assert "plan_checkout" not in said  # it states what it promises
+    assert "used outside shop.core" in said["wire"]  # the bank relies on it, and it promises nothing
+    assert "called by shop.shell.announce, which has effects" in said["label"]
+    assert not {"carry_out", "checkout", "charge"} & set(said)  # code with effects is not asked for contracts
 
 
 @verifies("zigdag.cli.plans#decide")

@@ -114,6 +114,7 @@ frs:
       weak-contracts: If every case of a contract holds for a changed function, then the checks shall ask about the change.
       unmutated: If code is marked to be left unmutated outside the except of the rule, then the checks shall report a break.
       planned: If a function that is not declared pure works out a value or uses a value that no pure function decided, then the checks shall report a break.
+      contracted: If a function that is declared pure and that an interface offers has no contract, then the checks shall report a break.
 
   zigdag.core.views:
     statements:

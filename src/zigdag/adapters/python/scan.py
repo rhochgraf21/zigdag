@@ -411,7 +411,9 @@ class Scanner(ast.NodeVisitor):
             self.unit, SymbolName(name), SymbolKind.CLASS,
             self._public(node.name, not self.classes) and all(not c.startswith("_") for c in self.classes),
             self.span(node), (node.end_lineno or node.lineno) - node.lineno + 1, self._description(node),
-            fields=fields, bases=bases, members=members, abstraction=self._abstraction(node, bases)))
+            fields=fields, bases=bases, members=members, abstraction=self._abstraction(node, bases),
+            contract=any(self.resolve(d.func if isinstance(d, ast.Call) else d) in apis.DEAL_CONTRACTS
+                         for d in node.decorator_list)))
         self.classes.append(node.name)
         for stmt in node.body:
             self.visit(stmt)

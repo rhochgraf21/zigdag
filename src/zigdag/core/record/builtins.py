@@ -80,5 +80,6 @@ BUILT_INS: Mapping[RuleId, BuiltIn] = {
         _rule("co-change", _P, UNRELATED_BREAKAGE),
         _rule("mutation", _P, UNRELATED_BREAKAGE),
         _rule("planned-effects", _P, UNRELATED_BREAKAGE),
+        _rule("contracted-interfaces", _P, UNRELATED_BREAKAGE),
     )
 }

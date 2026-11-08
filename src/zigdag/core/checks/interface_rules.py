@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 
-from zigdag.core.checks.context import Check, Context, a_type, asked, short_name
+from zigdag.core.checks.context import Check, Context, a_type, asked, broken, short_name
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import CONSTRUCTOR, CONSTRUCTOR_NAME, Abstraction, CodeModel, Param, Qualified, Symbol, SymbolKind, TypeExpr, \
     TypeKind
@@ -182,9 +182,45 @@ def no_single_implementations(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
                         implementations[0])
 
 
+# ---- contracts at interfaces --------------------------------------------------------------------------------------
+
+def _offered(ctx: Context, rule: RuleUse) -> dict[Qualified, str]:
+    """Each pure function an interface offers, with who relies on it: another DP that uses it, or a function with
+    effects that calls it."""
+    out: dict[Qualified, str] = {}
+    for s in _operations(ctx, rule):
+        if s.qualified in ctx.declared_pure:
+            out.setdefault(s.qualified, f"used outside {ctx.tree.owner(s.qualified)}")
+    for c in sorted(ctx.model.calls, key=lambda c: (str(c.caller), c.callee)):
+        caller = Qualified(str(c.caller))
+        callee = ctx.model.symbols.get(c.callee)
+        if callee is None or c.caller.symbol is None or caller in ctx.declared_pure or rule.skips(ctx.tree, c.callee):
+            continue
+        if callee.qualified in ctx.declared_pure and ctx.in_scope(rule, ctx.tree.owner(callee.qualified)):
+            out.setdefault(callee.qualified, f"called by {caller}, which has effects")
+    return out
+
+
+def _contracted(model: CodeModel, function: Symbol) -> bool:
+    """Whether a function states what it promises: a contract of its own, or an invariant of its class."""
+    owner = model.symbols.get(Qualified(function.qualified.rpartition(".")[0]))
+    return function.contract or (owner is not None and owner.kind is SymbolKind.CLASS and owner.contract)
+
+
+def contracted_interfaces(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
+    """Each pure function an interface offers has a contract."""
+    for name, relied in sorted(_offered(ctx, rule).items()):
+        function = ctx.model.symbols[name]
+        if not _contracted(ctx.model, function):
+            yield broken(rule, name, function.span, f"{name} is {relied}, but states no contract: say what it "
+                         f"promises (@deal.post, @deal.ensure), so its callers can rely on it and its mutants are "
+                         f"judged by it")
+
+
 CHECKS: Mapping[CheckKindName, Check] = {
     CheckKindName("min-depth"): min_depth,
     CheckKindName("no-mode-parameters"): no_mode_parameters,
     CheckKindName("narrow-parameters"): narrow_parameters,
     CheckKindName("no-single-implementations"): no_single_implementations,
+    CheckKindName("contracted-interfaces"): contracted_interfaces,
 }
