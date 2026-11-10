@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
+import deal
+
 from zigdag.core.findings import Span
 from zigdag.core.names import CheckKindName, CodeName, FrName, OutcomeRef, RuleId, Slug, StatementRef
 from zigdag.core.findings import RecordPath
@@ -183,10 +185,13 @@ class Record:
     placements: Mapping[FrName, Placement]
 
     @property
+    @deal.ensure(lambda self, result: all(ref == o.ref for ref, o in result.items()))
+    @deal.ensure(lambda self, result: len(result) <= sum(len(j.outcomes) for j in self.jobs))
     def outcomes(self) -> Mapping[OutcomeRef, Outcome]:
         return {o.ref: o for job in self.jobs for o in job.outcomes}
 
     @property
+    @deal.ensure(lambda self, result: result is None or ("." not in result.name and result in self.frs.values()))
     def root(self) -> Fr | None:
         roots = [fr for name, fr in self.frs.items() if "." not in name]
         return roots[0] if len(roots) == 1 else None

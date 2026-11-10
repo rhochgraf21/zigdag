@@ -1,24 +1,8 @@
 zigdag.core.workflow.critique: [critique, rubric]
 zigdag.core.workflow.critique.judgement: [Judged]
-zigdag.adapters.python.watched_test: [observed.Ran]
-zigdag.adapters.python.recording: [observed.Recording]
 zigdag.cli.plans.git_listing: [Listed]
 zigdag.cli.plans.disk_layout: [OnDisk]
-zigdag.core.analysis.checks.context: [context.Context]
-zigdag.core.analysis.checks.rule_use: [rules.RuleUse]
-zigdag.core.analysis.checks.analysis: [run.Analysis]
-zigdag.core.analysis.checks.project_files: [run.ProjectFiles]
 zigdag.core.vocabulary.codec.unreadable_text: [Unreadable]
-zigdag.core.vocabulary.kinds.param_problem: [params.ParamProblem]
-zigdag.core.vocabulary.kinds.param_type: [params.ParamType]
-zigdag.core.vocabulary.kinds.check_kind: [registry.CheckKind]
-zigdag.core.vocabulary.kinds.exactness: [registry.Exactness]
-zigdag.core.vocabulary.kinds.part: [registry.Part]
-zigdag.core.language.lexicon_name: [lexicons.LexiconName]
-zigdag.core.language.lexicons: [lexicons.Lexicons]
-zigdag.core.language.ears: [sentences.Ears]
-zigdag.core.language.problem: [sentences.Problem]
-zigdag.core.language.token: [tokens.Token]
 zigdag.core.workflow.log.approval: [Approved]
 zigdag.core.workflow.log.critique_event: [Critiqued]
 zigdag.core.record.contents.record: [model.Record]
@@ -38,9 +22,83 @@ zigdag.core.record.rules.gate: [model.Gate]
 zigdag.core.record.rules.evidence_kind: [model.EvidenceKind]
 zigdag.core.analysis.watch.guarded_structure: [Guarded]
 zigdag.core.analysis.watch.mutation_target: [Mutated]
-zigdag.watchers.python.search_verdict: [search.Verdict]
 zigdag.cli.plans.git_error: [GitError]
-zigdag.core.language.pattern: [sentences.Pattern]
-zigdag.core.language.data_clause: [sentences.DataClause]
 zigdag.core.record.sentences.sentence: [model.Sentence]
 zigdag.core.record.sentences.statement: [model.Statement]
+zigdag.adapters: [adapters, adapters.code_quality]
+zigdag.adapters.python:
+  - python
+  - python.apis
+  - python.bandit
+  - python.observed
+  - python.plans
+  - python.profiler
+  - python.scan
+  - python.tests
+  - python.tools
+zigdag.adapters.python.watched_test: [observed.Ran]
+zigdag.adapters.python.recording: [observed.Recording]
+zigdag.adapters.python.tool: [tools.Tool]
+zigdag.adapters.python.tool_run: [tools.ToolRun]
+zigdag.adapters.python.tool_output: [tools.ToolOutput]
+zigdag.adapters.python.tool_start: [tools.Started]
+zigdag.agents: [agents, agents.claude, agents.skills]
+zigdag.cli: [cli, cli.commands, cli.files]
+zigdag.core.analysis.checks:
+  - checks
+  - checks.code_rules
+  - checks.context
+  - checks.custom
+  - checks.data_rules
+  - checks.directions
+  - checks.evidence
+  - checks.gates
+  - checks.interface_rules
+  - checks.mutation_rules
+  - checks.plan_rules
+  - checks.record_rules
+  - checks.rules
+  - checks.run
+  - checks.tool_rules
+zigdag.core.analysis.checks.context: [context.Context]
+zigdag.core.analysis.checks.rule_use: [rules.RuleUse]
+zigdag.core.analysis.checks.analysis: [run.Analysis]
+zigdag.core.analysis.checks.project_files: [run.ProjectFiles]
+zigdag.core.analysis.checks.standing: [directions.Standing]
+zigdag.core.analysis.checks.loaded_checks: [custom.Loaded]
+zigdag.core.analysis.checks.custom_checks: [custom.CustomChecks]
+zigdag.core.analysis.checks.loading: [custom.Loading]
+zigdag.core.language:
+  - language
+  - language.lexicons
+  - language.performance
+  - language.quality
+  - language.sentences
+  - language.tokens
+zigdag.core.language.lexicon_name: [lexicons.LexiconName]
+zigdag.core.language.lexicons: [lexicons.Lexicons]
+zigdag.core.language.ears: [sentences.Ears]
+zigdag.core.language.problem: [sentences.Problem]
+zigdag.core.language.token: [tokens.Token]
+zigdag.core.language.pattern: [sentences.Pattern]
+zigdag.core.language.data_clause: [sentences.DataClause]
+zigdag.core.language.bound: [performance.Bound]
+zigdag.core.language.characteristic: [performance.Characteristic]
+zigdag.core.record:
+  - record
+  - record.builtins
+  - record.comments
+  - record.fmt
+  - record.model
+  - record.read
+  - record.tree
+zigdag.core.vocabulary.kinds: [kinds, kinds.params, kinds.registry]
+zigdag.core.vocabulary.kinds.param_problem: [params.ParamProblem]
+zigdag.core.vocabulary.kinds.param_type: [params.ParamType]
+zigdag.core.vocabulary.kinds.check_kind: [registry.CheckKind]
+zigdag.core.vocabulary.kinds.exactness: [registry.Exactness]
+zigdag.core.vocabulary.kinds.part: [registry.Part]
+zigdag.core.vocabulary.kinds.direction: [registry.Direction]
+zigdag.core.vocabulary.kinds.param_spec: [params.ParamSpec]
+zigdag.watchers.python: [python, python.mutants, python.search, python.values, python.watcher]
+zigdag.watchers.python.search_verdict: [search.Verdict]

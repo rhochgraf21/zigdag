@@ -8,12 +8,15 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.adapters.python import apis
 from zigdag.adapters.python.observed import Observed, Recording, current
 from zigdag.adapters.python.scan import Facts, scan
 from zigdag.adapters.python.tests import read_reports, read_tests
+from zigdag.adapters.python.tools import ToolOutput, diagnostics
 from zigdag.core.codec import Unreadable
-from zigdag.core.code import CodeModel, Libraries, Unit, UnitKind
+from zigdag.core.code import CodeModel, Diagnostic, Libraries, Unit, UnitKind
 from zigdag.core.findings import Finding, RecordPath, Result, Span, digest_of, finding
 from zigdag.core.kinds.registry import Part
 from zigdag.core.settings import OBSERVED_FILE
@@ -35,6 +38,7 @@ class PythonFiles:
     pyproject: FileText | None
     reports: Mapping[RecordPath, FileText]  # JUnit XML
     observed: FileText | None = None  # what the watcher saw in the latest watched run of the tests
+    tools: tuple[ToolOutput, ...] = ()  # the linters and type checkers the shell ran, for the rules that need them
 
 
 def _module_path(path: RecordPath, roots: tuple[str, ...]) -> tuple[list[str], bool] | None:
@@ -73,6 +77,9 @@ def declared_libraries(pyproject: str | None) -> frozenset[str] | None:
     return frozenset(names)
 
 
+@deal.pre(lambda files: not any("\0" in p for p in (*files.sources, *files.tests, *files.reports)))  # paths on disk
+@deal.ensure(lambda files, result: all(s.unit in result.units for s in result.symbols.values()))
+@deal.ensure(lambda files, result: all(u.adapter == PYTHON for u in result.units.values()))
 def read_python(files: PythonFiles) -> CodeModel:
     units: dict[CodePath, Unit] = {}
     vendored: set[str] = set()
@@ -114,6 +121,14 @@ def read_python(files: PythonFiles) -> CodeModel:
     seen = _observed(files, units, problems)
     supplied = {Part.RECORD, Part.UNITS, Part.PUBLIC_NAMES, Part.DEPENDENCIES, Part.SYMBOLS, Part.STRUCTURES,
                 Part.CALLS_AND_EFFECTS, Part.TESTS}
+    diagnosed: list[Diagnostic] = []
+    for output in files.tools:
+        reported, failure = diagnostics(output)
+        diagnosed += reported
+        if failure is None:
+            supplied.add(output.tool.diagnosis.part)
+        else:
+            problems.append(failure)
     return CodeModel(
         units=units,
         symbols=symbols,
@@ -130,6 +145,7 @@ def read_python(files: PythonFiles) -> CodeModel:
         results=results,
         reports_read=bool(files.reports),
         observed=seen.observations if seen else None,
+        diagnostics=tuple(diagnosed),
         libraries=Libraries(declared_libraries(files.pyproject), frozenset(vendored),
                             frozenset(sys.stdlib_module_names) | {"__future__"}),
         supplied=frozenset(supplied | ({Part.OBSERVATIONS} if seen else set())),

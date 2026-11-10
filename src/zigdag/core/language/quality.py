@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import deal
+
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Ears, Problem
 from zigdag.core.language.tokens import Token, contains_phrase, tokenize, words
@@ -27,6 +29,8 @@ understood won written
 """.split())
 
 
+@deal.ensure(lambda text, limit, result: all(p.rule == READABLE and p.exact for p in result))
+@deal.ensure(lambda text, limit, result: len(words(tokenize(text))) <= limit or bool(result))
 def readable(text: SentenceText, limit: Count) -> tuple[Problem, ...]:
     tokens = tokenize(text)
     problems = []
@@ -47,11 +51,15 @@ def _found(word_list: tuple[str, ...], lexicon: frozenset[str]) -> list[str]:
     return sorted(e for e in lexicon if (" " in e and contains_phrase(word_list, e)) or (" " not in e and e in word_list))
 
 
+@deal.ensure(lambda text, lexicons, ignore=(), *, result: all(p.rule == SOLUTION_FREE and not p.exact for p in result))
+@deal.ensure(lambda text, lexicons, ignore=(), *, result: len(result) <= len(lexicons.solution_words))
 def solution_words(text: SentenceText, lexicons: Lexicons, ignore: tuple[Word, ...] = ()) -> tuple[Problem, ...]:
     w = tuple(x for x in words(tokenize(text)) if x not in ignore)
     return tuple(Problem(SOLUTION_FREE, False, f'"{x}" names a solution, not a need') for x in _found(w, lexicons.solution_words))
 
 
+@deal.ensure(lambda text, lexicons, result: all(p.rule == MEASURABLE and not p.exact for p in result))
+@deal.ensure(lambda text, lexicons, result: len(result) <= len(lexicons.vague_words))
 def vague_words(text: SentenceText, lexicons: Lexicons) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     return tuple(Problem(MEASURABLE, False, f'"{x}" is vague: give a number or an observable condition')
@@ -79,6 +87,9 @@ def _unitless_bounds(tokens: tuple[Token, ...], lexicons: Lexicons) -> list[str]
     return out
 
 
+@deal.pre(lambda ears, lexicons: all(t.text for t in (*ears.tokens, *ears.response)))  # as parse_ears makes it
+@deal.ensure(lambda ears, lexicons, result: words(ears.tokens).count("shall") == 1 or any(
+    p.rule == ATOMIC and p.exact for p in result))  # one function per statement, always
 def ears_quality(ears: Ears, lexicons: Lexicons) -> tuple[Problem, ...]:
     tokens = ears.tokens
     w = words(tokens)
@@ -112,6 +123,8 @@ def ears_quality(ears: Ears, lexicons: Lexicons) -> tuple[Problem, ...]:
     return tuple(problems)
 
 
+@deal.pre(lambda ears, lexicons: all(t.text for t in ears.tokens))
+@deal.ensure(lambda ears, lexicons, result: all(p.rule == SOLUTION_FREE for p in result))
 def named_solutions(ears: Ears, lexicons: Lexicons) -> tuple[Problem, ...]:
     """The words of an EARS statement that name a solution rather than a need: for statements that must stay free
     of them."""

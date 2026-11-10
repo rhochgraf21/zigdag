@@ -16,6 +16,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+import deal
+
 from zigdag.core.record import tree as t
 from zigdag.core.record.comments import Comments, scan
 from zigdag.core.record.model import Domain
@@ -183,6 +185,9 @@ class _Writer:
                 self.seq(item, indent + 2, path)
 
 
+@deal.ensure(lambda path, text, result: (result[0] is None) == bool(result[1]))
+@deal.post(lambda result: result[0] is None or result[0] in ("", result[0].rstrip("\n") + "\n"))  # one newline at the end
+# That formatting keeps what a file says is the always-on rule fmt's to report, as a zigdag bug, not a contract's.
 def format_text(path: RecordPath, text: FileText) -> tuple[FileText | None, tuple[Finding, ...]]:
     """The file in its canonical layout, or None (with the reasons) when it cannot be read."""
     root, problems = t.read_tree(path, text)
@@ -211,6 +216,7 @@ def format_text(path: RecordPath, text: FileText) -> tuple[FileText | None, tupl
     return ("\n".join(lines) + "\n" if lines else ""), ()
 
 
+@deal.post(lambda result: result is None or list(result[1]) == sorted(result[1]))
 def content(path: RecordPath, text: FileText) -> tuple[object, tuple[Say, ...]] | None:
     """What a file says, ignoring layout: its values (maps compared without order) and all its comment texts."""
     root, _ = t.read_tree(path, text)

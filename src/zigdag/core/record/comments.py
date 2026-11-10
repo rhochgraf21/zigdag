@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+# What ends a line as YAML 1.2 counts lines, which is how the reader numbers every value it places. Python's
+# str.splitlines also ends a line at U+2028, U+2029, U+0085 and others, which YAML allows inside a value: after one
+# of those, each comment would be attached to the line below the one it is written on.
+_YAML_LINE_END = re.compile(r"\r\n|\r|\n")
 
 
 @dataclass(frozen=True)
@@ -53,7 +59,7 @@ def _text(comment: str) -> str:
 def scan(text: str) -> Comments:
     whole: dict[int, str] = {}
     beside: dict[int, str] = {}
-    for n, line in enumerate(text.splitlines()):
+    for n, line in enumerate(_YAML_LINE_END.split(text)):
         if line.strip().startswith("#"):
             whole[n] = _text(line.strip())
         elif (at := _comment_start(line)) is not None:

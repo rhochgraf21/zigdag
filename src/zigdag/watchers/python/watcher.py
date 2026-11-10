@@ -22,15 +22,17 @@ import inspect
 import logging
 import os
 import random
-import re
 import sys
 import threading
 import time
 import typing
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import CodeType, FrameType
+
+import deal
 
 from zigdag.adapters.python import apis
 from zigdag.adapters.python.observed import COLLECTION, Ran, Recording
@@ -47,6 +49,7 @@ from zigdag.core.code import (
     Escape,
     Leak,
     Mutant,
+    MutantFate,
     Outcome,
     Place,
     Qualified,
@@ -59,14 +62,13 @@ from zigdag.core.code import (
 from zigdag.core.effects import Effect
 from zigdag.core.findings import Digest, RecordPath, Span, digest_of
 from zigdag.core.names import CodePath, FrName
-from zigdag.core.watch import WatchPlan
+from zigdag.core.texts import Say
+from zigdag.core.watch import LastRun, Mutated, WatchPlan
 from zigdag.watchers.python import mutants
-from zigdag.watchers.python.values import conforms, fields_of, fingerprint, type_name
+from zigdag.watchers.python.values import conforms, fields_of, fingerprint, said, type_name
 
-try:
-    import deal  # runs contracts on generated inputs, when the project has it
-except ImportError:
-    deal = None
+Keep = Callable[[LastRun], None]  # saves the mutants judged so far, where the next run will find them
+Tell = Callable[[Say], None]  # tells the person running the tests how the work after them is going
 
 MIN_CANARY = 5  # shorter protected text is not looked for: it would match by chance
 CANARIES = 2000  # at most this many protected values are remembered
@@ -85,8 +87,6 @@ _IMPORT = "import"
 _NOT_ESCAPES = (GeneratorExit, StopIteration, StopAsyncIteration, KeyboardInterrupt)
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 _WRITE_MODES = frozenset("wax+")
-_COLOURS = re.compile(r"\x1b\[[0-9;]*m")  # terminal colour codes, as some libraries put in their messages
-DETAIL = 300  # at most this much of an error's message is kept
 
 _AUDITED: Mapping[str, Effect] = {
     **dict.fromkeys(["os.remove", "os.rename", "os.mkdir", "os.rmdir", "os.chmod", "os.chown", "os.truncate",
@@ -190,7 +190,8 @@ class Watcher:
         self.test_files = {os.path.realpath(root / path) for path in plan.tests}
         self.replayed = frozenset(plan.replayed)
         self.mutated = frozenset(m.place for m in plan.mutated)
-        self.reached: dict[Place, set[TestId]] = {}  # each function to mutate, and the tests that ran it
+        self.contracted = frozenset(plan.contracts) | self.mutated
+        self.reached: dict[Place, set[TestId]] = {}  # each function with a contract, and the tests that ran it
         self.protected = frozenset(plan.protected)
         # named types by (module, name), so that a call of one is matched without making a named type itself
         self.protected_types = {tuple(t.rsplit(".", 1)): t for t in plan.protected}
@@ -237,6 +238,7 @@ class Watcher:
         self.codes[code] = info
         return info
 
+    @deal.ensure(lambda self, code, result: result is None or result is self.whose(code))
     def code(self, code: CodeType) -> _Code | None:
         info = self.whose(code)
         return info if isinstance(info, _Code) else None
@@ -325,6 +327,7 @@ class Watcher:
             self.effects.setdefault((info.place, apis.IMPORT), EffectStart(
                 info.place, apis.IMPORT, f"import {module}", span, self.test))
 
+    @deal.ensure(lambda self, owner, name, effect, result: hasattr(getattr(owner, name), "__wrapped__"))
     def wrap(self, owner: object, name: str, effect: Effect) -> None:
         original = getattr(owner, name)
         watcher = self
@@ -377,6 +380,8 @@ class Watcher:
         if text is not None and len(text) >= MIN_CANARY and len(self.canaries) < CANARIES:
             self.canaries.setdefault(text, kind)
 
+    @deal.ensure(lambda self, text, effect, where, info, line, result: all(
+        (kind, effect, where) in self.leaks for canary, kind in self.canaries.items() if canary in text))
     def search(self, text: str, effect: Effect, where: str, info: _Code | None, line: int) -> None:
         for canary, kind in self.canaries.items():
             if canary in text:
@@ -384,6 +389,7 @@ class Watcher:
                 span = Span(info.path, line, 1) if info is not None else None
                 self.leaks.setdefault((kind, effect, where), Leak(kind, effect, where, at, span, self.test))
 
+    @deal.ensure(lambda self, new_type, value, result: result is value)  # a named type's call changes nothing
     def new_type_call(self, new_type: typing.NewType, value: object) -> object:
         name = self.protected_types.get((new_type.__module__, new_type.__qualname__))
         if name is not None and self.watching():
@@ -470,7 +476,7 @@ class Watcher:
         self.local.busy = True
         try:
             self.ran.add(info.place.unit)
-            if info.place in self.mutated and self.test != COLLECTION:
+            if info.place in self.contracted and self.test != COLLECTION:
                 self.reached.setdefault(info.place, set()).add(self.test)
             if info.place.symbol is not None:
                 self._enter(sys._getframe(1), code, info)
@@ -634,44 +640,83 @@ class Watcher:
         self.runs.append(Ran(self.test, self.test_file, frozenset(self.ran), self.processes))
         self.test = COLLECTION
 
+    @deal.ensure(lambda self, place, result: result is None or (result.at == place
+                                                                 and result.called_by == self.called(place)))
     def cases(self, place: Place) -> Cases | None:
-        function = _find(f"{place.unit}.{place.symbol}")
-        code = getattr(inspect.unwrap(function), "__code__", None) if callable(function) else None
-        info = self.code(code) if code is not None else None
-        return _cases(place, Span(info.path, code.co_firstlineno, 1)) if info is not None else None
+        operation = _operation(place)
+        info = self.code(operation.code) if operation is not None else None
+        if info is None:
+            return None
+        return _cases(operation, Span(info.path, operation.code.co_firstlineno, 1), self.called(place))
 
-    def mutate(self, rerun: mutants.Rerun) -> tuple[list[Mutant], str | None]:
+    @deal.ensure(lambda self, place, result: list(result) == sorted(set(result)))
+    def called(self, place: Place) -> tuple[TestId, ...]:
+        return tuple(sorted(self.reached.get(place, ())))
+
+    def _mutants_of(self, target: Mutated, rerun: mutants.Rerun, now: Mapping[TestId, Digest | None]) -> tuple[
+            list[Mutant], Say]:
+        """The mutants of one function, carried over when they still stand, and what became of them, for people."""
+        operation = _operation(target.place)
+        info = self.code(operation.code) if operation is not None else None
+        if operation is None or info is None:
+            return [], Say("not imported by any test")
+        span = Span(info.path, operation.code.co_firstlineno, 1)
+        tests = self.called(target.place)
+        try:
+            source = inspect.getsource(operation.inner)
+        except (OSError, TypeError) as e:  # no source to edit
+            return [Mutant(target.place, digest_of(""), "", MutantFate.NOT_RUN, f"its source could not be read ({e})",
+                           span)], Say("its source could not be read")
+        depended = mutants.depends(target.callees, tests, now)
+        earlier = self.plan.last_run.of(target.place)
+        if mutants.standing(earlier, digest_of(source), target.bound, tests, depended):
+            # the same function may sit at another line now
+            return [replace(m, span=span) for m in earlier], Say(f"{len(earlier)} kept from an earlier run")
+        made = mutants.mutants(target, operation, span, source, functools.partial(_cases, operation, span, tests),
+                               tests, rerun, depended)
+        fates = Counter(m.fate.value for m in made)
+        return made, Say(f"{len(made)} made, judged by {len(tests)} tests: " + (
+            ", ".join(f"{n} {fate}" for fate, n in sorted(fates.items())) or "none could be judged"))
+
+    def mutate(self, rerun: mutants.Rerun, keep: Keep, tell: Tell) -> tuple[list[Mutant], str | None]:
         """The mutants of each planned function with a contract, judged by its cases and the tests that ran it; or why
-        none could be made."""
+        none could be made. What is judged is kept after each function, so a run that is stopped loses none of it."""
         if not self.plan.mutated:
             return [], None
         why = mutants.unavailable()
         if why is not None:
             return [], why
         out: list[Mutant] = []
-        for target in self.plan.mutated:
-            place = target.place
-            function = _find(f"{place.unit}.{place.symbol}")
-            code = getattr(inspect.unwrap(function), "__code__", None) if callable(function) else None
-            info = self.code(code) if code is not None else None
-            if info is not None:
-                span = Span(info.path, code.co_firstlineno, 1)
-                tests = tuple(sorted(self.reached.get(place, ())))
-                out += mutants.mutants(target, function, span, functools.partial(_cases, place, span), tests, rerun)
+        now = {r.test: self.files.get(r.file) for r in self.runs}
+        carried = self.plan.last_run.within(self.plan.contracts)
+        for n, target in enumerate(self.plan.mutated, 1):
+            started = time.perf_counter()
+            made, how = self._mutants_of(target, rerun, now)
+            out += made
+            carried = carried.with_function(target.place, made)
+            keep(carried)
+            tell(Say(f"mutants {n}/{len(self.plan.mutated)} {target.place}: {how} "
+                     f"({time.perf_counter() - started:.1f}s)"))
         return out, None
 
-    def finish(self, rerun: mutants.Rerun) -> Recording:
+    def finish(self, rerun: mutants.Rerun, keep: Keep, tell: Tell) -> Recording:
         """Stop watching, make the recorded calls again, run the contracts and their mutants, and hand over what was
-        seen."""
+        seen. Each step says how long it took, since together they can take longer than the tests did."""
         self.active = False
         if self.tool is not None:
             sys.monitoring.set_events(self.tool, 0)
             sys.monitoring.free_tool_id(self.tool)
         self.local.busy = True
+        started = time.perf_counter()
+        tell(Say(f"calling {len(self.recorded)} functions again with copies of their arguments"))
         replays = [*self.uncopyable.values(), *(_replay(place, calls) for place, calls in sorted(
             self.recorded.items(), key=lambda kv: str(kv[0])))]
+        tell(Say(f"running the contracts of {len(self.plan.contracts)} functions on generated inputs "
+                 f"({time.perf_counter() - started:.1f}s so far)"))
         cases = [self.cases(place) for place in self.plan.contracts]
-        made, unavailable = self.mutate(rerun)
+        tell(Say(f"mutating {len(self.plan.mutated)} functions ({time.perf_counter() - started:.1f}s so far)"))
+        made, unavailable = self.mutate(rerun, keep, tell)
+        tell(Say(f"done after {time.perf_counter() - started:.1f}s"))
         return Recording(
             files=self.files, runs=tuple(self.runs), effects=tuple(self.effects.values()),
             dependencies=tuple(self.dependencies.values()), calls=tuple(self.calls.values()),
@@ -696,6 +741,7 @@ def _tooling(frame: FrameType) -> bool:
     return str(frame.f_globals.get("__name__", "")).partition(".")[0] in _TOOLING
 
 
+@deal.ensure(lambda name, result: result is None or any(m in sys.modules for m in (name.split(".")[0], name)))
 def _find(name: str) -> object:
     """The object a qualified name names, if its module has been imported."""
     parts = name.split(".")
@@ -755,11 +801,6 @@ def _function(frame: FrameType, code: CodeType) -> Callable | None:
     return target if inner is not None and getattr(inner, "__code__", None) is code else None
 
 
-def _said(error: BaseException) -> str:
-    """An error as one plain line: its type and message, without colours."""
-    return _COLOURS.sub("", f"{type(error).__name__}: {error}")[:DETAIL]
-
-
 def _hint_text(hint: object) -> str:
     """An annotation as a person would write it."""
     if isinstance(hint, type | typing.NewType):
@@ -771,6 +812,8 @@ def _outcome(value: object, error: BaseException | None) -> str | None:
     return f"raised {type_name(error)}" if error is not None else fingerprint(value)
 
 
+@deal.pre(lambda place, calls: bool(calls))  # an operation is replayed only once a call of it was recorded
+@deal.ensure(lambda place, calls, result: result.at == place)
 def _replay(place: Place, calls: list[_Recorded]) -> Replay:
     """Each recorded call made again, last first, with a fresh copy of its arguments."""
     verdict, detail = Verdict.SAME, f"{len(calls)} calls made again gave the same results"
@@ -792,18 +835,39 @@ def _replay(place: Place, calls: list[_Recorded]) -> Replay:
     return Replay(place, verdict, detail, calls[0].span, calls[0].test)
 
 
-def _cases(place: Place, span: Span) -> Cases:
-    """A contract's operation run on generated inputs with a fixed seed (deal.cases)."""
-    function = _find(f"{place.unit}.{place.symbol}")
-    if deal is None:
-        return Cases(place, Outcome.ERROR, "deal is not installed, so the contract was not run", span)
+@deal.ensure(lambda place, result: result is None or (result.place == place and result.inner is not None))
+def _operation(place: Place) -> mutants.Operation | None:
+    """The function a place names, with its contract around it, and the class it runs on when it is a method or a
+    property; None when its module was never imported. A property's getter is the function, and a static method
+    runs on no object."""
+    owner_name, _, name = f"{place.unit}.{place.symbol}".rpartition(".")
+    owner = _find(owner_name)
+    function, runs_on = _find(f"{place.unit}.{place.symbol}"), None
+    if isinstance(owner, type):
+        found = inspect.getattr_static(owner, name, None)
+        if isinstance(found, classmethod):
+            function = getattr(owner, name)  # bound to its class already
+        elif not isinstance(found, staticmethod):
+            function = getattr(found, "fget", None) or getattr(found, "func", None) or found  # a property's getter
+            runs_on = owner
+    operation = mutants.Operation(place, function, runs_on) if callable(function) else None
+    return operation if operation is not None and operation.inner is not None else None
+
+
+def _cases(operation: mutants.Operation, span: Span, called_by: tuple[TestId, ...]) -> Cases:
+    """A contract's operation run on generated inputs with a fixed seed (deal.cases), with the tests that called it,
+    which checked the contract on their own calls. A method or property runs on no generated object (DESIGN2
+    §4.5); deal.cases could not make one anyway, since its own parameter named self takes the name."""
+    place = operation.place
+    if operation.owner is not None:
+        return Cases(place, Outcome.SKIPPED, "no object is generated for a method to run on", span, called_by)
     try:
-        generated = list(deal.cases(function, count=CASES, seed=SEED))
+        generated = list(deal.cases(operation.function, count=CASES, seed=SEED))
     except Exception as e:  # noqa: BLE001 (inputs that cannot be generated are reported, not raised)
-        return Cases(place, Outcome.ERROR, f"inputs could not be generated: {_said(e)}", span)
+        return Cases(place, Outcome.ERROR, f"inputs could not be generated: {said(e)}", span, called_by)
     for case in generated:
         try:
             case()
         except Exception as e:  # noqa: BLE001
-            return Cases(place, Outcome.FAILED, _said(e), span)
-    return Cases(place, Outcome.PASSED, f"{len(generated)} generated cases held", span)
+            return Cases(place, Outcome.FAILED, said(e), span, called_by)
+    return Cases(place, Outcome.PASSED, f"{len(generated)} generated cases held", span, called_by)

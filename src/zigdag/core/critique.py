@@ -10,6 +10,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.record.entries import Entry, EntryKind
 from zigdag.core.record.model import Record
 from zigdag.core.rubric import RUBRIC_VERSION, still_to_ask
@@ -57,6 +59,7 @@ def _asked_under(log: Log, entry: Entry) -> int | None:
     return max(versions) if versions else None
 
 
+@deal.ensure(lambda record, log, chosen, result: result[1] == len(json.loads(result[0])["entries"]) <= len(chosen))
 def request(record: Record, log: Log, chosen: list[Entry]) -> tuple[FileText, Count]:
     """The request as JSON text, and how many entries in it still have questions to answer."""
     items = []
@@ -94,6 +97,8 @@ def _texts(value: object) -> list[str]:
     return []
 
 
+@deal.ensure(lambda current, text, result: all(current.get(j.entry.name) == j.entry for j in result[0]))
+@deal.ensure(lambda current, text, result: all(f.evidence for j in result[0] for f in j.findings))
 def read_answer(current: Mapping[Subject, Entry], text: FileText) -> tuple[list[Judged], list[Say]]:
     """The entries the critic judged at their current content, and why anything else was refused."""
     try:

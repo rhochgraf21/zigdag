@@ -4,6 +4,7 @@ nothing notices is asked about, and the contract and the tests that missed it st
 killed or answered."""
 
 import functools
+import json
 import sys
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from test_code import found, run
 
 from zigdag import verifies
 from zigdag.cli import main
-from zigdag.core.code import MutantFate
+from zigdag.core.code import MutantFate, Outcome
 from zigdag.core.findings import Result
 from zigdag.core.log import Actor, Answer, Timestamp, answered_question
 from zigdag.watchers.python import search
@@ -51,6 +52,7 @@ frs:
 """
 MATHS = '''"""Arithmetic, with contracts of different strength. Only what is declared pure is mutated."""
 import os
+from dataclasses import dataclass
 
 import deal
 
@@ -115,9 +117,41 @@ def double(n: int) -> int:
 def greet(name: str) -> str:
     """A greeting. It claims to be pure but reads the environment, so the claim breaks and it is never mutated."""
     return os.environ.get("GREETING", "hello") + name
+
+
+@dataclass(frozen=True)
+class Tally:
+    """A count, with a method and a property whose contracts the tests' calls check."""
+
+    count: int
+
+    @deal.has()
+    @deal.ensure(lambda self, result: result == self.count + 1)
+    def following(self) -> int:
+        return self.count + 1
+
+    @property
+    @deal.has()
+    @deal.post(lambda result: result >= 0)
+    def magnitude(self) -> int:
+        """No test reads it."""
+        return -self.count if self.count < 0 else self.count
+
+
+class Ledger:
+    """Entries as they were given. Its constructor does not say what they are, so no ledger can be generated."""
+
+    def __init__(self, entries):
+        self.entries = tuple(entries)
+
+
+@deal.has()
+@deal.post(lambda result: result >= 0)
+def total(ledger: Ledger) -> int:
+    return sum(ledger.entries)
 '''
 TESTS = '''from zigdag import verifies
-from calc.maths import add, size, subtract
+from calc.maths import Ledger, Tally, add, size, subtract, total
 
 
 @verifies("calc.maths#sum")
@@ -132,6 +166,14 @@ def test_subtract_gives_a_number():
 
 def test_size():
     assert size(-2) == 2
+
+
+def test_tally():
+    assert Tally(2).following() == 3
+
+
+def test_total():
+    assert total(Ledger([4, 5])) == 9
 '''
 LOG = "design/log.jsonl"
 WEAK_TEST = "tests.test_calc::test_subtract_gives_a_number"
@@ -232,11 +274,64 @@ def test_a_function_left_out_on_purpose_is_listed_under_except(tmp_path):
     assert not fates(a, "size")
 
 
+@verifies("zigdag.core.analysis.checks#called-contracts")
+def test_a_contract_no_inputs_are_generated_for_is_checked_on_the_calls_of_the_tests(tmp_path):
+    _, a = mutated_project(tmp_path)
+    cases = {str(c.at): c for c in a.code.observed.cases}
+    method, unreadable = cases["calc.maths.Tally.following"], cases["calc.maths.total"]
+    assert method.outcome is Outcome.SKIPPED and method.called_by == ("tests.test_calc::test_tally",)
+    assert unreadable.outcome is Outcome.ERROR and unreadable.called_by == ("tests.test_calc::test_total",)
+    asked = found(a, "contracts", Result.QUESTION)
+    assert not any("following" in s or "total" in s for s in asked)  # the tests' calls checked them
+    assert any("calc.maths.Tally.magnitude has a contract that was not run on generated inputs, and no test calls "
+               "it" in s for s in asked)
+    for function, test in (("Tally.following", "test_tally"), ("total", "test_total")):  # judged by the tests alone
+        assert f"tests.test_calc::{test} failed" in {m.detail for m in a.code.observed.mutants
+                                                       if str(m.at) == f"calc.maths.{function}"}
+
+
+CARRIED = "from the last run"
+
+
+def _marked(root: Path) -> None:
+    """Every mutant the last run recorded, marked, so that one carried over can be told from one made again."""
+    observed = root / ".zigdag/observed.json"
+    seen = json.loads(observed.read_text())
+    for m in seen["mutants"]:
+        m["detail"] = CARRIED
+    observed.write_text(json.dumps(seen))
+
+
+def _carried(root: Path) -> tuple[set[str], set[str]]:
+    """The functions whose mutants were carried over, and those whose mutants were made again."""
+    main(["--project", str(root), "test"])
+    mutants = run(root).code.observed.mutants
+    return {str(m.at) for m in mutants if m.detail == CARRIED}, {str(m.at) for m in mutants if m.detail != CARRIED}
+
+
+@verifies("zigdag.watchers.python#carry")
+def test_mutants_are_made_again_only_when_the_function_or_the_tests_that_run_it_change(tmp_path):
+    root, _ = mutated_project(tmp_path)
+    maths = root / "src/calc/maths.py"
+    maths.write_text(maths.read_text().replace("return a * b", "return b * a"))
+    _marked(root)
+    carried, made = _carried(root)
+    assert "calc.maths.times" in made and "calc.maths.times" not in carried  # its own source changed
+    assert {"calc.maths.add", "calc.maths.subtract", "calc.maths.negate", "calc.maths.clamp"} <= carried
+    assert not carried & made
+    tests = root / "tests/test_calc.py"
+    tests.write_text(tests.read_text() + "\n# the tests changed\n")
+    _marked(root)
+    carried, made = _carried(root)
+    assert {"calc.maths.add", "calc.maths.subtract", "calc.maths.Tally.following"} <= made  # the tests that ran them
+    assert {"calc.maths.negate", "calc.maths.clamp", "calc.maths.times"} <= carried  # no test runs them
+
+
 # ---- the search itself, on two versions of one function -----------------------------------------------------------
 
 
 def _searched(contracted, written, changed) -> search.Searched:
-    return search.search(contracted, written, functools.partial(_in_place, written, changed), PATHS, SECONDS)
+    return search.search(contracted, written, None, functools.partial(_in_place, written, changed), PATHS, SECONDS)
 
 
 @verifies("zigdag.watchers.python#search")

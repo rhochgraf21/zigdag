@@ -14,6 +14,9 @@ import typing
 from collections.abc import Mapping
 from functools import cache
 from typing import TypeVar
+
+import deal
+
 from zigdag.core.texts import FileText, Say
 
 T = TypeVar("T")
@@ -47,10 +50,13 @@ def encode(value: object) -> object:
     return repr(value)  # not a value of the code model: kept as text, and refused when it is read back
 
 
+@deal.ensure(lambda value, result: json.loads(result) == json.loads(json.dumps(encode(value))))
 def dumps(value: object) -> FileText:
     return json.dumps(encode(value), indent=1, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+@deal.ensure(lambda kind, text, result: isinstance(result, Unreadable) or not isinstance(kind, type)
+             or isinstance(result, kind))  # the type asked for, or why not: never something else
 def loads(kind: type[T], text: FileText) -> T | Unreadable:
     """The value of the given type that the text holds, or why it holds none."""
     try:

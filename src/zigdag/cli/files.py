@@ -9,8 +9,11 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+from zigdag.adapters.python.tools import ExitStatus, ToolOutput, ToolRun, finished, not_started
 from zigdag.cli import plans
 from zigdag.cli.plans import Files, GitError, Presence
+from zigdag.core.checks.custom import Loaded, Loading, defined, unloaded
+from zigdag.core.texts import ToolText
 
 GIT = "git"
 ENCODING = "utf-8"
@@ -54,3 +57,31 @@ def from_git(root: Path, revision: str) -> Files:
         raise GitError(listing.error)
     reading = plans.git_reading(listing, _git_read(root, revision, listing.settings_paths))
     return plans.git_files(reading, _git_read(root, revision, reading.chosen(listing.paths)))
+
+
+def loaded(loadings: Sequence[Loading]) -> tuple[Loaded, ...]:
+    """What each file of custom checks defines, found by running the file. They are run from their text, not
+    imported, so that a revision read from git is checked by the checks it had; plans.loadings has already left out
+    every file in which zigdag finds an effect."""
+    out = []
+    for loading in loadings:
+        try:
+            exec(loading.code, loading.names)
+        except Exception as e:  # noqa: BLE001 (whatever the project's own file raises is reported as its break)
+            out.append(unloaded(loading.path, e))
+            continue
+        out.append(defined(loading.path, loading.names))
+    return tuple(out)
+
+
+def ran(root: Path, runs: Sequence[ToolRun]) -> tuple[ToolOutput, ...]:
+    """What each tool printed, run from the project's root so that the paths it reports are the project's own."""
+    out = []
+    for run in runs:
+        try:
+            done = subprocess.run(run.command, cwd=root, capture_output=True, text=True, encoding=ENCODING)
+        except FileNotFoundError:
+            out.append(not_started(run.tool))
+            continue
+        out.append(finished(run.tool, ExitStatus(done.returncode), ToolText(done.stdout), ToolText(done.stderr)))
+    return tuple(out)

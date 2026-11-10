@@ -7,8 +7,9 @@ from __future__ import annotations
 import enum
 from collections.abc import Iterable, Mapping
 
-from zigdag.core.checks import data_rules, interface_rules, mutation_rules, plan_rules
+from zigdag.core.checks import data_rules, interface_rules, mutation_rules, plan_rules, tool_rules
 from zigdag.core.checks.context import Check, Context, a_type, asked, broken
+from zigdag.core.checks.custom import run_custom
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import (
     RETURNED,
@@ -32,6 +33,7 @@ NOT_CHECKED = "not-checked"
 DECLARED_EFFECTS = "declared-effects"
 CONTRACTS = "contracts"
 CANT_TELL = "cant-tell"
+NO_LINES = 0  # the size of a file with nothing in it, and of a folder that has no file of its own
 
 
 # ---- dependencies ------------------------------------------------------------------------------------------------
@@ -224,14 +226,17 @@ def declared_effects(ctx: Context) -> Iterable[Finding]:
 
 
 def contracts(ctx: Context) -> Iterable[Finding]:
-    """Always on: every contract holds on the inputs generated for it while the tests ran (§4.5)."""
+    """Always on: every contract holds on the inputs generated for it while the tests ran, or, where none can be
+    generated, is checked on the calls the tests make (§4.5). A test that fails a contract fails, and breaks there."""
     for c in ctx.observed.cases:
         if c.outcome is Outcome.FAILED:
             yield finding(Result.BREAKS, CONTRACTS, str(c.at), c.span, f"{c.at} breaks its own contract on generated "
                           f"inputs: {c.detail}", c.detail)
-        elif c.outcome is Outcome.ERROR:
+        elif not c.generated and not c.checked_by_tests:
+            unseen = ("the watcher cannot see its own code run, so the tests' calls of it go unseen"
+                      if c.at.unit in ctx.observed.unwatched else "and no test calls it")
             yield finding(Result.QUESTION, CONTRACTS, str(c.at), c.span, f"{c.at} has a contract that was not run on "
-                          f"generated inputs: {c.detail}", c.detail)
+                          f"generated inputs, {unseen}: {c.detail}", c.detail)
 
 
 # ---- interfaces --------------------------------------------------------------------------------------------------
@@ -255,7 +260,7 @@ class Passes(enum.Enum):
 def _leaf_problem(ctx: Context, leaf: TypeExpr, passes: Passes, bools: frozenset[Passes]) -> tuple[Result, str] | None:
     if leaf.kind in (TypeKind.NONE, TypeKind.LITERAL):
         return None
-    if leaf.kind is TypeKind.BOOL:  # a yes-or-no answer, or field, means what its name says; a parameter is a mode
+    if leaf.kind is TypeKind.BOOL:  # a yes or no means what its name says, wherever the rule lets one cross
         return None if passes in bools else (Result.BREAKS, f"{leaf.text} is not project-defined")
     if leaf.kind in (TypeKind.ANY, TypeKind.UNKNOWN):
         return Result.QUESTION, f"{leaf.text} cannot be checked"
@@ -289,7 +294,7 @@ def _signature_types(ctx: Context, symbol: Symbol) -> list[tuple[str, TypeExpr |
     return out
 
 
-_BOOL_PARAMS = {"bool-returns": Passes.RETURN, "bool-fields": Passes.FIELD}
+_BOOL_PARAMS = {"bool-parameters": Passes.PARAMETER, "bool-returns": Passes.RETURN, "bool-fields": Passes.FIELD}
 _ALLOWED = "allowed"
 
 
@@ -325,7 +330,7 @@ def edge_types(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
         operation = Qualified(str(c.at))
         if not ctx.in_scope(rule, ctx.relations.dp_of(c.at)) or rule.skips(ctx.tree, operation):
             continue
-        if (problem := _crossing_problem(ctx, c, Passes.RETURN in bools)) is not None:
+        if (problem := _crossing_problem(ctx, c, bools)) is not None:
             yield broken(rule, operation, c.span, f"{_crossed(c)}, {problem} (seen while {c.seen} ran)",
                          c.where, c.actual)
 
@@ -339,13 +344,13 @@ _NONE_TYPE = Qualified("builtins.NoneType")
 _BOOL_TYPE = Qualified("builtins.bool")
 
 
-def _crossing_problem(ctx: Context, c: Crossing, bool_returns: bool) -> str | None:
+def _crossing_problem(ctx: Context, c: Crossing, bools: frozenset[Passes]) -> str | None:
     """What is wrong with a value seen crossing a boundary: it does not fit its annotation, or it has no
     annotation and its type is not the project's own."""
     if not c.conforms:
         return f"which its annotation, {c.expected}, does not allow"
-    if c.actual == _NONE_TYPE or c.actual in ctx.model.symbols or (bool_returns and c.where == RETURNED
-                                                                     and c.actual == _BOOL_TYPE):
+    crossed_as = Passes.RETURN if c.where == RETURNED else Passes.PARAMETER
+    if c.actual == _NONE_TYPE or c.actual in ctx.model.symbols or (c.actual == _BOOL_TYPE and crossed_as in bools):
         return None
     what = "its annotation, " + c.expected + "," if c.expected else "no annotation"
     return f"and {what} lets through {a_type(c.actual)}, a type the project does not define"
@@ -419,9 +424,31 @@ def max_lines(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
         if ctx.in_scope(rule, ctx.tree.owner(name)):
             yield broken(rule, name, symbol.span, f"{name} is {symbol.size} lines; at most {limit}",
                          str(symbol.size))
+    file_limit = rule.params["file"]
+    for path, unit in sorted(ctx.model.units.items()):
+        if unit.size <= file_limit or rule.skips(ctx.tree, path):
+            continue
+        if ctx.in_scope(rule, ctx.tree.unit_owner.get(path)):
+            yield broken(rule, path, unit.span, f"the file of {path} is {unit.size} lines; at most {file_limit}",
+                         str(unit.size))
+
+
+def designed_modules(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
+    """Each file of code is one the design names. Without this rule a design parameter that is a package takes in
+    whatever is put inside the package (DESIGN2 §7.5, rule 3), so a new module nobody designed raises nothing."""
+    named = {claim.unit for dp in ctx.tree.dps.values() for claim in dp.claims if claim.type is None}
+    for path, unit in sorted(ctx.model.units.items()):
+        owner = ctx.tree.unit_owner.get(path)
+        if path in named or unit.size == NO_LINES or owner is None or rule.skips(ctx.tree, path):
+            continue  # a file with nothing in it adds nothing; a file nobody owns is already a coverage break
+        if ctx.in_scope(rule, owner):
+            yield broken(rule, path, unit.span,
+                         f"{path} is not in the design: it sits inside the code of {owner}, and no design parameter "
+                         f"names it. Give it an FR, list it in physical.yaml, or remove it", path)
 
 
 CHECKS: Mapping[CheckKindName, Check] = {
+    CheckKindName("designed-modules"): designed_modules,
     CheckKindName("encapsulation"): encapsulation,
     CheckKindName("no-cycles"): no_cycles,
     CheckKindName("may-depend-on"): may_depend_on,
@@ -437,6 +464,7 @@ CHECKS: Mapping[CheckKindName, Check] = {
     **interface_rules.CHECKS,
     **mutation_rules.CHECKS,
     **plan_rules.CHECKS,
+    **tool_rules.CHECKS,
 }
 
 # Kinds that need only the record, and are checked with it.
@@ -455,6 +483,8 @@ def check_code(ctx: Context, rules: list[RuleUse], supplied_kinds: frozenset[Che
             except Exception as e:  # noqa: BLE001 (principle 6: a check that fails to run breaks, never skipped)
                 out.append(finding(Result.BREAKS, rule.name, rule.on, rule.span,
                                    f"the {rule.kind} check failed to run ({type(e).__name__}: {e}): a zigdag bug"))
+        elif rule.kind in ctx.settings.checks:
+            out += run_custom(ctx, rule, ctx.settings.checks[rule.kind])
         elif rule.kind not in RECORD_KINDS and rule.kind in supplied_kinds:
             unchecked.append(rule.name)
     if unchecked:

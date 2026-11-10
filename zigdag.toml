@@ -8,3 +8,4 @@ default = "python"
 
 [adapters.python]
 source = ["src"]
+bandit = "bandit -c pyproject.toml"  # bandit reads its [tool.bandit] settings only when told where they are

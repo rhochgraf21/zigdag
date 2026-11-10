@@ -4,6 +4,7 @@ out with perform. Nothing here decides anything (DESIGN2 §4.1, planned-effects)
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -14,11 +15,11 @@ from pathlib import Path
 
 from zigdag.agents import claude
 from zigdag.cli import plans
-from zigdag.cli.files import from_disk, from_git, text
-from zigdag.cli.plans import Files, GitError, Outcome, Presence
+from zigdag.cli.files import from_disk, from_git, loaded, ran, text
+from zigdag.cli.plans import Files, GitError, Outcome, Presence, WatchedRun
 from zigdag.core import log as lg
 from zigdag.core.checks.run import Analysis
-from zigdag.core.settings import PLAN_FILE
+from zigdag.core.settings import PLAN_FILE, PROFILE_BEFORE, PROFILE_FILE
 from zigdag.core.findings import RecordPath
 from zigdag.core.names import Revision
 
@@ -42,11 +43,13 @@ class Project:
 
     @cached_property
     def analysis(self) -> Analysis:
-        return plans.analysis(self.files)
+        return plans.analysis(self.files, ran(self.root, plans.tool_runs(self.files)),
+                              loaded(plans.loadings(self.files)))
 
     def at(self, revision: str) -> Analysis:
         """The analysis of the project as it was at a git revision."""
-        return plans.analysis(from_git(self.root, revision))
+        files = from_git(self.root, revision)
+        return plans.analysis(files, loaded=loaded(plans.loadings(files)))
 
     def read(self, path: RecordPath) -> str | None:
         return text(plans.at_root(self.root, path))
@@ -97,16 +100,65 @@ def check_json(project: Project, base: Revision | None) -> int:
     return perform(project, plans.check_json(project.analysis, earlier, base))
 
 
+def check_full(project: Project, base: Revision | None) -> int:
+    try:
+        earlier = _earlier(project, base)
+    except GitError as e:
+        return perform(project, plans.unreadable(base, e))
+    return perform(project, plans.check_full(project.analysis, earlier, base))
+
+
+def profile(project: Project, extra: list[str]) -> int:
+    """Run the project's tests under the profiler, keeping the run before's profile to compare with."""
+    run = plans.profile(project.analysis, project.root, extra)
+    if run.refused:
+        return perform(project, run.refusal)
+    perform(project, run.starting)
+    run.profile.parent.mkdir(parents=True, exist_ok=True)
+    # The latest profile becomes the one to compare with. When there is none, because the run before failed, the one
+    # kept before it stays: a failed run must not cost the comparison.
+    with contextlib.suppress(FileNotFoundError):
+        run.profile.replace(run.before)
+    ran_ = subprocess.run(run.command, cwd=run.root)
+    return perform(project, plans.profiled_run(run, Presence(run.profile.is_file()), plans.ExitCode(ran_.returncode),
+                                               project.analysis, text(run.profile), text(run.before)))
+
+
+def stats(project: Project) -> int:
+    return perform(project, plans.costs(project.analysis, project.root, project.read(PROFILE_FILE),
+                                        project.read(PROFILE_BEFORE)))
+
+
+def _watched(project: Project, run: WatchedRun) -> subprocess.CompletedProcess:
+    """Run the tests with the watcher, having cleared what the run before saw so that only this run's is read."""
+    project.write(PLAN_FILE, run.watch)
+    run.observed.unlink(missing_ok=True)
+    return subprocess.run(run.command, cwd=run.root, env=run.environment)
+
+
 def test(project: Project, extra: list[str]) -> int:
     """Run the project's tests with the watcher, then check everything with what it saw."""
     run = plans.test(project.analysis, project.files, project.root, extra, dict(os.environ))  # read here, not there
     if run.refused:
         return perform(project, run.refusal)
-    project.write(PLAN_FILE, run.watch)
-    run.observed.unlink(missing_ok=True)
-    ran = subprocess.run(run.command, cwd=run.root, env=run.environment)
+    ran = _watched(project, run)
     return perform(project, plans.tested(run, Presence(run.observed.is_file()), ran.returncode,
                                          Project(run.root).analysis))
+
+
+def ready(project: Project, base: Revision | None, extra: list[str]) -> int:
+    """Run the tests with the watcher, then give one answer for the whole change."""
+    try:
+        earlier = _earlier(project, base)
+    except GitError as e:
+        return perform(project, plans.unreadable(base, e))
+    run = plans.test(project.analysis, project.files, project.root, extra, dict(os.environ))
+    if run.refused:
+        return perform(project, run.refusal)
+    ran = _watched(project, run)
+    after = Project(run.root)
+    return perform(project, plans.ready(run, Presence(run.observed.is_file()), ran.returncode, after.analysis,
+                                        earlier, base, after.files))
 
 
 def fmt(project: Project) -> int:
@@ -139,6 +191,14 @@ def init_project(project: Project) -> int:
 
 def init_forced(project: Project) -> int:
     return perform(project, plans.init_forced(project.files))
+
+
+def checks(project: Project) -> int:
+    return perform(project, plans.checks(project.analysis))
+
+
+def init_default(project: Project) -> int:
+    return perform(project, plans.init_default(project.files, project.root.resolve().name))
 
 
 def review(project: Project, base: str) -> int:
@@ -178,9 +238,9 @@ def agent_install(project: Project, product: str, command: str) -> int:
 
 
 def session_hook(project: Project) -> int:
-    return perform(project, plans.hook(project.analysis, project.root, claude.SESSION_START, ""))
+    return perform(project, plans.hook(project.analysis, claude.SESSION_START, ""))
 
 
-def edit_hook(project: Project) -> int:
-    """What the agent edited arrives on standard input."""
-    return perform(project, plans.hook(project.analysis, project.root, claude.POST_EDIT, sys.stdin.read()))
+def turn_hook(project: Project) -> int:
+    """Whether the agent was already told arrives on standard input."""
+    return perform(project, plans.hook(project.analysis, claude.TURN_END, sys.stdin.read()))

@@ -16,15 +16,19 @@ import inspect
 import signal
 import textwrap
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from types import FunctionType
+from types import CodeType, FunctionType
 
-from zigdag.core.code import Cases, Mutant, MutantFate, Outcome, TestId, Witness
-from zigdag.core.findings import Span, digest_of
+import deal
+
+from zigdag.core.code import Cases, Mutant, MutantFate, Outcome, Place, SearchBound, TestId, Witness
+from zigdag.core.findings import Digest, Span, digest_of
+from zigdag.core.texts import Content
 from zigdag.core.watch import Mutated
 from zigdag.watchers.python import search
+from zigdag.watchers.python.values import said
 
 try:
     import libcst as cst
@@ -46,6 +50,27 @@ Rerun = Callable[[TestId], bool]  # runs one test again, quietly; whether it pas
 _DIFF_CONTEXT = 1  # lines of the function shown around each edit
 
 
+@dataclass(frozen=True)
+class Operation:
+    """A function with a contract, as the project defines it: the contract wrapped around its own code, and the class
+    whose objects it runs on when it is a method or a property."""
+
+    place: Place
+    function: Callable
+    owner: type | None
+
+    @property
+    def inner(self) -> FunctionType | None:
+        """The function's own code, inside its contract; None for what is not a Python function."""
+        inner = inspect.unwrap(self.function)
+        return inner if isinstance(inner, FunctionType) else None
+
+    @property
+    def code(self) -> CodeType | None:
+        inner = self.inner
+        return inner.__code__ if inner is not None else None
+
+
 class _TooLong(BaseException):
     """Raised by the timer inside a mutant that has run too long; a BaseException, so the mutant cannot catch it."""
 
@@ -63,6 +88,7 @@ class _Edit:
                                             self.edited.splitlines(keepends=True), n=_DIFF_CONTEXT))
 
 
+@deal.post(lambda result: result in (None, UNAVAILABLE, NO_TIMER))
 def unavailable() -> str | None:
     """Why mutants cannot be made here, or None when they can."""
     if cst is None:
@@ -72,6 +98,7 @@ def unavailable() -> str | None:
     return None
 
 
+@deal.post(lambda edit: edit.edited != edit.original)  # every mutant is a change
 def _edits(source: str) -> Iterator[_Edit]:
     """Each edit mutmut's operators make to a function's body. The decorators are left off, both because mutmut
     skips decorated functions and because they are the contract, which must not change."""
@@ -96,6 +123,7 @@ def _compiled(edit: _Edit, inner: FunctionType) -> FunctionType:
 
 
 @contextmanager
+@deal.pre(lambda inner, replacement: inner.__code__.co_freevars == replacement.__code__.co_freevars)  # or Python refuses
 def _in_place(inner: FunctionType, replacement: FunctionType) -> Iterator[None]:
     """The replacement's code in the original function object, so whatever wraps the original runs it."""
     saved = inner.__code__, inner.__defaults__, inner.__kwdefaults__
@@ -133,29 +161,37 @@ def _limit(seconds: float) -> Iterator[_Timer]:
 
 @dataclass(frozen=True)
 class _Judges:
-    """What a mutant is run against: the contract's cases, then each test that ran the function, one at a time."""
+    """What a mutant is run against: the contract's cases, when inputs can be generated for it, then each test that
+    ran the function, one at a time. The contract is checked on every call those tests make, too."""
 
-    cases: Callable[[], Cases]
+    cases: Callable[[], Cases] | None  # None when no inputs can be generated: the tests judge alone
     tests: tuple[TestId, ...]
     rerun: Rerun
 
     def judge(self) -> tuple[MutantFate, str]:
-        ran = self.cases()
-        if ran.outcome is Outcome.FAILED:
-            return MutantFate.KILLED, f"a contract case failed: {ran.detail}"
-        if ran.outcome is Outcome.ERROR:
-            return MutantFate.NOT_RUN, ran.detail
+        detail = "no inputs were generated for its contract, which held on every call of the tests that ran it"
+        if self.cases is not None:
+            ran = self.cases()
+            if ran.outcome is Outcome.FAILED:
+                return MutantFate.KILLED, f"a contract case failed: {ran.detail}"
+            if not ran.generated:
+                return MutantFate.NOT_RUN, ran.detail
+            detail = ran.detail
         failed = next((test for test in self.tests if not self.rerun(test)), None)
         if failed is not None:
             return MutantFate.KILLED, f"{failed} failed"
-        return MutantFate.SURVIVED, ran.detail
+        return MutantFate.SURVIVED, detail
 
     def passing(self) -> _Judges | None:
-        """The judges that pass on the function as written, or None when its own cases do not: then no mutant can be
-        judged. A test that fails when it is run again is left out, since it cannot tell one mutant from another."""
-        if self.cases().outcome is not Outcome.PASSED:
+        """The judges that pass on the function as written, or None when there are none: its own cases fail, or
+        none can be generated and no test runs it. A test that fails when it is run again is left out, since it
+        cannot tell one mutant from another."""
+        ran = self.cases()
+        if ran.outcome is Outcome.FAILED or not (ran.generated or ran.checked_by_tests):
             return None
-        return _Judges(self.cases, tuple(test for test in self.tests if self.rerun(test)), self.rerun)
+        tests = tuple(test for test in self.tests if self.rerun(test))
+        cases = self.cases if ran.generated else None
+        return _Judges(cases, tests, self.rerun) if cases is not None or tests else None
 
 
 def _fate(judges: _Judges, seconds: float) -> tuple[MutantFate, str]:
@@ -169,20 +205,21 @@ def _fate(judges: _Judges, seconds: float) -> tuple[MutantFate, str]:
     return fate, detail
 
 
-def _searched(target: Mutated, function: object, inner: FunctionType,
+def _searched(target: Mutated, operation: Operation,
               replacement: FunctionType) -> tuple[MutantFate, str, Witness | None]:
     """A survivor's fate once the search for an input it behaves differently on has run, or could not."""
     limit = SEARCH_BACKSTOP * target.seconds
+    inner = operation.inner
     try:
         with _limit(limit):
-            found = search.search(function, inner, functools.partial(_in_place, inner, replacement), target.paths,
-                                  target.seconds)
+            found = search.search(operation.function, inner, operation.owner,
+                                  functools.partial(_in_place, inner, replacement), target.paths, target.seconds)
     except _TooLong:
         return MutantFate.SURVIVED, f"the search ran past {limit:g} seconds and was stopped", None
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as e:  # noqa: BLE001 (CrossHair's own errors are BaseExceptions; a failed search asks)
-        return MutantFate.SURVIVED, f"the search failed ({type(e).__name__}: {e})", None
+        return MutantFate.SURVIVED, f"the search failed ({said(e)})", None
     if found.verdict is search.Verdict.SAME:
         return MutantFate.EQUIVALENT, found.detail, None
     if found.verdict is search.Verdict.CONTRACT_FAILS:
@@ -191,25 +228,46 @@ def _searched(target: Mutated, function: object, inner: FunctionType,
     return MutantFate.SURVIVED, found.detail, found.witness
 
 
-def mutants(target: Mutated, function: object, span: Span, cases: Callable[[], Cases], tests: tuple[TestId, ...],
-            rerun: Rerun) -> list[Mutant]:
+@deal.ensure(lambda earlier, of, bound, tests, depends, result: not result or (
+    bool(earlier) and all(m.of == of and m.depends == depends for m in earlier)))
+def standing(earlier: tuple[Mutant, ...], of: Digest, bound: SearchBound, tests: tuple[TestId, ...],
+             depends: Digest) -> bool:
+    """Whether the mutants an earlier run made of a function still stand (DESIGN2 §4.5): made from the same source,
+    contract included, judged by the same tests, against the same test files and the same code the function calls,
+    and searched within the same bound. A change in code that the tests run but the function does not call is not
+    looked for."""
+    return bool(earlier) and all(
+        m.of == of and m.judged_by == tests and m.bound == bound and m.depends == depends for m in earlier)
+
+
+@deal.pure
+def depends(callees: Digest, tests: tuple[TestId, ...], files: Mapping[TestId, Digest | None]) -> Digest:
+    """What a function's mutants' fates depend on besides the function: the code it calls, and the files of the tests
+    that judge them, as they are now."""
+    return digest_of(callees, *(Content(f"{t}={files.get(t)}") for t in tests))
+
+
+def mutants(target: Mutated, operation: Operation, span: Span, source: str, cases: Callable[[], Cases],
+            tests: tuple[TestId, ...], rerun: Rerun, depended: Digest) -> list[Mutant]:
     """Every mutant of a function with a contract, each judged by the contract's cases and the tests that ran the
-    function, and each survivor searched for an input it behaves differently on. None when the function's own cases
-    do not hold, since then no mutant can be judged."""
+    function, and each survivor searched for an input it behaves differently on. None when nothing passes on the
+    function as written, since then no mutant can be judged."""
     place = target.place
-    inner = inspect.unwrap(function) if callable(function) else None
-    if not isinstance(inner, FunctionType):
+    inner = operation.inner
+    if inner is None:
+        return []
+    try:
+        edits = list(_edits(source))
+    except (TypeError, StopIteration, cst.ParserSyntaxError) as e:  # source libcst cannot read
+        return [Mutant(place, digest_of(source), "", MutantFate.NOT_RUN, f"its source could not be read ({e})",
+                       span, judged_by=tests, bound=target.bound, depends=depended)]
+    if not edits:  # nothing to judge, so the judges are not run
         return []
     started = time.perf_counter()
     judges = _Judges(cases, tests, rerun).passing()
     if judges is None:
         return []
     seconds = max(TIMEOUT_FLOOR, TIMEOUT_FACTOR * (time.perf_counter() - started))
-    try:
-        source = inspect.getsource(inner)
-        edits = list(_edits(source))
-    except (OSError, TypeError, StopIteration, cst.ParserSyntaxError) as e:  # no source, or none libcst can read
-        return [Mutant(place, digest_of(""), "", MutantFate.NOT_RUN, f"its source could not be read ({e})", span)]
     of = digest_of(source)
     out = []
     for edit in edits:
@@ -219,9 +277,9 @@ def mutants(target: Mutated, function: object, span: Span, cases: Callable[[], C
             with _in_place(inner, replacement):
                 fate, detail = _fate(judges, seconds)
             if fate is MutantFate.SURVIVED:
-                fate, detail, witness = _searched(target, function, inner, replacement)
+                fate, detail, witness = _searched(target, operation, replacement)
         except (SyntaxError, ValueError, TypeError, NameError) as e:  # an edit that cannot stand in for the function
-            fate, detail = MutantFate.NOT_RUN, f"{type(e).__name__}: {e}"
+            fate, detail = MutantFate.NOT_RUN, said(e)
         unnoticed = judges.tests if fate is MutantFate.SURVIVED else ()
-        out.append(Mutant(place, of, edit.diff, fate, detail, span, unnoticed, witness))
+        out.append(Mutant(place, of, edit.diff, fate, detail, span, unnoticed, witness, tests, target.bound, depended))
     return out

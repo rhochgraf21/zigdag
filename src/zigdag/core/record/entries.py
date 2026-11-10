@@ -10,6 +10,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.record.builtins import BUILT_INS
 from zigdag.core.record.model import (
     Build,
@@ -26,6 +28,18 @@ from zigdag.core.findings import Digest, Span, digest_of
 from zigdag.core.findings import Subject
 from zigdag.core.names import Key
 from zigdag.core.texts import Content
+
+
+@deal.ensure(lambda value, result: not result or bool(json.dumps(value)))  # what is plain, JSON writes as it is
+@deal.ensure(lambda value, result: result or not isinstance(value, str | int | float | bool | None))
+def plain(value: object) -> bool:
+    """Whether a value is one JSON says as it is: text, a number, yes or no, nothing, or a list or map of these. An
+    entry's fields are plain, so that its content, and so its digest, is the same wherever it is read."""
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and plain(v) for k, v in value.items())
+    if isinstance(value, list | tuple):
+        return all(plain(v) for v in value)
+    return value is None or isinstance(value, str | int | float | bool)
 
 
 class EntryKind(enum.Enum):
@@ -51,10 +65,13 @@ class Entry:
     domain: Domain
 
     @property
+    @deal.pre(lambda self: plain(self.fields))
+    @deal.ensure(lambda self, result: json.loads(result) == json.loads(json.dumps(self.fields)))  # it says what it holds
     def content(self) -> Content:
         return json.dumps(self.fields, sort_keys=True, ensure_ascii=False)
 
     @property
+    @deal.ensure(lambda self, result: result == digest_of(self.kind.value, self.name, self.content))
     def digest(self) -> Digest:
         return digest_of(self.kind.value, self.name, self.content)
 
@@ -68,6 +85,9 @@ def _check(use: CheckUse) -> dict[str, object]:
             "except": _excepted(use.excepted)}
 
 
+@deal.ensure(lambda record, result: all(name == e.name for name, e in result.items()))
+@deal.ensure(lambda record, result: all(name in result for name in (*record.frs, *record.constraints,
+                                                                     *record.process, *record.tunings)))
 def entries(record: Record) -> dict[Subject, Entry]:
     """Every entry the record holds, by the name a log event uses for it."""
     out: dict[str, Entry] = {}

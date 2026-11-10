@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from zigdag.agents.claude import POST_EDIT, PRODUCT, SESSION_START
+from zigdag.agents.claude import PRODUCT, SESSION_START, TURN_END
 from zigdag.cli import commands as c
 from zigdag.cli import plans
 from zigdag.cli.files import from_disk
@@ -35,9 +35,19 @@ def _parser() -> argparse.ArgumentParser:
 
     check = commands.add_parser("check", help="check the record and the code")
     check.add_argument("--json", action="store_true", help="print the findings as JSON")
+    check.add_argument("--full", action="store_true", help="print every finding, not one line for each direction")
     check.add_argument("--base", help="also check the workflow gates for what changed since this git revision")
     commands.add_parser("test", help="run the tests while watching what the code does, then check it all; other "
                         "arguments go to the test command")
+    ready = commands.add_parser("ready", help="one answer for a whole change: run the tests while watching, check "
+                                "everything, and say yes or no; other arguments go to the test command")
+    ready.add_argument("--base", help="also hold the change to the workflow gates, and to adding nothing to do, "
+                       "since this git revision")
+    commands.add_parser("profile", help="run the tests under the profiler, and show where the time and memory went "
+                        "beside the run before; other arguments go to the test command")
+    commands.add_parser("stats", help="where the latest profiled run's time and memory went, by design part")
+    commands.add_parser("checks", help="every rule there is: what each holds the code to, its settings, and whether "
+                        "failing it is a break or a question")
     fmt = commands.add_parser("fmt", help="give every design file its canonical layout")
     fmt.add_argument("--check", action="store_true", help="change nothing; fail if a file is not formatted")
 
@@ -64,6 +74,8 @@ def _parser() -> argparse.ArgumentParser:
 
     init = commands.add_parser("init", help="record existing code as it is, so the first check holds")
     init.add_argument("--force", action="store_true", help="replace an existing functional.yaml and process.yaml")
+    init.add_argument("--default", action="store_true", help="a default setup: zigdag.toml, a starter record, and "
+                      "every rule you can tune written out with its default values; works with no code yet")
     review = commands.add_parser("review", help="what a change does to the record, and what it broke")
     review.add_argument("base", help="the git revision to compare with, such as main")
     approve = commands.add_parser("approve", help="approve entries at their current content")
@@ -86,7 +98,7 @@ def _parser() -> argparse.ArgumentParser:
     agent.add_argument("product", choices=[PRODUCT])
     agent.add_argument("--command", dest="hook_command", default=PROGRAM, help="how the agent's hooks run zigdag")
     hook = commands.add_parser("hook", help="what an agent's hooks call")
-    hook.add_argument("event", choices=[SESSION_START, POST_EDIT])
+    hook.add_argument("event", choices=[SESSION_START, TURN_END])
     return parser
 
 
@@ -103,8 +115,18 @@ def main(argv: list[str] | None = None) -> int:
             return c.check(project, a.base)
         case plans.Command.CHECK_JSON:
             return c.check_json(project, a.base)
+        case plans.Command.CHECK_FULL:
+            return c.check_full(project, a.base)
         case plans.Command.TEST:
             return c.test(project, list(route.passed_on))
+        case plans.Command.READY:
+            return c.ready(project, a.base, list(route.passed_on))
+        case plans.Command.CHECKS:
+            return c.checks(project)
+        case plans.Command.PROFILE:
+            return c.profile(project, list(route.passed_on))
+        case plans.Command.STATS:
+            return c.stats(project)
         case plans.Command.FMT:
             return c.fmt(project)
         case plans.Command.FMT_CHECK:
@@ -121,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
             return c.init_project(project)
         case plans.Command.INIT_FORCED:
             return c.init_forced(project)
+        case plans.Command.INIT_DEFAULT:
+            return c.init_default(project)
         case plans.Command.REVIEW:
             return c.review(project, a.base)
         case plans.Command.APPROVE:
@@ -133,8 +157,8 @@ def main(argv: list[str] | None = None) -> int:
             return c.rename_fr(project, a.old, a.new)
         case plans.Command.AGENT:
             return c.agent_install(project, a.product, a.hook_command)
-        case plans.Command.HOOK_EDIT:
-            return c.edit_hook(project)
+        case plans.Command.HOOK_TURN:
+            return c.turn_hook(project)
         case plans.Command.HOOK_SESSION:
             return c.session_hook(project)
     return c.perform(project, route.refusal)

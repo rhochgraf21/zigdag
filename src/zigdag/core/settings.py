@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field, replace
 
-from zigdag.core.kinds.params import ParamSpec, ParamType
-from zigdag.core.kinds.registry import Exactness, Part
+import deal
+
+from zigdag.core.kinds.params import ParamSpec
 from zigdag.core.effects import Effect
 from zigdag.core.findings import Finding, RecordPath, Result, Span, finding
 from zigdag.core.language.lexicons import LexiconName
 from zigdag.core.names import ADAPTERS, AdapterName, CheckKindName
 from zigdag.core.log import Actor
 from zigdag.core.measures import Version
-from zigdag.core.names import Api, Glob, Key, ShellCommand
-from zigdag.core.texts import FileText, Word
+from zigdag.core.names import Api, Glob, Key, ParamName, ShellCommand
+from zigdag.core.texts import FileText, Say, Word
 
 SETTINGS_FILE = RecordPath("zigdag.toml")
 SETTINGS_RULE = "settings"
@@ -28,13 +29,18 @@ class CustomEffect:
     calls: tuple[str, ...]
 
 
+# A check as its author wrote it: (what every check reads, the rule in force, then its own settings by keyword).
+CheckFunction = Callable[..., Iterable[Finding]]
+
+
 @dataclass(frozen=True)
 class CustomCheck:
-    description: str
-    code: str
-    params: Mapping[str, ParamSpec]
-    reads: frozenset[Part]
-    exactness: Exactness
+    """A check the project wrote (DESIGN2 §4.2): one function in design/checks/, as it was loaded."""
+
+    description: Say  # the first line of the function's docstring
+    params: Mapping[ParamName, ParamSpec]  # its settings: the function's keyword arguments, as the record names them
+    run: CheckFunction
+    source: RecordPath  # the file that defines it
 
 
 @dataclass(frozen=True)
@@ -52,21 +58,40 @@ class Settings:
     effects: Mapping[Effect, CustomEffect] = field(default_factory=dict)
     checks: Mapping[CheckKindName, CustomCheck] = field(default_factory=dict)
 
+    @deal.ensure(lambda self, checks, result: result.checks == checks and replace(result, checks=self.checks) == self)
+    def taught(self, checks: Mapping[CheckKindName, CustomCheck]) -> Settings:
+        """These settings with the project's own checks. They are functions in design/checks/, not text in
+        zigdag.toml, so they are loaded apart from it and joined here: the settings hold everything a project has
+        taught zigdag."""
+        return replace(self, checks=checks)
+
     @property
+    @deal.ensure(lambda self, result: all(effect in self.effects for effect in result.values()))
+    @deal.ensure(lambda self, result: all(call in result for e in self.effects.values() for call in e.calls))
     def custom_effect_calls(self) -> Mapping[Api, Effect]:
         """Each call that performs a custom effect, and the effect it performs."""
         return {call: name for name, effect in self.effects.items() for call in effect.calls}
 
     @property
+    @deal.ensure(lambda self, result: bool(result) and (not self.tests or result == self.tests))
     def test_roots(self) -> tuple[RecordPath, ...]:
         """Where the tests are: as set, or the conventional folder."""
         return self.tests or DEFAULT_TEST_ROOTS
 
     @property
+    @deal.ensure(lambda self, result: bool(result) and (not self.test_reports or result == self.test_reports))
     def report_patterns(self) -> tuple[Glob, ...]:
         """Where test reports are: as set, or zigdag's own folder."""
         return self.test_reports or DEFAULT_REPORTS
 
+    @deal.ensure(lambda self, adapter, key, result: result is None or self.adapters[adapter][key] == result)
+    def command(self, adapter: AdapterName, key: Key) -> ShellCommand | None:
+        """A command an adapter's section gives, such as how to start a tool; None when it gives no text."""
+        configured = self.adapters.get(adapter, {}).get(key)
+        return ShellCommand(configured) if isinstance(configured, str) and configured.strip() else None
+
+    @deal.ensure(lambda self, adapter, result: result is None or (adapter in self.adapters and not any(
+        r.endswith("/") for r in result)))
     def source_roots(self, adapter: AdapterName) -> tuple[RecordPath, ...] | None:
         """The folders an adapter reads source from, as set; None when they are not set."""
         configured = self.adapters.get(adapter, {}).get(SOURCE_KEY)
@@ -81,12 +106,16 @@ DEFAULT_REPORTS = (f"{WORK_DIR}/*.xml",)
 DEFAULT_REPORT = f"{WORK_DIR}/pytest.xml"  # where zigdag test has pytest write its JUnit report
 PLAN_FILE = RecordPath(f"{WORK_DIR}/watch.json")  # what zigdag test hands a test watcher
 OBSERVED_FILE = RecordPath(f"{WORK_DIR}/observed.json")  # what the watcher saw
+PROFILE_FILE = RecordPath(f"{WORK_DIR}/profile.json")  # where zigdag profile keeps the latest profile
+PROFILE_BEFORE = RecordPath(f"{WORK_DIR}/profile.before.json")  # and the one before it, to compare with
+CARRIED_FILE = RecordPath(f"{WORK_DIR}/mutants.json")  # the mutants judged so far, kept while the watcher works
 DEFAULT_TEST_COMMAND = "pytest"
 SOURCE_KEY = "source"  # the key in an [adapters.<name>] table that lists source folders
 PROJECT_ROOT = ""  # a source root that is the project itself
 CURRENT_FOLDER = "."  # how zigdag.toml writes the project itself as a folder
 
-_SECTIONS = {"settings", "adapters", "lexicon", "effects", "checks"}
+_SECTIONS = {"settings", "adapters", "lexicon", "effects"}
+_MOVED = {"checks": "a custom check is a function in design/checks/ now, and is not registered here"}
 _SETTINGS_KEYS = {"ruleset", "tests", "test_command", "test_reports", "vendor", "editor", "people"}
 
 
@@ -96,6 +125,8 @@ def _texts(value: object) -> tuple[str, ...] | None:
     return None
 
 
+@deal.ensure(lambda text, result: text is not None or result[0] == Settings())  # no file: every default
+@deal.ensure(lambda text, result: all(p.rule == SETTINGS_RULE for p in result[1]))
 def read_settings(text: FileText | None) -> tuple[Settings, tuple[Finding, ...]]:
     """The settings, or the defaults with what is wrong. A missing file means every default."""
     if text is None:
@@ -106,7 +137,7 @@ def read_settings(text: FileText | None) -> tuple[Settings, tuple[Finding, ...]]
         return Settings(), (_problem(Result.BREAKS, f"cannot be read: {e}"),)
     problems: list[Finding] = []
     for name in sorted(set(raw) - _SECTIONS):
-        problems.append(_problem(Result.BREAKS, f"unknown section [{name}]"))
+        problems.append(_problem(Result.BREAKS, f"unknown section [{name}]" + (f": {_MOVED[name]}" if name in _MOVED else "")))
 
     section = _table(raw, "settings", problems)
     for name in sorted(set(section) - _SETTINGS_KEYS):
@@ -159,7 +190,6 @@ def read_settings(text: FileText | None) -> tuple[Settings, tuple[Finding, ...]]
         adapters=adapters,
         lexicon=_lexicon(_table(raw, "lexicon", problems), problems),
         effects=_effects(_table(raw, "effects", problems), problems),
-        checks=_checks(_table(raw, "checks", problems), problems),
     )
     return settings, tuple(problems)
 
@@ -205,33 +235,4 @@ def _effects(raw: Mapping[str, object], problems: list[Finding]) -> Mapping[Effe
             problems.append(_problem(Result.BREAKS, f'effect "{name}" needs a description and a list of calls'))
             continue
         out[Effect(name)] = CustomEffect(description, calls)
-    return out
-
-
-def _checks(raw: Mapping[str, object], problems: list[Finding]) -> Mapping[CheckKindName, CustomCheck]:
-    out = {}
-    for name, value in raw.items():
-        if not isinstance(value, dict):
-            problems.append(_problem(Result.BREAKS, f"[checks.{name}] must be a table"))
-            continue
-        description, code = value.get("description"), value.get("code")
-        if not isinstance(description, str) or not isinstance(code, str) or ":" not in code:
-            problems.append(_problem(Result.BREAKS, f'check "{name}" needs a description and code = "path.py:function"'))
-            continue
-        params: dict[str, ParamSpec] = {}
-        for param, kind in (value.get("params") or {}).items():
-            try:
-                params[param] = ParamSpec(ParamType(kind))
-            except ValueError:
-                problems.append(_problem(Result.BREAKS, f'check "{name}": parameter {param} has unknown type {kind!r}'))
-        reads = set()
-        for part in _texts(value.get("reads", [])) or ():
-            try:
-                reads.add(Part(part))
-            except ValueError:
-                problems.append(_problem(Result.BREAKS, f'check "{name}": cannot read {part!r}'))
-        exact = value.get("exact", True)
-        out[CheckKindName(name)] = CustomCheck(
-            description, code, params, frozenset(reads), Exactness.EXACT if exact is True else Exactness.GUESS
-        )
     return out

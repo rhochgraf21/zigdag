@@ -8,6 +8,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+import deal
+
 from zigdag.core import codec
 from zigdag.core.code import (
     Access,
@@ -29,6 +31,7 @@ from zigdag.core.code import (
 from zigdag.core.findings import Digest, RecordPath
 from zigdag.core.names import CodePath
 from zigdag.core.texts import FileText, Say
+from zigdag.core.watch import LastRun
 
 COLLECTION = TestId("(collecting the tests)")  # what is seen before any test runs, while test modules are imported
 
@@ -62,10 +65,18 @@ class Recording:
     mutation_unavailable: Say | None = None  # why no mutants were made
     unwatched: tuple[CodePath, ...] = ()  # units whose running the watcher cannot see: its own
 
+    @deal.ensure(lambda self, result: Recording.from_text(result) == self)  # zigdag reads back what the watcher saw
     def to_text(self) -> FileText:
         return codec.dumps(self)
 
+    @property
+    @deal.ensure(lambda self, result: result.mutants == self.mutants)
+    def for_next_run(self) -> LastRun:
+        """What the next run carries mutants over from: the mutants this run made."""
+        return LastRun(self.mutants)
+
     @staticmethod
+    @deal.post(lambda result: isinstance(result, Recording | codec.Unreadable))
     def from_text(text: FileText) -> Recording | codec.Unreadable:
         return codec.loads(Recording, text)
 

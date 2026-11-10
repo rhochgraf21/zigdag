@@ -10,9 +10,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.code import CodeModel, Observations, Outcome, Run, Test
 from zigdag.core.findings import Finding, Result, Span, finding
-from zigdag.core.language.tokens import tokenize, words
+from zigdag.core.language.performance import bounds
 from zigdag.core.names import FrName, is_within
 from zigdag.core.record.model import EvidenceKind, Record, Verification
 from zigdag.core.resolve import Tree
@@ -26,36 +28,28 @@ EVIDENCE_RULES = frozenset({EVIDENCE, LINKS, REPORTS})
 TEST_COMMAND = "zigdag test"
 TESTS_SUBJECT = "tests"  # what a finding about the project's tests as a whole is about
 
-_TIME_UNITS = frozenset({"s", "sec", "second", "seconds", "ms", "millisecond", "milliseconds", "us", "ns", "min",
-                         "minute", "minutes", "h", "hour", "hours"})
-_BOUNDS = ("within", "under", "at most", "less than", "up to")
-
-
 @dataclass(frozen=True)
-class _Statement:
+class Stated:
+    """A statement as the record states it: an FR's, or a constraint's."""
+
     ref: str  # fr#statement, or a constraint's name
     dp: FrName
     text: str
     span: Span
 
 
-def _statements(record: Record) -> list[_Statement]:
-    out = [_Statement(str(s.ref), name, s.sentence.text, s.sentence.span)
+@deal.ensure(lambda record, result: [s.ref for s in result] == sorted(s.ref for s in result))
+def stated(record: Record) -> list[Stated]:
+    """Every statement in the record, FRs' and constraints', by reference."""
+    out = [Stated(str(s.ref), name, s.sentence.text, s.sentence.span)
            for name, fr in record.frs.items() for s in fr.statements]
-    out += [_Statement(name, c.on.value, c.statement.text, c.statement.span)
+    out += [Stated(name, c.on.value, c.statement.text, c.statement.span)
             for name, c in record.constraints.items() if c.statement is not None]
     return sorted(out, key=lambda s: s.ref)
 
 
-def _time_bound(text: str) -> bool:
-    w = words(tokenize(text))
-    joined = f" {' '.join(w)} "
-    return any(f" {b} " in joined for b in _BOUNDS) and any(u in w for u in _TIME_UNITS) and any(
-        t.is_number for t in tokenize(text))
-
-
-def _needed(record: Record, statement: _Statement) -> set[EvidenceKind]:
-    kinds = {EvidenceKind.BENCHMARK} if _time_bound(statement.text) else set()
+def _needed(record: Record, statement: Stated) -> set[EvidenceKind]:
+    kinds = {EvidenceKind.BENCHMARK} if bounds(statement.text) else set()  # one that bounds performance
     for v in record.process.values():
         if isinstance(v.kind, Verification) and v.kind.evidence is not EvidenceKind.TEST_REPORT and is_within(
                 statement.dp, v.on.value):
@@ -78,18 +72,26 @@ def _unwatched_in(observed: Observations, dp: FrName, tree: Tree) -> bool:
 
 
 def _outcome(t: Test, model: CodeModel, observed: Observations) -> tuple[Outcome | None, str]:
-    """A test's latest result, and what it says; a contract's comes from its generated cases, or holds until run."""
+    """A test's latest result, and what it says; a contract's comes from its generated cases, or from the tests that
+    called it when no inputs could be generated, or holds until run."""
     if t.evidence is not EvidenceKind.CONTRACT:
         outcome = model.results.get(t.id)
         return outcome, outcome.value if outcome else ""
     cases = observed.cases_of(t.place)
     if cases is None:
         return Outcome.PASSED, ""
+    if cases.checked_by_tests:
+        failed = [test for test in cases.called_by if model.results.get(test) in (Outcome.FAILED, Outcome.ERROR)]
+        if failed:
+            return Outcome.FAILED, f"on the calls of {failed[0]}, which failed"
+        return Outcome.PASSED, ""
+    if not cases.generated:
+        return Outcome.ERROR, f"on generated inputs, and no test calls it: {cases.detail}"
     return cases.outcome, f"on generated inputs: {cases.detail}"
 
 
 def check_evidence(record: Record, model: CodeModel, tree: Tree) -> Iterable[Finding]:
-    statements = _statements(record)
+    statements = stated(record)
     known = {s.ref: s for s in statements}
     linked: dict[str, list[Test]] = {}
     for test in model.tests:
@@ -102,10 +104,10 @@ def check_evidence(record: Record, model: CodeModel, tree: Tree) -> Iterable[Fin
                 linked.setdefault(link.target, []).append(test)
     observed = model.observed or Observations()
     if linked and not model.reports_read:
-        yield finding(Result.TODO, REPORTS, TESTS_SUBJECT, None,
+        yield finding(Result.OUT_OF_DATE, REPORTS, TESTS_SUBJECT, None,
                       f"no test report was read: run {TEST_COMMAND}, or the tests with --junitxml={DEFAULT_REPORT}")
     if observed.stale:
-        yield finding(Result.TODO, OBSERVATIONS, TESTS_SUBJECT, None,
+        yield finding(Result.OUT_OF_DATE, OBSERVATIONS, TESTS_SUBJECT, None,
                       f"{observed.stale} things seen while the tests ran are about code that has changed since, and "
                       f"are left out: run {TEST_COMMAND}", str(observed.stale))
     for s in statements:
@@ -124,7 +126,7 @@ def check_evidence(record: Record, model: CodeModel, tree: Tree) -> Iterable[Fin
                 yield finding(Result.BREAKS, EVIDENCE, s.ref, t.span, f"{t.id} {how}, so {s.ref} has no evidence",
                               t.id, outcome.value)
             elif outcome is Outcome.PASSED and run is not None and not run.current:
-                yield finding(Result.TODO, EVIDENCE, s.ref, t.span, f"{t.id} passed against code that has changed "
+                yield finding(Result.OUT_OF_DATE, EVIDENCE, s.ref, t.span, f"{t.id} passed against code that has changed "
                               f"since: run {TEST_COMMAND}", t.id)
             elif outcome is Outcome.PASSED:
                 passed.append(t)

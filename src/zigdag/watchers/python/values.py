@@ -1,5 +1,5 @@
-"""Judging Python values at runtime: their type's name, whether they fit an annotation, and a fingerprint of their
-contents that two equal values share, so a change in place or a different result can be seen."""
+"""Judging Python values at runtime: their type's name, whether they fit an annotation, a fingerprint of their
+contents that two equal values share, so a change in place or a different result can be seen, and an error as text."""
 
 from __future__ import annotations
 
@@ -8,12 +8,33 @@ import dataclasses
 import enum
 import hashlib
 import pathlib
+import re
 import types
 import typing
+
+import deal
+
+from zigdag.core.texts import Say
 
 SAMPLED = 3  # the elements of a collection checked against its annotation
 DEPTH = 6  # how deep a fingerprint looks into a value
 _ITERATORS = (abc.Iterator, abc.Generator, abc.AsyncIterator, abc.AsyncGenerator, abc.Iterable, abc.AsyncIterable)
+DETAIL = 300  # at most this much of an error's message is kept
+UNRENDERED = "its message could not be shown"
+_COLOURS = re.compile(r"\x1b\[[0-9;]*m")  # terminal colour codes, as some libraries put in their messages
+
+
+@deal.ensure(lambda error, result: len(result) <= DETAIL and not _COLOURS.search(result))
+@deal.ensure(lambda error, result: result.startswith(type(error).__name__[:DETAIL]))  # it names the error's type
+def said(error: BaseException) -> Say:
+    """An error as one plain line: its type and message, without colours. A message that cannot be rendered is
+    left out: the run must go on, and deal, for one, fails to render a contract written over several lines with
+    another contract stacked under it."""
+    try:
+        message = str(error)
+    except Exception:  # noqa: BLE001 (a library's message can fail in any way; the error itself is what counts)
+        message = UNRENDERED
+    return Say(_COLOURS.sub("", f"{type(error).__name__}: {message}")[:DETAIL])
 
 
 def type_name(value: object) -> str:

@@ -8,6 +8,8 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.effects import Effect
 from zigdag.core.resolve import Tree
 from zigdag.core.code import CodeModel, Dependency, DependencyKind, Place, Qualified, SymbolKind, SymbolName, TestId
@@ -31,6 +33,9 @@ class Target:
     owner: FrName | None = None
 
 
+@deal.ensure(lambda model, tree, name, result: result.top == name.split(".")[0])
+@deal.ensure(lambda model, tree, name, result: (result.unit is not None) == (result.where is Where.PROJECT))
+@deal.ensure(lambda model, tree, name, result: result.owner is None or result.where is Where.PROJECT)
 def classify(model: CodeModel, tree: Tree, name: Qualified) -> Target:
     top = name.split(".")[0]
     vendored = model.libraries.vendored
@@ -53,20 +58,24 @@ class Edge:
     dependency: Dependency
 
     @property
+    @deal.ensure(lambda self, result: result == self.dependency.source)
     def place(self) -> Place:
         """The code that depends."""
         return self.dependency.source
 
     @property
+    @deal.ensure(lambda self, result: result == self.dependency.target)
     def target_name(self) -> Qualified:
         """What it depends on, as the code names it."""
         return self.dependency.target
 
     @property
+    @deal.ensure(lambda self, result: result == self.dependency.span)
     def span(self) -> Span:
         return self.dependency.span
 
     @property
+    @deal.ensure(lambda self, result: result == (self.dependency.kind is DependencyKind.IMPORT))
     def is_import(self) -> bool:
         return self.dependency.kind is DependencyKind.IMPORT
 
@@ -92,10 +101,15 @@ class Relations:
     effects: Mapping[Place, Mapping[Effect, frozenset[Origin]]]  # direct and reached through calls
     places: Mapping[Place, FrName]  # every place with code, and the DP it belongs to
 
+    @deal.ensure(lambda self, place, result: (result is None) == (place not in self.places))
     def dp_of(self, place: Place) -> FrName | None:
         """The DP whose code a place is."""
         return self.places.get(place)
 
+    @deal.pre(lambda self, tree, parent: parent in tree.dps)
+    @deal.ensure(lambda self, tree, parent, result: result[0] == tree.dps[parent].children)
+    @deal.ensure(lambda self, tree, parent, result: all(a != b and a in result[0] and b in result[0]
+                                                        and edge in self.edges for (a, b), edge in result[1].items()))
     def matrix(self, tree: Tree, parent: FrName) -> tuple[tuple[FrName, ...], Mapping[tuple[FrName, FrName], Edge]]:
         """The siblings under parent, and for each pair (a, b) one edge showing a depends on b."""
         order = tree.dps[parent].children
@@ -127,6 +141,9 @@ def _places_in(model: CodeModel) -> set[Place]:
             *(r.at for r in model.raises)}
 
 
+@deal.ensure(lambda model, tree, custom_calls, result: all(e.source != e.target for e in result.edges))
+@deal.ensure(lambda model, tree, custom_calls, result: all(  # every effect a place has directly, it has in the end
+    e.effect in result.effects.get(e.at, {}) for e in model.effects))
 def relate(model: CodeModel, tree: Tree, custom_calls: Mapping[Api, Effect]) -> Relations:
     places: dict[Place, FrName] = {}
     for symbol in model.symbols.values():

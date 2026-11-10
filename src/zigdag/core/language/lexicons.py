@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
+
+import deal
+
+from zigdag.core.names import Identifier
 from zigdag.core.texts import Word
 
 
@@ -18,6 +22,12 @@ class LexiconName(enum.Enum):
     ESCAPE_CLAUSES = "escape-clauses"
     OPEN_ENDINGS = "open-endings"
     MODALS = "modals"
+
+    @property
+    @deal.ensure(lambda self, result: "-" not in result and result.replace("_", "-") == self.value)
+    def field(self) -> Identifier:
+        """The name of the Lexicons field that holds this lexicon."""
+        return self.value.replace("-", "_")
 
 
 def _words(text: str) -> frozenset[str]:
@@ -107,11 +117,12 @@ class Lexicons:
     open_endings: frozenset[Word] = OPEN_ENDINGS
     modals: frozenset[Word] = MODALS
 
+    @deal.ensure(lambda self, changes, result: all(getattr(result, f.name) == getattr(self, f.name) for f in fields(self)
+                                                    if f.name not in {name.field for name in changes}))
     def tuned(self, changes: Mapping[LexiconName, tuple[Iterable[Word], Iterable[Word]]]) -> Lexicons:
-        """Add, then remove, the words given for each lexicon."""
+        """Add, then remove, the words given for each lexicon. A lexicon not named keeps its words."""
         out = self
         for name, (add, remove) in changes.items():
-            field = name.value.replace("-", "_")
-            words = (getattr(out, field) | {w.lower() for w in add}) - {w.lower() for w in remove}
-            out = replace(out, **{field: frozenset(words)})
+            words = (getattr(out, name.field) | {w.lower() for w in add}) - {w.lower() for w in remove}
+            out = replace(out, **{name.field: frozenset(words)})
         return out

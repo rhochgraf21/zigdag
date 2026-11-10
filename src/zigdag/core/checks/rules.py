@@ -7,6 +7,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.effects import BUILT_IN as BUILT_IN_EFFECTS
 from zigdag.core.effects import resource_container
 from zigdag.core.kinds.params import Params, convert
@@ -30,6 +32,7 @@ class RuleUse:
     excepted: tuple[Excepted, ...]
     span: Span
 
+    @deal.ensure(lambda self, tree, where, result: not result or bool(self.excepted))  # only what except names
     def skips(self, tree: Tree, where: Place | Qualified | CodePath) -> bool:
         """Whether the code is excepted: it is, or is inside, a name under `except`."""
         text = str(where)
@@ -48,6 +51,15 @@ def _effect_known(record: Record, settings: Settings):
         container = resource_container(name)
         return name in BUILT_IN_EFFECTS or name in settings.effects or (container is not None and container in record.frs)
     return known
+
+
+@deal.ensure(lambda record, result: all(c.check.kind.value in result for c in record.constraints.values()
+                                       if c.check is not None))
+def kinds_named(record: Record) -> frozenset[CheckKindName]:
+    """Every check kind a constraint or a code rule names, before checking that the kind or its FR exists."""
+    constraints = {c.check.kind.value for c in record.constraints.values() if c.check is not None}
+    code_rules = {v.kind.check.kind.value for v in record.process.values() if isinstance(v.kind, CodeRule)}
+    return frozenset(constraints | code_rules)
 
 
 def rules_in_force(record: Record, settings: Settings, kinds: Mapping[CheckKindName, CheckKind]) -> list[RuleUse]:

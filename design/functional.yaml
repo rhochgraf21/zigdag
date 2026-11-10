@@ -40,10 +40,11 @@ frs:
   zigdag.core.vocabulary.findings.report:
     statements:
       hold: The report shall list the findings of a run in order.
+      passes: If a run found a break or an open question or a test result that is out of date, then the report shall count the run as failed.
 
   zigdag.core.vocabulary.findings.result:
     statements:
-      hold: The result shall name whether a check found a break, a question or a thing to do.
+      hold: The result shall name whether a check found a break, a question, a thing to do or a test result that is out of date.
 
   zigdag.core.vocabulary.findings.span:
     statements:
@@ -57,6 +58,10 @@ frs:
     statements:
       define: The kinds shall define each check kind with the parameters and the sentence of the check kind.
 
+  zigdag.core.vocabulary.kinds.param_spec:
+    statements:
+      hold: The param spec shall hold the type and the default value of one parameter of a check.
+
   zigdag.core.vocabulary.kinds.param_problem:
     statements:
       hold: The param problem shall describe a rule parameter that does not fit the schema of the parameter.
@@ -67,7 +72,11 @@ frs:
 
   zigdag.core.vocabulary.kinds.check_kind:
     statements:
-      hold: The check kind shall define the parameters, the reads, the exactness and the sentence of a check.
+      hold: The check kind shall define the parameters, the reads, the exactness, the sentence and the direction of a check.
+
+  zigdag.core.vocabulary.kinds.direction:
+    statements:
+      hold: The direction shall name one way of judging the quality of code.
 
   zigdag.core.vocabulary.kinds.exactness:
     statements:
@@ -125,6 +134,14 @@ frs:
   zigdag.core.language.data_clause:
     statements:
       hold: The data clause shall hold the structure, the field and the value that a clause of a statement names.
+
+  zigdag.core.language.bound:
+    statements:
+      hold: The bound shall give one limit that a statement puts on the time, the memory or the growth of the cost of a design parameter.
+
+  zigdag.core.language.characteristic:
+    statements:
+      hold: The characteristic shall name what a performance bound limits.
 
   zigdag.core.record:
     statements:
@@ -503,6 +520,26 @@ frs:
     statements:
       hold: The witness shall give an input that a function and a mutant of the function behave differently on.
 
+  zigdag.core.code.generated_tests.search_bound:
+    statements:
+      hold: The search bound shall limit the search for an input that a mutant behaves differently on to a number of paths and a number of seconds.
+
+  zigdag.core.code.diagnostics:
+    statements:
+      hold: The diagnostics shall record what the linter and the type checker of a project report about the code.
+
+  zigdag.core.code.diagnostics.diagnostic:
+    statements:
+      hold: The diagnostic shall record one rule of a tool that a place in the code breaks.
+
+  zigdag.core.code.diagnostics.diagnosis:
+    statements:
+      hold: The diagnosis shall name what a tool checks the code for.
+
+  zigdag.core.code.diagnostics.severity:
+    statements:
+      hold: The severity shall name how much a tool says that a diagnostic matters.
+
   zigdag.core.analysis:
     statements:
       check: The analysis shall check the record against the code model.
@@ -555,6 +592,38 @@ frs:
     statements:
       hold: The watch plan shall tell a watcher what to watch while the tests run.
 
+  zigdag.core.analysis.watch.last_run:
+    statements:
+      hold: The last run shall give the mutants that the last watched run made with the digest of the file of each test.
+
+  zigdag.core.analysis.profile:
+    statements:
+      sum: The profile shall add up the time and the memory of a profiled run of the tests by design parameter.
+
+  zigdag.core.analysis.profile.profile:
+    statements:
+      hold: The profile shall hold the time and the memory of each line of code in a profiled run of the tests.
+
+  zigdag.core.analysis.profile.profiled_line:
+    statements:
+      hold: The profiled line shall give the share of the time and the memory that one line of code took in a profiled run.
+
+  zigdag.core.analysis.profile.cost:
+    statements:
+      hold: The cost shall give the share of the time and the memory that one part of the project took in a profiled run.
+
+  zigdag.core.analysis.profile.comparison:
+    statements:
+      hold: The comparison shall give the cost of one part of the project in a profiled run beside the cost of the part in the run before.
+
+  zigdag.core.analysis.profile.leak:
+    statements:
+      hold: The leak shall give a line of code that the profiler suspects of leaking memory, with the likelihood of the leak and the growth of the memory.
+
+  zigdag.core.analysis.profile.suspect:
+    statements:
+      hold: The suspect shall give a suspected leak with the part of the project that the code of the leak belongs to.
+
   zigdag.core.analysis.data:
     statements:
       work-out: The data shall work out each recorded structure with the structures that the structure contains and refers to.
@@ -586,19 +655,36 @@ frs:
   zigdag.core.analysis.checks:
     statements:
       report: The checks shall report every break, question and thing to do in a project.
+      directions: When a run of the checks ends, the checks shall tell for each direction of quality whether every check of the direction passed.
       gates: When a gate is in force, the checks shall report each changed entry that has not passed the gate.
       data: When a rule covers data, the checks shall report each use of the data that the rule does not allow.
       states: When a statement names a state or a feature, the checks shall report each state or feature that the data does not have.
       evidence-runs: If a test ran no code of the design parameter that the test verifies, then the checks shall report a break.
       evidence-current: When a test passed against code that has changed since, the checks shall report the evidence as out of date.
-      shallow: If a component has less code behind each name and parameter of the interface of the component than the rule asks, then the checks shall ask about the component.
-      modes: If a function that another design parameter uses branches on a flag or a kind that the function takes, then the checks shall ask about the function.
       narrow: If a function that another design parameter uses reads a single field of a class that the function takes, then the checks shall ask about the function.
       single-implementation: If an abstraction has exactly one implementation, then the checks shall ask about the abstraction.
       weak-contracts: If every case of a contract holds for a changed function, then the checks shall ask about the change.
+      called-contracts: If no inputs are generated for a contract, then the checks shall count the calls of the tests as the cases of the contract.
       unmutated: If code is marked to be left unmutated outside the except of the rule, then the checks shall report a break.
       planned: If a function that is not declared pure works out a value or uses a value that no pure function decided, then the checks shall report a break.
       contracted: If a function that is declared pure and that an interface offers has no contract, then the checks shall report a break.
+      diagnosed: When a rule that a tool checks is in force, the checks shall report each diagnostic of the tool inside the scope of the rule.
+      oversized: If a function or a class or a file has more lines than the rule allows, then the checks shall report a break.
+      undesigned: If a file of code is one that no design parameter names, then the checks shall report a break.
+      custom: When a rule names a check that the project wrote, the checks shall report what the check of the project finds.
+      custom-refused: If a file of custom checks has an effect, then the checks shall report a break.
+
+  zigdag.core.analysis.checks.loaded_checks:
+    statements:
+      hold: The loaded checks shall hold the checks that one file of custom checks defines.
+
+  zigdag.core.analysis.checks.custom_checks:
+    statements:
+      hold: The custom checks shall hold each check that the project wrote under the check kind of the check.
+
+  zigdag.core.analysis.checks.loading:
+    statements:
+      hold: The loading shall hold the compiled code of one file of custom checks.
 
   zigdag.core.analysis.checks.context:
     statements:
@@ -616,23 +702,35 @@ frs:
     statements:
       hold: The project files shall hold the text of the settings, the record and the log of a project.
 
+  zigdag.core.analysis.checks.standing:
+    statements:
+      hold: The standing shall give the findings of one direction of quality with whether every check of the direction passed.
+
   zigdag.core.views:
     statements:
       show: The views shall show a design parameter with the rules and the code around the design parameter.
+      next: When asked what is to do, the views shall show the first kinds of thing to do with every thing of one kind in one line.
+      rules: When asked for the rules, the views shall list each rule with the settings of the rule.
       data: When asked for the data, the views shall show each structure under a design parameter with the design parameters that touch the structure.
 
   zigdag.core.init:
     statements:
       record: The init shall record existing code so that the first check of the code holds.
+      default-setup: When asked for a default setup, the init shall write the settings, a starter record and each tunable rule with the default values of the rule.
 
   zigdag.adapters:
     serves: [keep-design-true.drift-unnoticed, change-safely.context-time]
     statements:
       read: The adapters shall read the code of each supported language into the code model.
+      reports: When a linter or a type checker reports on the code, the adapters shall read each diagnostic from the Code Quality report of the tool.
 
   zigdag.adapters.python:
     statements:
       read: The python shall read the Python source of a project into the code model, with the tests and the test reports of the project.
+      tools: When a rule needs lint or type diagnostics, the python shall read what ruff or ty report about the source of the project.
+      security: When a rule needs security diagnostics, the python shall read what bandit reports about the source of the project.
+      profile: When the tests are profiled, the python shall read the time and the memory of each line from the profile that scalene writes.
+      tool-failed: If a tool that a rule needs cannot report on the source, then the python shall report a break.
 
   zigdag.adapters.python.python_files:
     statements:
@@ -645,6 +743,22 @@ frs:
   zigdag.adapters.python.recording:
     statements:
       hold: The recording shall hold everything that one watched run of the tests saw.
+
+  zigdag.adapters.python.tool:
+    statements:
+      hold: The tool shall name a tool that the Python adapter runs on the source.
+
+  zigdag.adapters.python.tool_run:
+    statements:
+      hold: The tool run shall give the command that runs one tool on the source.
+
+  zigdag.adapters.python.tool_output:
+    statements:
+      hold: The tool output shall hold what the shell saw when the shell ran one tool.
+
+  zigdag.adapters.python.tool_start:
+    statements:
+      hold: The tool start shall name whether the shell started a tool.
 
   zigdag.watchers:
     serves:
@@ -660,16 +774,22 @@ frs:
       same-seed: When the watcher generates inputs, the python shall use the same seed in every run.
       mutate: When a function that is declared without effects has a contract, the python shall run the cases of the contract against each mutant of the body of the function.
       search: When nothing notices a mutant, the python shall search within a bound for an input that the mutant and the function behave differently on.
+      carry: If a function and the tests that run the function are unchanged since the last run, then the python shall carry over the mutants of the function from the last run.
 
   zigdag.watchers.python.search_verdict:
     statements:
       hold: The search verdict shall name what the search for a differing input found.
 
+  zigdag.checks:
+    serves: [keep-design-true.drift-unnoticed]
+    statements:
+      offer: The checks shall offer the author of a custom check the context that a check reads.
+
   zigdag.agents:
     serves: [change-safely.late-feedback, change-safely.context-time]
     statements:
       install: The agents shall give a coding agent the skills and the hooks for working with zigdag.
-      feedback: When an agent edits a file, the agents shall report the breaks that concern the file.
+      feedback: When an agent ends a turn, the agents shall report the breaks of the project to the agent.
 
   zigdag.cli:
     serves: [keep-design-true.drift-unnoticed]
@@ -680,6 +800,22 @@ frs:
   zigdag.cli.plans:
     statements:
       decide: The plans shall decide what each command does with what the cli read.
+      ready: When asked whether a change is ready, the plans shall answer yes or no with each reason for a no.
+      summary: When a command reports the findings in short, the plans shall show each direction of quality in one line with the file of the findings of the direction and the breaks of the direction.
+      costs: When a profile of the tests exists, the plans shall show the time and the memory of each design parameter beside the cost of the design parameter in the run before.
+      unchecked: If no adapter supplied what a rule reads at the base of a review, then the plans shall leave the findings of the rule out of what the change brought.
+
+  zigdag.cli.plans.runs:
+    statements:
+      hold: The runs shall hold how the tests run under the watcher and under the profiler.
+
+  zigdag.cli.plans.runs.profiled_run:
+    statements:
+      hold: The profiled run shall tell how the tests run under the profiler, or why the tests cannot run under the profiler.
+
+  zigdag.cli.plans.runs.watched_run:
+    statements:
+      hold: The watched run shall hold how the tests run under the watcher.
 
   zigdag.cli.plans.git_listing:
     statements:
@@ -696,10 +832,6 @@ frs:
   zigdag.cli.plans.reading:
     statements:
       hold: The reading shall decide which files of a project the cli reads.
-
-  zigdag.cli.plans.watched_run:
-    statements:
-      hold: The watched run shall hold how the tests run under the watcher.
 
   zigdag.cli.plans.write:
     statements:
@@ -732,19 +864,19 @@ constraints:
     with:
       allow: []
 
-  language-free-core:  # the core knows no language: only adapters do
+  language-free-core:  # the core knows no language: only adapters do; deal states the core's contracts
     on: zigdag.core
     serves: [maintain.unrelated-breakage]
     check: may-depend-on
     with:
-      allow: [ruamel]
+      allow: [ruamel, deal]
 
-  adapters-feed-the-core:
+  adapters-feed-the-core:  # deal states the adapters' contracts
     on: zigdag.adapters
     serves: [maintain.unrelated-breakage]
     check: may-depend-on
     with:
-      allow: [zigdag.core]
+      allow: [zigdag.core, deal]
 
   shell-effects:  # the environment carries the watch plan's path from zigdag test to the watcher; CrossHair is imported only when a search runs, since importing it turns contracts off
     on: zigdag

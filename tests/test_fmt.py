@@ -89,6 +89,15 @@ def test_a_comment_beside_an_empty_value_stays_on_its_line():
     assert fmt(once) == once and "b:  # one" in once and "d:  # two" in once
 
 
+@verifies("zigdag.core.record#keep-all")
+def test_a_comment_stays_on_its_line_after_a_value_that_holds_a_unicode_line_separator():
+    # YAML does not end a line at these characters, and Python's splitlines does: comments must be placed as YAML counts
+    for separator in ("\u2028", "\u2029"):
+        text = f'a: "{separator}"\nb:  # beside b\n# above c\nc: x\n'
+        once = fmt(text)
+        assert "b:  # beside b\n# above c\nc: x\n" in once and fmt(once) == once
+
+
 def test_values_that_need_quotes_get_them():
     out = fmt('a: "x: y"\nb: "#no"\nc: "- dash"\nd: plain text\ne: ""\nf: [ "a,b" ]\n')
     assert 'a: "x: y"' in out and 'b: "#no"' in out and 'c: "- dash"' in out

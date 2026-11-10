@@ -6,6 +6,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NewType
+
+import deal
+
 from zigdag.core.measures import Count
 from zigdag.core.texts import SentenceText, Written
 
@@ -21,9 +24,11 @@ Api = NewType("Api", str)  # an API as the code writes it: open, subprocess.run,
 Glob = NewType("Glob", str)  # a file pattern, such as .zigdag/*.xml
 Revision = NewType("Revision", str)  # a git revision, such as main
 ShellCommand = NewType("ShellCommand", str)  # a command a shell runs, such as zigdag or uv run zigdag
+Argument = NewType("Argument", str)  # one argument of a command line, as it was typed or as zigdag builds it
 ParamName = NewType("ParamName", str)  # the name of a rule's parameter, such as allow
 Key = NewType("Key", str)  # a key of a design file, as written
 ProjectRoot = NewType("ProjectRoot", Path)  # the folder a project is in
+FolderName = NewType("FolderName", str)  # the last part of a folder's path, as it is on disk
 FilePath = NewType("FilePath", Path)  # a file's place on disk
 
 PYTHON = AdapterName("python")
@@ -39,29 +44,40 @@ _SLUG = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 _CODE_PATH = re.compile(r"[^\s:]+")
 
 
+@deal.ensure(lambda text, result: result is None or result == text)  # a name is its text, never a changed one
+@deal.ensure(lambda text, result: result is None or all(p[:1].isalpha() and p == p.lower() for p in result.split(".")))
 def fr_name(text: Written) -> FrName | None:
     return FrName(text) if _FR.fullmatch(text) else None
 
 
+@deal.ensure(lambda text, result: result is None or result == text)
+@deal.ensure(lambda text, result: result is None or all(w and w == w.lower() for w in result.split("-")))
 def slug(text: Written) -> Slug | None:
     return Slug(text) if _SLUG.fullmatch(text) else None
 
 
+@deal.ensure(lambda name, result: result is None or (is_within(name, result) and depth(result) == depth(name) - 1))
+@deal.ensure(lambda name, result: (result is None) == ("." not in name))  # only the root has no parent
 def parent(name: FrName) -> FrName | None:
     head, dot, _ = name.rpartition(".")
     return FrName(head) if dot else None
 
 
+@deal.ensure(lambda name, result: result == len(name.split(".")) - 1)
 def depth(name: FrName) -> Count:
     """0 for the root, 1 for the first level below it."""
     return name.count(".")
 
 
+@deal.ensure(lambda name, result: "." not in result and "_" not in result)
+@deal.ensure(lambda name, result: name.endswith(result.replace(" ", "_")))  # the last part, read aloud
 def subject(name: FrName) -> SentenceText:
     """The words an EARS statement uses for this name: its last part, with underscores read as spaces."""
     return name.rpartition(".")[2].replace("_", " ")
 
 
+@deal.ensure(lambda name, ancestor, result: result == (name == ancestor or (
+    (above := parent(name)) is not None and is_within(above, ancestor))))  # the name, or within its parent
 def is_within(name: FrName, ancestor: FrName) -> bool:
     return name == ancestor or name.startswith(ancestor + ".")
 
@@ -77,6 +93,7 @@ class OutcomeRef:
         return f"{self.job}.{self.outcome}"
 
     @staticmethod
+    @deal.ensure(lambda text, result: result is None or str(result) == text)  # it reads back as written
     def parse(text: Written) -> OutcomeRef | None:
         job, dot, outcome = text.partition(".")
         a, b = slug(job), slug(outcome)
@@ -86,6 +103,7 @@ class OutcomeRef:
 STATEMENT_SEPARATOR = "#"  # between an FR's name and a statement's: mojo2verus.core.emit#same-output
 
 
+@deal.ensure(lambda reference, result: STATEMENT_SEPARATOR not in result and reference.startswith(result))
 def named_fr(reference: Written) -> Written:
     """The FR part of a name that may be a statement reference."""
     return reference.partition(STATEMENT_SEPARATOR)[0]
@@ -112,11 +130,14 @@ class CodeName:
     def __str__(self) -> str:
         return f"{self.adapter}:{self.path}" if self.adapter else self.path
 
+    @deal.ensure(lambda self, default, result: result == (default if self.adapter is None else self.adapter))
     def adapter_or(self, default: AdapterName | None) -> AdapterName | None:
         """The adapter it names, or the project's default when it names none."""
         return self.adapter or default
 
     @staticmethod
+    @deal.ensure(lambda text, result: result is None or str(result) == text)  # it reads back as written
+    @deal.ensure(lambda text, result: result is None or result.adapter is None or result.adapter in ADAPTERS)
     def parse(text: Written) -> CodeName | None:
         prefix, colon, rest = text.partition(":")
         if not colon:

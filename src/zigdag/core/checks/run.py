@@ -5,8 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.checks.code_rules import check_code
 from zigdag.core.checks.context import Context, declared_pure
+from zigdag.core.checks.custom import NO_CUSTOM_CHECKS, CustomChecks
 from zigdag.core.checks.data_rules import check_clauses
 from zigdag.core.checks.evidence import check_evidence
 from zigdag.core.checks.gates import check_gates
@@ -60,10 +63,14 @@ class Analysis:
     rules: tuple[RuleUse, ...] = ()
 
     @property
+    @deal.ensure(lambda self, result: result == entries(self.record))
     def entries(self) -> Mapping[Subject, Entry]:
         return entries(self.record)
 
     @property
+    @deal.ensure(lambda self, result: (result is None) == any(
+        x is None for x in (self.code, self.tree, self.relations, self.data)))
+    @deal.ensure(lambda self, result: result is None or (result.model is self.code and result.record is self.record))
     def context(self) -> Context | None:
         """What the checks of the code saw; None when the code was not read."""
         if self.code is None or self.tree is None or self.relations is None or self.data is None:
@@ -72,16 +79,30 @@ class Analysis:
                        self.log.answered_questions, declared_pure(self.code, self.tree, self.rules))
 
     @property
+    @deal.ensure(lambda self, result: result == self.settings.people)
     def people(self) -> tuple[Actor, ...]:
         return self.settings.people
 
     @property
+    @deal.ensure(lambda self, result: set(result) <= {r.name for r in self.rules})
+    @deal.ensure(lambda self, result: all(s.endswith(".") for s in result.values()))  # each one sentence
     def sentences(self) -> Mapping[RuleId, SentenceText]:
         """Each rule in force, as the EARS sentence zigdag renders for it."""
         kinds = registry(self.settings)
         return {r.name: kinds[r.kind].sentence(subject(r.on), r.params, tuple(str(e.code) for e in r.excepted))
                 for r in self.rules if r.kind in kinds}
 
+    @property
+    @deal.ensure(lambda self, result: result <= {r.name for r in self.rules})
+    def unchecked(self) -> frozenset[RuleId]:
+        """The rules in force that this run could not check, since no adapter supplied what they read: on a revision
+        read from git, for one, the rules that need a tool run on the code."""
+        if self.code is None:
+            return frozenset()
+        kinds = registry(self.settings)
+        return frozenset(r.name for r in self.rules if r.kind in kinds and kinds[r.kind].reads - self.code.supplied)
+
+    @deal.ensure(lambda self, target, result: result is None or result in self.record.frs)
     def dp_of(self, target: Written) -> FrName | None:
         """The DP an FR name, a unit's name or a source file names."""
         if target in self.record.frs:
@@ -91,10 +112,12 @@ class Analysis:
         unit = self.code.unit_at(target)
         return self.tree.owner(unit.path if unit is not None else target)
 
+    @deal.ensure(lambda self, path, result: result is None or result in self.record.frs)
     def dp_of_file(self, path: RecordPath) -> FrName | None:
         unit = self.code.unit_at(path) if self.code is not None else None
         return self.tree.owner(unit.path) if unit is not None and self.tree is not None else None
 
+    @deal.ensure(lambda self, f, result: result is None or result in self.record.frs)
     def dp_of_finding(self, f: Finding) -> FrName | None:
         """The DP a finding is about: an FR, a statement's FR, or the owner of the code it names."""
         name = named_fr(f.about)
@@ -102,15 +125,18 @@ class Analysis:
             return FrName(name)
         return self.tree.owner(Qualified(name)) if self.tree is not None else None
 
+    @deal.ensure(lambda self, f, dp, result: not result or is_within(self.dp_of_finding(f), dp))
     def is_under(self, f: Finding, dp: FrName) -> bool:
         about = self.dp_of_finding(f)
         return about is not None and is_within(about, dp)
 
+    @deal.ensure(lambda self, dp, result: all(f in self.report.findings and self.is_under(f, dp) for f in result))
     def under(self, dp: FrName) -> list[Finding]:
         """The findings about a DP or anything below it."""
         return [f for f in self.report.findings if self.is_under(f, dp)]
 
     @property
+    @deal.ensure(lambda self, result: set(self.record.frs) <= result and set(BUILT_INS) <= result)
     def known_names(self) -> frozenset[Subject]:
         """Every name a log event can be about: FRs, statements, jobs, outcomes, rules and entries."""
         record = self.record
@@ -154,13 +180,18 @@ def _unresolved_excepts(rules: list[RuleUse], code: CodeModel, tree: Tree, setti
     return out
 
 
-def analyse(files: ProjectFiles, code: CodeModel | None = None) -> Analysis:
-    settings, settings_problems = read_settings(files.settings)
+@deal.ensure(lambda files, code=None, custom=NO_CUSTOM_CHECKS, *, result: (result.context is None) == (code is None))
+@deal.ensure(lambda files, code=None, custom=NO_CUSTOM_CHECKS, *, result:
+             result.report == without_answered(result.report, result.log))
+@deal.ensure(lambda files, code=None, custom=NO_CUSTOM_CHECKS, *, result: result.settings.checks == custom.checks)
+def analyse(files: ProjectFiles, code: CodeModel | None = None, custom: CustomChecks = NO_CUSTOM_CHECKS) -> Analysis:
+    read, settings_problems = read_settings(files.settings)
+    settings = read.taught(custom.checks)
     lexicons = Lexicons().tuned(settings.lexicon)
     record, record_problems = read_record(files.design)
     log, log_problems = read_log(files.log)
     supplied = code.supplied if code is not None else frozenset({Part.RECORD})
-    found: list[Finding] = [*settings_problems, *record_problems, *check_record(record, settings, lexicons, supplied),
+    found: list[Finding] = [*settings_problems, *custom.problems, *record_problems, *check_record(record, settings, lexicons, supplied),
                             *fmt_integrity(files.design), *log_problems]
     tree = relations = data = None
     rules: list[RuleUse] = []

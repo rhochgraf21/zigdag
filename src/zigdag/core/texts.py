@@ -12,3 +12,4 @@ Written = NewType("Written", str)  # text as someone wrote it, before it is read
 SentenceText = NewType("SentenceText", str)  # a sentence of the record, or a part of one, as written
 Word = NewType("Word", str)  # one word, as the grammar and the lexicons use it
 Content = NewType("Content", str)  # what a digest covers: the content a finding or an entry is about
+ToolText = NewType("ToolText", str)  # what a tool that zigdag ran printed, on its standard output or error

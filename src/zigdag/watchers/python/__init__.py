@@ -4,11 +4,14 @@ and the plan in the ZIGDAG_WATCH environment variable. Without a plan, the plugi
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from pathlib import Path
 
 from _pytest.runner import runtestprotocol  # runs a test without reporting it
+
+import deal
 
 from zigdag.adapters.python import apis
 from zigdag.adapters.python.tests import test_module
@@ -16,12 +19,17 @@ from zigdag.core.code import TestId
 from zigdag.core.codec import Unreadable
 from zigdag.core.findings import RecordPath
 from zigdag.core.settings import PLAN_FILE
-from zigdag.core.watch import PLAN_VARIABLE, WatchPlan
+from zigdag.adapters.python.observed import Recording
+from zigdag.core.texts import Say
+from zigdag.core.watch import PLAN_VARIABLE, LastRun, WatchPlan
 from zigdag.watchers.python.watcher import Watcher
 
 NAME = "zigdag-watcher"
 _NODE_SEPARATOR = "::"
 _PARAMETERS = "["  # where a parametrised test's own id starts: test_price[5]
+_TERMINAL = "terminalreporter"  # pytest's plugin that writes to the terminal
+_TOLD = "zigdag:"  # starts each line the watcher tells, so it is not taken for pytest's own
+_PARTIAL = ".partial"  # the suffix of a file while it is being written
 _STREAMS = (("capstdout", apis.STDOUT, "standard output"), ("capstderr", apis.STDERR, "standard error"),
             ("caplog", apis.STDERR, "a log record"))
 
@@ -48,6 +56,7 @@ class _Hooks:
         self.rootpath = rootpath
         self.root = root
 
+    @deal.ensure(lambda self, nodeid, result: _PARAMETERS not in result[0].partition(_NODE_SEPARATOR)[2])
     def _test(self, nodeid: str) -> tuple[TestId, RecordPath]:
         file, *names = nodeid.split(_NODE_SEPARATOR)
         path = RecordPath(os.path.relpath(self.rootpath / file, self.root).replace(os.sep, "/"))
@@ -77,7 +86,24 @@ class _Hooks:
             return all(not report.failed for item in items.get(test, ())
                        for report in runtestprotocol(item, log=False, nextitem=None))
 
-        recording = self.watcher.finish(rerun)
-        out = self.root / self.watcher.plan.observed
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(recording.to_text(), encoding="utf-8")
+        reporter = session.config.pluginmanager.get_plugin(_TERMINAL)
+
+        def tell(say: Say) -> None:
+            """A line for the person running the tests: pytest's own when it shows any, else standard error."""
+            line = f"{_TOLD} {say}"
+            if reporter is not None:
+                reporter.write_line(line)
+            else:
+                print(line, file=sys.stderr, flush=True)
+
+        recording = self.watcher.finish(rerun, functools.partial(_written, self.root / self.watcher.plan.carried), tell)
+        _written(self.root / self.watcher.plan.observed, recording)
+
+
+def _written(path: Path, value: Recording | LastRun) -> None:
+    """Write what the watcher hands over whole or not at all, so that a run stopped while writing leaves the last
+    complete version, which the next run can still read."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + _PARTIAL)
+    partial.write_text(value.to_text(), encoding="utf-8")
+    partial.replace(path)

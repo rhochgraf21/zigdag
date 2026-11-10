@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import deal
+
 from zigdag.core.record.entries import Entry
 from zigdag.core.record.model import Gate, Record, Workflow
 from zigdag.core.rubric import RUBRIC_VERSION
@@ -26,6 +28,7 @@ def _covers(on: str, entry: Entry, root: str | None) -> bool:
     return is_within(entry.scope, on) if entry.scope is not None else on == root
 
 
+@deal.post(lambda found: found.result is Result.BREAKS)  # a gate holds or breaks: it never asks
 def check_gates(record: Record, log: Log, people: tuple[Actor, ...], changed: list[Entry] | None,
                 report: Report) -> Iterable[Finding]:
     root = record.root.name if record.root else None

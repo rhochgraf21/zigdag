@@ -11,6 +11,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.record import tree as t
 from zigdag.core.record.fmt import format_text
 from zigdag.core.record.model import Domain
@@ -29,6 +31,8 @@ class _Edit:
     new: str
 
 
+@deal.ensure(lambda name, old, new, result: result is None or (result.startswith(new)
+                                                                and result[len(new):] == name[len(old):]))
 def renamed(name: Written, old: FrName, new: FrName) -> Written | None:
     """The name after the rename, or None when the rename does not touch it."""
     for sep in ("", ".", STATEMENT_SEPARATOR):
@@ -127,6 +131,8 @@ def _python_edits(path: RecordPath, text: str, old: FrName, new: FrName) -> list
     return out
 
 
+@deal.pre(lambda design, tests, old, new: not any("\0" in p for p in (*design, *tests)))  # paths on disk
+@deal.ensure(lambda design, tests, old, new, result: set(result[0]) <= {*design, *tests})  # only files it was given
 def rename(design: Mapping[RecordPath, FileText], tests: Mapping[RecordPath, FileText], old: FrName,
            new: FrName) -> tuple[dict[RecordPath, FileText], list[Say]]:
     """The files the rename changes, as their new text, and any place a name could not be found where it was read."""
@@ -150,6 +156,7 @@ def rename(design: Mapping[RecordPath, FileText], tests: Mapping[RecordPath, Fil
     return changed, problems
 
 
+@deal.ensure(lambda physical, placements, result: all(name in result for name in placements))
 def keep_code(physical: FileText | None, placements: Mapping[FrName, tuple[Qualified, ...]]) -> FileText:
     """physical.yaml with entries added, so renamed DPs keep the code their old names pointed at."""
     text = (physical or "").rstrip("\n")

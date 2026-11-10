@@ -16,21 +16,18 @@ from __future__ import annotations
 
 import enum
 import functools
+import inspect
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from types import FunctionType
 
+import deal
+from deal.introspection import Pre, get_contracts
+
 from zigdag.core.code import Witness
 
-try:
-    import deal
-    from deal.introspection import Pre, get_contracts
-except ImportError:  # without deal there are no contracts, and nothing to search
-    deal = None
-
 UNAVAILABLE = "CrossHair is not installed where the tests run: install zigdag[mutation]"
-NO_DEAL = "deal is not installed where the tests run"
 
 Swap = Callable[[], AbstractContextManager[None]]  # puts the mutant's code in place for one call
 
@@ -57,8 +54,7 @@ def _crosshair() -> _CrossHair | None:
     except ImportError:  # CrossHair is optional: without it, survivors are asked about
         return None
     finally:
-        if deal is not None:
-            deal.enable()  # the contracts must keep judging the mutants that are still to come
+        deal.enable()  # the contracts must keep judging the mutants that are still to come
     return _CrossHair(IgnoreAttempt, diff_behavior, FunctionInfo.from_fn, DEFAULT_OPTIONS,
                       ExceptionEquivalenceType.SAME_TYPE)
 
@@ -81,10 +77,12 @@ class Searched:
     detail: str = ""
 
 
-def _within_contract(tools: _CrossHair, function: Callable, inner: FunctionType, preconditions: list,
-                     swap: Swap) -> Callable:
+@deal.ensure(lambda tools, function, inner, owner, preconditions, swap, result: result.__wrapped__ is inner)
+def _within_contract(tools: _CrossHair, function: Callable, inner: FunctionType, owner: type | None,
+                     preconditions: list, swap: Swap) -> Callable:
     """One version of the function, as the search runs it: inputs its preconditions reject are passed over, and a
-    contract error becomes one error type, so that it can be told apart."""
+    contract error becomes one error type, so that it can be told apart. A method's object is annotated with its
+    class, which its own code leaves unsaid, so that the search can make one."""
 
     @functools.wraps(inner)  # CrossHair reads the signature and type hints through this
     def call(*args: object, **kwargs: object) -> object:
@@ -99,31 +97,36 @@ def _within_contract(tools: _CrossHair, function: Callable, inner: FunctionType,
             except deal.ContractError as e:
                 raise _ContractFailed(type(e).__name__) from None
 
+    if owner is not None:
+        receiver = next(iter(inspect.signature(inner).parameters))
+        call.__annotations__ = {**inner.__annotations__, receiver: owner}  # a copy: wraps shares the function's own
     return call
 
 
-def _failed(result: object) -> bool:
+@deal.ensure(lambda behaviour, result: not result or behaviour.error is not None)
+def _failed(behaviour: object) -> bool:
     """Whether one version's behaviour, as CrossHair describes it, was to fail its contract."""
-    return result.error is not None and result.error.startswith(_ContractFailed.__name__)
+    return behaviour.error is not None and behaviour.error.startswith(_ContractFailed.__name__)
 
 
+@deal.post(lambda result: bool(result.written) and bool(result.mutated))  # each version's behaviour, said
 def _witness(diff: object) -> Witness:
     shown = diff.result1.get_differing_arg_mutations(diff.result2)
     given = ", ".join(f"{name}={value}" for name, value in diff.args.items())
     return Witness(given, diff.result1.describe(shown), diff.result2.describe(shown))
 
 
-def search(function: Callable, inner: FunctionType, swap: Swap, paths: int, seconds: float) -> Searched:
+def search(function: Callable, inner: FunctionType, owner: type | None, swap: Swap, paths: int,
+           seconds: float) -> Searched:
     """Search for an input that the function as written and the function with the mutant swapped in behave
-    differently on: in what they return, what they raise, or how they change their arguments."""
-    if deal is None:
-        return Searched(Verdict.UNSEARCHED, detail=NO_DEAL)
+    differently on: in what they return, what they raise, or how they change their arguments. A method's object is
+    searched for too, as an object of its class (owner)."""
     tools = _crosshair()
     if tools is None:
         return Searched(Verdict.UNSEARCHED, detail=UNAVAILABLE)
     preconditions = [c for c in get_contracts(function) if isinstance(c, Pre)]
-    written = _within_contract(tools, function, inner, preconditions, nullcontext)
-    mutated = _within_contract(tools, function, inner, preconditions, swap)
+    written = _within_contract(tools, function, inner, owner, preconditions, nullcontext)
+    mutated = _within_contract(tools, function, inner, owner, preconditions, swap)
     options = tools.options.overlay(max_iterations=paths, per_condition_timeout=seconds)
     found = tools.diff_behavior(tools.function_info(written), tools.function_info(mutated), options,
                                 tools.same_type)  # an error message is for people; its type is behaviour

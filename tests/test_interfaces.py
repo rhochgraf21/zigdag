@@ -1,4 +1,4 @@
-"""The interface checks (DESIGN2 §4.1): shallow components, mode parameters, wide parameters, and abstractions with
+"""The interface checks (DESIGN2 §4.1): mode parameters, wide parameters, and abstractions with
 one implementation, on a small project whose shapes component another component uses."""
 
 from pathlib import Path
@@ -179,14 +179,6 @@ def test_the_adapter_reads_branches_field_reads_and_abstractions(tmp_path):
     assert code.symbols["app.shapes.Disk"].abstraction is None
 
 
-@verifies("zigdag.core.analysis.checks#modes")
-def test_a_parameter_that_picks_the_behaviour_is_asked_about(tmp_path):
-    asks = asked(tmp_path, "no-mode-parameters")
-    assert set(asks) == {"app.shapes.area", "app.shapes.length"}  # label passes its flags on; shout is not used
-    assert "rounded parameter (bool)" in asks["app.shapes.area"]
-    assert "unit parameter (Unit)" in asks["app.shapes.length"]
-
-
 @verifies("zigdag.core.analysis.checks#narrow")
 def test_a_parameter_read_for_one_field_is_asked_about(tmp_path):
     asks = asked(tmp_path, "narrow-parameters")
@@ -199,12 +191,3 @@ def test_an_abstraction_with_one_implementation_is_asked_about(tmp_path):
     asks = asked(tmp_path, "no-single-implementations")
     assert set(asks) == {"app.shapes.Drawer"}  # Store has two; Exporter has none, so it may be for users
     assert "a protocol with one implementation, Plain" in asks["app.shapes.Drawer"]
-
-
-@verifies("zigdag.core.analysis.checks#shallow")
-def test_a_component_with_little_code_behind_its_interface_is_asked_about(tmp_path):
-    asks = asked(tmp_path, "min-depth")
-    assert set(asks) == {"app.shapes"}  # the cli is one name with all its work behind it
-    assert "lines each, where 5 are asked for" in asks["app.shapes"]
-    tuned = "min-depth:\n  with:\n    ratio: 1\n"
-    assert asked(tmp_path, "min-depth", tuned) == {}

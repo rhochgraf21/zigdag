@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+import deal
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
@@ -58,6 +59,8 @@ class Map:
     entries: tuple[Entry, ...]
     span: Span
 
+    @deal.ensure(lambda self, key, result: result is None or (result.key == key and result in self.entries))
+    @deal.ensure(lambda self, key, result: result is not None or all(e.key != key for e in self.entries))
     def get(self, key: Key) -> Entry | None:
         return next((e for e in self.entries if e.key == key), None)
 
@@ -105,6 +108,8 @@ def _convert(value: object, path: RecordPath, line: int, column: int, comments: 
     return Text("" if value is None else str(value), Span(path, line, column), None)
 
 
+@deal.ensure(lambda path, text, result: (result[0] is None) == bool(result[1]))  # a tree, or why there is none
+@deal.ensure(lambda path, text, result: all(p.rule == YAML_RULE and p.span.path == path for p in result[1]))
 def read_tree(path: RecordPath, text: FileText) -> tuple[Node | None, tuple[Finding, ...]]:
     """The file's node tree, or None with the findings that explain why it could not be read."""
     problems: list[Finding] = []

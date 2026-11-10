@@ -19,22 +19,81 @@ CORE = Skill("zigdag", "Work in a project whose design is kept by zigdag (design
              "changing code or design, when planning a change, or when unsure what to do next.", """
 # Working with zigdag
 
-The design in `design/` says who the system is for (customer.yaml), what it must do (functional.yaml),
-what code does it (physical.yaml), and how it is made (process.yaml). zigdag checks the code against it.
+zigdag keeps the design of this project in `design/` and checks the code against it. It has checks that push
+you towards better code (just like a borrow checker does for devs): when one breaks, doing what its message says
+is the way forward. For that which can't be checked by reading the code, for example "did I write bad tests",
+there are test-time checks, which `zigdag test` runs.
+
+The design starts at the top, with who the system is for, and works down to the code: customer.yaml (who it is
+for, and what they are trying to get done), functional.yaml (what the system must do, and the limits on how),
+physical.yaml (which code does it, where the names do not already say), process.yaml (how it is made and checked).
 
 1. **Orient:** `zigdag show` for the root, `zigdag show <fr>` for one level, `zigdag next` for what is to do.
-2. **Before changing code:** `zigdag context <file>`. It says why the code exists, what it must do, the limits
+2. **Start from the need.** A request often arrives as a solution ("add a cache"). Before designing it, find the
+   job and outcome in customer.yaml that it serves. If there is none, ask the person (interview-for-jobs).
+3. **Before changing code:** `zigdag context <file>`. It says why the code exists, what it must do, the limits
    in force, and the exact signatures of what it uses. Stay within them.
-3. **Change the design by editing design/*.yaml**, then `zigdag fmt` and `zigdag check`. Rename an FR only with
-   `zigdag rename <old> <new>`: it updates every use, the tests' links, and keeps the code it points at.
-4. **Link tests to what they verify:** `@verifies("fr#statement")` from `zigdag`. Run them with `zigdag test`:
-   it watches what the code does while they run, and their results count only for the code as it was then.
-5. **After every change:** `zigdag check`. A break is an error: fix it, or change the design on purpose. A question
-   is answered once, with a reason: `zigdag answer <digest> accepted|declined|answered "<why>" --by <you>`.
-6. **Raise what you notice,** in your work or anyone's: `zigdag raise defect|question|idea <name> "<what>" --by
+4. **Change the design by editing design/*.yaml**, top down: the outcome, then the requirement, then the code.
+   Then `zigdag fmt` and `zigdag check`. Rename an FR only with `zigdag rename <old> <new>`: it updates every
+   use, the tests' links, and keeps the code it points at.
+5. **A new module must be in the design.** Give it a requirement of its own name in functional.yaml, or list it
+   in physical.yaml, with the code. A module the design does not name breaks `designed-modules`.
+6. **Write the code the checks push toward.** Effectful code cannot have business logic: put each decision in a
+   function with no side effects, and have the code with effects only carry out what it returns. Pass named
+   types (a NewType, or a recorded class) between parts. Give a contract (`@deal.pre`, `@deal.post`,
+   `@deal.ensure`) to a function without side effects that another part uses. When a check breaks, do what its
+   message says. Do not add code to a rule's `except` to make it pass, unless the person agrees, and then say why
+   in a comment beside it: it is debt.
+7. **Link tests to what they verify:** `@verifies("fr#statement")` from `zigdag`. Run them with `zigdag test`:
+   it watches what the code does while they run, runs contracts on generated inputs, and mutates pure functions
+   to find tests and contracts that would not notice. Results count only for the code as it was then.
+8. **When a change is finished, before you say so:** `zigdag ready` (`--base main` for a PR). It runs the tests
+   and answers yes or no, with each reason. A break is an error: fix it, or change the design on purpose. A
+   question is answered once, with a reason: `zigdag answer <digest> accepted|declined|answered "<why>" --by
+   <you>`. A result out of date means run the tests again. A thing to do never fails.
+9. **Raise what you notice,** in your work or anyone's: `zigdag raise defect|question|idea <name> "<what>" --by
    <you> --evidence "<exact words or code>"`. Do not fix what is outside your task.
-7. **Before asking for review:** `zigdag review main`, and read it as a reviewer would. Changed entries need a
-   critique from a fresh critic (the critique skill) before review. You never approve your own work.
+10. **Before asking for review:** `zigdag review main`, and read it as a reviewer would. Changed entries need a
+    critique from a fresh critic (the critique skill) before review. You never approve your own work.
+11. **Rules:** `zigdag checks` lists every rule with its settings. A practice of the project's own is a plain
+    function in `design/checks/` (import `broken` and `asked` from `zigdag.checks`).
+12. **With people, use plain words:** "requirement" for FR, "part" for DP, "goal" for outcome. Explain a break by
+    what it protects, not by its rule name. To help someone new, use the guide skill.
+""")
+
+GUIDE = Skill("guide", "Guide a person who is new to zigdag through setting it up and using it. Use when someone asks "
+              "what zigdag is for, how to use it, or what to do first.", """
+# Guide a person through zigdag
+
+**Produces:** a person who can steer the design and read what zigdag tells them.
+
+Use plain words (requirement, part, goal). Go one step at a time, and show real output from their own project
+instead of describing it. Leave the theory out unless they ask.
+
+1. **Give them the model first,** briefly. zigdag keeps the design in `design/` and checks the code against it.
+   Its checks push an agent toward better code, as a borrow checker does for a developer. What can be checked by
+   reading the code is checked by `zigdag check`; what cannot (did my agents write bad tests?) is checked when
+   the tests run, by `zigdag test`.
+2. **Start at the top, with customer needs.** Before any rule or code, ask who the system is for and what they
+   are trying to get done (interview-for-jobs), and write it in design/customer.yaml. Everything below traces
+   back to it, and a part that traces to nobody is one to ask about.
+3. **Then what the system must do** to serve each goal (write-frs), and then the parts that do it (decompose).
+   On existing code the parts come first: `zigdag init --default` drafts them from the code, with every rule
+   written out, and the person fills in the top afterwards. `zigdag next` lists what is still missing; none of
+   it is an error.
+4. **Show them the design:** `zigdag show`, then `zigdag context <a file they know>`. Ask them to correct what
+   is wrong. They steer; you write it down.
+5. **Show them a break** in their own code, and read the message together. There are two ways out: fix the
+   code, or change the design on purpose. Show that listing code under `except` records it as debt.
+6. **Show them one answer for a change:** `zigdag ready`. Say what each result means: a break, a question
+   (answered once), a result out of date (run the tests again), a thing to do (never fails).
+7. **Show them a review:** `zigdag review main` gives what a change did to the design, as sentences, before
+   any code.
+8. **Say what is theirs to decide:** what each part is for, what it may use, which rules to tune
+   (`zigdag checks` lists them), and the answer to every question. An agent never approves its own work.
+
+**Finished when:** the person has corrected the design at least once, and can say what a break is and what a
+thing to do is.
 """)
 
 INTERVIEW_FOR_JOBS = Skill("interview-for-jobs", "Find who the system is for and what they are trying to get done. "
@@ -158,8 +217,8 @@ ADOPT = Skill("adopt", "Bring an existing codebase under zigdag. Use when a proj
 
 **Produces:** a record of the code as it is, then a steady paying down of debt.
 
-1. `zigdag init`. It writes an FR for each package and module, the effects and dependencies of each top-level
-   part as they are today, and every known break under `except`.
+1. `zigdag init --default`. It writes an FR for each package and module, the effects and dependencies of each top-level
+   part as they are today, every known break under `except`, and every rule with its default values.
 2. Write the jobs (interview-for-jobs), then each FR's function (`zigdag next` lists them in build order).
 3. Each later change removes `except` entries or narrows an allow-list. Never add new debt silently.
 
@@ -195,6 +254,6 @@ REVIEW = Skill("review", "Review a change to the design. Use when a change is re
 **Finished when:** every changed entry is approved by a person or has an open finding.
 """)
 
-SKILLS: Mapping[str, Skill] = {s.name: s for s in (CORE, INTERVIEW_FOR_JOBS, WRITE_FRS, DECOMPOSE, DESIGN_DATA,
+SKILLS: Mapping[str, Skill] = {s.name: s for s in (CORE, GUIDE, INTERVIEW_FOR_JOBS, WRITE_FRS, DECOMPOSE, DESIGN_DATA,
                                                    RESOLVE_COUPLING, SET_LIMITS, CHOOSE_PROCESS, ADOPT, CRITIQUE,
                                                    REVIEW)}

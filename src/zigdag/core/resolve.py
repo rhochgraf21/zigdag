@@ -9,10 +9,12 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.record.model import Record
 from zigdag.core.code import CodeModel, Place, Qualified, SymbolKind
 from zigdag.core.findings import Finding, Result, Span, finding
-from zigdag.core.names import AdapterName, CodePath, FrName, parent
+from zigdag.core.names import AdapterName, CodePath, FrName, is_within, parent
 
 COVERAGE = "coverage"
 LEVELS = "levels"
@@ -49,6 +51,8 @@ class Tree:
     unit_owner: Mapping[CodePath, FrName]
     type_owner: Mapping[Qualified, FrName]
 
+    @deal.ensure(lambda self, name, result: result is None or result in {*self.unit_owner.values(),
+                                                                          *self.type_owner.values()})
     def owner(self, name: Qualified | CodePath) -> FrName | None:
         """The DP a unit, or a name inside one, belongs to: a structure's own type first, then the unit."""
         parts = name.split(".")
@@ -60,20 +64,28 @@ class Tree:
                 return dp
         return None
 
+    @deal.ensure(lambda self, place, result: result == self.owner(Qualified(str(place))))  # code runs where it is
     def owner_of(self, place: Place) -> FrName | None:
         return self.owner(Qualified(str(place)))
 
+    @deal.ensure(lambda self, name, ancestor, result: result == is_within(name, ancestor))  # as the record reads it
     def within(self, name: FrName, ancestor: FrName) -> bool:
         return name == ancestor or name.startswith(ancestor + ".")
 
+    @deal.ensure(lambda self, name, result: result <= set(self.dps) and (name in result) == (name in self.dps))
+    @deal.ensure(lambda self, name, result: all(is_within(n, name) for n in result))
     def subtree(self, name: FrName) -> frozenset[FrName]:
         return frozenset(n for n in self.dps if self.within(n, name))
 
+    @deal.ensure(lambda self, name, result: name in self.dps or result == ())
     def claims_of(self, name: FrName) -> tuple[Qualified, ...]:
         """The code a DP is, as full names: its units and types."""
         dp = self.dps.get(name)
         return tuple(c.type or c.unit for c in dp.claims) if dp else ()
 
+    @deal.ensure(lambda self, name, result: not self.claims_of(name) or result == self.claims_of(name))  # its own first
+    @deal.ensure(lambda self, name, result: result == () or result in [self.claims_of(a) for a in self.dps
+                                                                         if is_within(name, a)])
     def code_base(self, name: FrName) -> tuple[Qualified, ...]:
         """What code names written for a DP are read relative to: the code of the nearest DP at or above it that has
         code of its own (§7.5)."""
@@ -84,6 +96,7 @@ class Tree:
             at = parent(at)
         return ()
 
+    @deal.ensure(lambda self, name, result: all(is_within(n, name) and claims for n, claims in result.items()))
     def claims_under(self, name: FrName) -> dict[FrName, tuple[Qualified, ...]]:
         """The code of every DP at or below a name that has code of its own."""
         return {n: self.claims_of(n) for n in sorted(self.subtree(name)) if self.claims_of(n)}
@@ -117,6 +130,9 @@ def _default(model: CodeModel, bases: tuple[str, ...], last: str) -> Claim | Non
     return None
 
 
+@deal.ensure(lambda record, model, default_adapter, result: set(result[0].dps) == set(record.frs))  # every FR is a DP
+@deal.ensure(lambda record, model, default_adapter, result: set(result[0].unit_owner) <= set(model.units)
+             and set(result[0].unit_owner.values()) <= set(record.frs))  # only real units, owned by real DPs
 def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | None) -> tuple[Tree, tuple[Finding, ...]]:
     problems: list[Finding] = []
     names = sorted(record.frs, key=lambda n: (n.count("."), n))

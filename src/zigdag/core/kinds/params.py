@@ -6,6 +6,8 @@ import enum
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.effects import Effect
 from zigdag.core.names import ParamName
 from zigdag.core.texts import Word, Written
@@ -40,6 +42,8 @@ class ParamProblem:
     say: str
 
 
+@deal.ensure(lambda schema, raw, is_effect, result: set(result[0]) <= set(schema))
+@deal.ensure(lambda schema, raw, is_effect, result: bool(result[1]) or set(result[0]) == set(schema))  # all, or why not
 def convert(
     schema: ParamSchema,
     raw: Mapping[ParamName, Written | tuple[Written, ...]],

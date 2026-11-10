@@ -8,7 +8,9 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from zigdag.core.record.entries import Entry, entries
+import deal
+
+from zigdag.core.record.entries import Entry, entries, plain
 from zigdag.core.record.model import Domain, Record
 from zigdag.core.findings import Finding, Report, Result
 from zigdag.core.log import Log
@@ -35,6 +37,7 @@ class Change:
     details: tuple[Say, ...]
 
     @property
+    @deal.ensure(lambda self, result: result is self.entry.domain)
     def domain(self) -> Domain:
         return self.entry.domain
 
@@ -88,6 +91,10 @@ def _said(fields: Mapping[str, object], rule: str | None) -> list[str]:
     return out
 
 
+@deal.ensure(lambda before, after, *sentences, result: [list(Domain).index(c.domain) for c in result] == sorted(
+    list(Domain).index(c.domain) for c in result))  # in domain order: what a reviewer reads first comes first
+@deal.ensure(lambda before, after, *sentences, result: all((c.before is None) == (c.kind is ChangeKind.ADDED)
+                                                           for c in result))
 def diff(before: Record, after: Record, sentences_before: Mapping[RuleId, SentenceText] | None = None,
          sentences_after: Mapping[RuleId, SentenceText] | None = None) -> list[Change]:
     """What changed between two records, with renames found where an entry left one name and came back under another
@@ -117,6 +124,10 @@ def diff(before: Record, after: Record, sentences_before: Mapping[RuleId, Senten
     return sorted(changes, key=lambda c: (order.index(c.domain), c.entry.name))
 
 
+@deal.ensure(lambda before, after, result: all(f in after.findings for f in result))
+@deal.ensure(lambda before, after, result: not any((f.result, f.rule, f.about, f.say) == (b.result, b.rule, b.about,
+                                                                                         b.say)
+                                                   for f in result for b in before.findings))
 def new_findings(before: Report, after: Report) -> list[Finding]:
     """Findings the change brought: in the report after it, and not before."""
     seen = {(f.result, f.rule, f.about, f.say) for f in before.findings}
@@ -136,6 +147,10 @@ def _status(change: Change, log: Log, people: tuple[str, ...]) -> str:
     return "  [" + "; ".join(parts) + "]"
 
 
+@deal.pre(lambda base, changes, log, people, gates, brought: all(plain(c.entry.fields) for c in changes))
+@deal.ensure(lambda base, changes, log, people, gates, brought, result: all(c.entry.name in result for c in changes))
+@deal.ensure(lambda base, changes, log, people, gates, brought, result: (bool(changes) or bool(brought))
+             != result.startswith("no change"))
 def render(base: Revision, changes: list[Change], log: Log, people: tuple[Actor, ...], gates: list[Finding],
            brought: list[Finding]) -> Shown:
     if not changes and not brought:
@@ -153,7 +168,7 @@ def render(base: Revision, changes: list[Change], log: Log, people: tuple[Actor,
         lines += ["", "gates", *(f"  {f.rule}: {f.about}: {f.say}" for f in gates)]
     if brought:
         lines += ["", "what the change brought"]
-        for result in (Result.BREAKS, Result.QUESTION, Result.TODO):
+        for result in (Result.BREAKS, Result.QUESTION, Result.OUT_OF_DATE, Result.TODO):
             lines += [f"  {result.value}: {f.span or '-'}  {f.rule}  {f.about}: {f.say}"
                       for f in brought if f.result is result]
     return "\n".join(lines)

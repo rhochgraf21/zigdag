@@ -8,20 +8,30 @@
 
 from __future__ import annotations
 
+import deal
+
 from zigdag.core.checks.evidence import EVIDENCE_RULES
+from zigdag.core.checks.code_rules import CHECKS, RECORD_KINDS
 from zigdag.core.checks.record_rules import registry
+from collections.abc import Iterable, Mapping
+from zigdag.core.effects import Effect
+from zigdag.core.names import CheckKindName
+from zigdag.core.kinds.registry import CheckKind, Exactness
+from zigdag.core.settings import Settings
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.checks.run import Analysis
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Pattern, parse_ears
 from zigdag.core.record.builtins import BUILT_INS
-from zigdag.core.record.model import Domain
+from zigdag.core.record.model import Domain, Gate
 from zigdag.core.code import AccessKind, Qualified, SymbolKind
-from zigdag.core.findings import Result
+from zigdag.core.findings import Finding, Result, RuleName
 from zigdag.core.names import FrName, is_within, parent, subject
-from zigdag.core.texts import Shown, Written
+from zigdag.core.texts import Say, Shown, Written
 
 _LEXICONS = Lexicons()
+NEXT_SHOWN = 10  # kinds of thing to do that `zigdag next` shows: enough to choose from, few enough to read
+_ANY_SUBJECT = "…"  # stands for the name a finding is about, when two findings are compared by what they say
 
 
 def _function(a: Analysis, name: FrName) -> str:
@@ -72,11 +82,14 @@ def _evidence(a: Analysis, ref: str) -> str:
     found = [f for f in a.report.findings if f.about == ref and f.rule in EVIDENCE_RULES]
     if any(f.result is Result.BREAKS for f in found):
         return "broken"
+    if any(f.result is Result.OUT_OF_DATE for f in found):
+        return Result.OUT_OF_DATE.value
     if any(f.result is Result.TODO for f in found):
         return "to do"
     return "passing" if a.code is not None else "not read"
 
 
+@deal.ensure(lambda a, name=None, *, result: name is None or name not in a.record.frs or result.startswith(f"{name}:"))
 def show(a: Analysis, name: FrName | None = None) -> Shown:
     root = a.record.root
     if root is None:
@@ -111,7 +124,7 @@ def show(a: Analysis, name: FrName | None = None) -> Shown:
     found = a.under(name)
     counts = {r: sum(1 for f in found if f.result is r) for r in Result}
     lines += ["", f"  under {name}: {counts[Result.BREAKS]} breaks, {counts[Result.QUESTION]} questions, "
-                  f"{counts[Result.TODO]} things to do"]
+                  f"{counts[Result.OUT_OF_DATE]} results out of date, {counts[Result.TODO]} things to do"]
     lines += [f"    {f.result.value}: {f.rule}  {f.about}: {f.say}" for f in found
               if f.result is Result.BREAKS][:10]
     return "\n".join(lines)
@@ -132,6 +145,8 @@ def _matrix(a: Analysis, name: FrName) -> list[str]:
 _CRUD = ((AccessKind.CREATES, "C"), (AccessKind.READS, "R"), (AccessKind.UPDATES, "U"), (AccessKind.DELETES, "D"))
 
 
+@deal.ensure(lambda a, name=None, *, result: a.data is None or name is None or all(
+    dp in result for dp in a.data.structures if is_within(dp, name)))  # every structure under it is shown
 def data(a: Analysis, name: FrName | None = None) -> Shown:
     if a.data is None:
         return "the code was not read, so there is no data model"
@@ -166,6 +181,7 @@ def data(a: Analysis, name: FrName | None = None) -> Shown:
     return "\n".join(lines)
 
 
+@deal.ensure(lambda a, target, result: (dp := a.dp_of(target)) is None or result.startswith(f"{dp}:"))
 def context(a: Analysis, target: Written) -> Shown:
     name = a.dp_of(target)
     if name is None:
@@ -242,12 +258,120 @@ def _build_order(a: Analysis) -> list[FrName]:
     return out + sorted(set(a.record.frs) - set(out))
 
 
+def _kind_of(f: Finding) -> tuple[RuleName, Say]:
+    """What makes two things to do the same kind of work: the rule that found them, and what it says once the name
+    of what each is about is taken out."""
+    return f.rule, Say(f.say.replace(f.about, _ANY_SUBJECT))
+
+
+@deal.ensure(lambda a, result: len(result.splitlines()) <= NEXT_SHOWN + 2)  # a heading, the kinds, what is left out
+@deal.ensure(lambda a, result: not a.report.of_result(Result.TODO) or result.startswith(
+    f"{len(a.report.of_result(Result.TODO))} things to do"))
 def next_steps(a: Analysis) -> Shown:
+    """What is to do, in the order the design matrix allows. Things of one kind share a line, so that one kind with
+    many cases cannot bury the rest, and only the first kinds are shown: what to do next is a short list."""
     order = {n: i for i, n in enumerate(_build_order(a))}
     todo = [f for f in a.report.findings if f.result is Result.TODO]
     ranked = sorted(todo, key=lambda f: (order.get(a.dp_of_finding(f) or "", len(order)), f.about, f.say))
     if not ranked:
         return "nothing to do"
+    kinds: dict[tuple[RuleName, Say], list[Finding]] = {}
+    for f in ranked:  # a kind stands where its first case does
+        kinds.setdefault(_kind_of(f), []).append(f)
     lines = [f"{len(ranked)} things to do, in the order the design matrix allows:"]
-    lines += [f"  {f.about}: {f.say}" for f in ranked]
+    for alike in list(kinds.values())[:NEXT_SHOWN]:
+        first, more = alike[0], len(alike) - 1
+        lines.append(f"  {first.about}{f' and {more} more like it' if more else ''}: {first.say}")
+    if len(kinds) > NEXT_SHOWN:
+        lines.append(f"and {len(kinds) - NEXT_SHOWN} more kinds: zigdag check --full")
     return "\n".join(lines)
+
+
+# ---- the list of rules -------------------------------------------------------------------------------------------
+
+_ANY_PROJECT = "project"  # the subject of a rule's sentence when no project is named: "The project shall ..."
+_FAILS_AS = {Exactness.EXACT: "a break", Exactness.GUESS: "a question", Exactness.BOTH: "a break, or a question"}
+# A rule whose settings must be given has no sentence until they are, so its row shows one made from these.
+_EXAMPLES: Mapping[CheckKindName, Mapping[str, object]] = {
+    CheckKindName("effects"): {"allow": (Effect("read"),)},
+    CheckKindName("may-depend-on"): {"allow": ("project.core",)},
+    CheckKindName("data-flow"): {"data": ("Email",), "never-reaches": (Effect("stdout"),)},
+}
+_GATES: Mapping[Gate, Say] = {
+    Gate.CRITIQUE_BEFORE_REVIEW: Say("Every changed design entry is critiqued, at its current content, before it is "
+                                     "approved."),
+    Gate.PERSON_APPROVES_DESIGN: Say("Every changed design entry is approved by a person."),
+    Gate.STOP_ON_ERROR: Say("A change is not accepted while any check breaks."),
+    Gate.COUNTERMEASURE_ON_ESCAPE: Say("A defect that a person found, and no check did, is closed only together with "
+                                       "the rule or requirement that will catch it next time."),
+}
+_ALWAYS_CHECKED = (
+    Say("Every design file can be read, every sentence fits its grammar, and every name is defined once."),
+    Say("Every module belongs to exactly one part of the design."),
+    Say("Every requirement on the first level, and every rule, serves a goal someone has."),
+    Say("A function that declares its effects has no others, and every contract holds on generated inputs."),
+    Say("A test counts for a requirement only if it passed, ran that part's code, and ran against the code as it is."),
+)
+
+
+def _settings_of(kind: CheckKind) -> str:
+    """A kind's settings with the value each has by default; one with none must be given by the rule."""
+    return ", ".join(f"`{name}` = {spec.default:g}" if isinstance(spec.default, float) else
+                     f"`{name}` = {spec.default}" if spec.default is not None else f"`{name}` (must be given)"
+                     for name, spec in kind.params.items()) or "none"
+
+
+def _rule_row(kind: CheckKind) -> str:
+    example = _EXAMPLES.get(kind.name)
+    values = example or {name: spec.default for name, spec in kind.params.items()}
+    said = f"{'For example: ' if example else ''}{kind.sentence(_ANY_PROJECT, values, ())}"
+    return f"| `{kind.name}` | {said} | {_settings_of(kind)} | {_FAILS_AS[kind.exactness]} |"
+
+
+def _rule_table(kinds: Iterable[CheckKind]) -> list[str]:
+    return ["| Rule | What it holds the code to | Settings | When it fails, it is |", "|---|---|---|---|",
+            *(_rule_row(kind) for kind in sorted(kinds, key=lambda k: k.name))]
+
+
+@deal.ensure(lambda settings, result: all(f"`{kind}`" in result for kind in registry(settings)))  # every rule is listed
+@deal.ensure(lambda settings, result: all(f"`{gate.value}`" in result for gate in Gate))
+def rules(settings: Settings) -> Shown:
+    """Every rule zigdag has, as Markdown: what each holds a project to, its settings and their defaults, and whether
+    failing it is a break or a question. It is made from the registry the checks run from, so it cannot list a rule
+    that does not exist or leave out one that does."""
+    kinds = registry(settings)
+    by_default = {rule.kind: rule for rule in BUILT_INS.values()}
+    always = [kinds[k] for k, rule in by_default.items() if rule.always_on]
+    tunable = [kinds[k] for k, rule in by_default.items() if not rule.always_on]
+    unbuilt = [kind for name, kind in kinds.items() if name not in CHECKS and name not in RECORD_KINDS
+               and name not in settings.checks]
+    chosen = [kind for name, kind in kinds.items() if name not in by_default and name not in settings.checks
+              and kind not in unbuilt]
+    lines = [
+        "# The rules", "",
+        "Every rule zigdag can hold a project to. This file is what `zigdag checks` prints, made from the same list "
+        "the checks run from.", "",
+        "## Always on", "", "These cannot be switched off. A known break can be listed under the rule's `except`.", "",
+        *_rule_table(always), "",
+        "These are checked always too, and have nothing to set:", "", *(f"- {said}" for said in _ALWAYS_CHECKED), "",
+        "## On by default", "",
+        "These are on without being written. To change one, write an entry with its name in the design file of its "
+        "kind, with `with` for its settings, `except` for known breaks, `on` to narrow it, or `off: true`. "
+        "`zigdag init --default` writes them all out.", "",
+        *_rule_table(tunable), "",
+        "## On when you write a rule for them", "",
+        "Each of these is used by writing a rule that names it under `check`, and the part of the design it is `on`.",
+        "", *_rule_table(chosen), "",
+        "## Designed, and not built yet", "",
+        "Nothing checks these in this version: no adapter reads infrastructure or git history yet. A rule that names "
+        "one is asked about, never passed.", "", *_rule_table(unbuilt), "",
+        "## Gates on a change", "", "A gate is on when a `workflow` rule names it. `zigdag check --base <revision>` and "
+        "`zigdag ready --base <revision>` hold a change to them.", "",
+        "| Gate | Holds when |", "|---|---|", *(f"| `{gate.value}` | {said} |" for gate, said in _GATES.items()),
+    ]
+    if settings.checks:
+        lines += ["", "## This project's own rules", "", "Functions in `design/checks/`.", "",
+                  "| Rule | What it says of itself | Settings | Written in |", "|---|---|---|---|",
+                  *(f"| `{name}` | {check.description} | {_settings_of(kinds[name])} | `{check.source}` |"
+                    for name, check in sorted(settings.checks.items()))]
+    return Shown("\n".join(lines) + "\n")

@@ -36,13 +36,14 @@ Status: proposal.
    - **Total coverage.** Everything the adapters find belongs to exactly one design parameter: every
      module, deployed resource and table. Every FR statement needs evidence. Every constraint is either
      checked by zigdag or verified by evidence.
-6. **Every check has one of four results.** There are no warning levels:
+6. **Every check has one of five results.** There are no warning levels:
 
    | Result | Meaning |
    |---|---|
    | **holds** | nothing to report |
    | **breaks** | the code or the record contradicts the record. This is an error. |
    | **to do** | something written is not built or evidenced yet, for example an FR with no code, or a statement with no test. Never an error. `zigdag next` lists these. |
+   | **out of date** | what the tests showed no longer counts, because the code or the tests changed since they ran. It is apart from *to do* because it is answered differently: by running the tests again, not by doing work. |
    | **question** | zigdag is unsure, either because it could not analyse something (dynamic imports, `eval`, an untraceable resource name) or because the check is a guess. A question is answered once in the log and stays answered until what it is about changes. It is never treated as a pass. |
 
    - Known breaks are listed under the rule's `except`.
@@ -143,7 +144,7 @@ A type only needs to be a structure if it is in the record. Other types stay ins
   depends on it, through the relationships of that level.
 - **Each DP's interface**, as the table above defines it.
 - **Each DP's effects:** what it does, and what it reaches through calls.
-- **Each component's size and depth:** implementation size against interface size.
+- **Each component's size.**
 - **Context:** the performers from the customer domain, and the outside systems the system touches
   (named effects and external resources).
 - **Roles:** for example, a *controller* is a component whose public names are endpoints, and a
@@ -325,11 +326,12 @@ Each check kind defines:
 | `effects` | `allow`: list of effects | code under the name has an effect outside `allow` | exact |
 | `may-depend-on` | `allow`: list of FR names and libraries | a dependency leaves the name's subtree to something not in `allow` and not in the standard library | exact |
 | `encapsulation` | none | something depends on a DP other than through that DP's interface | exact |
+| `designed-modules` | none | a file of code is not named by any DP: it only sits inside a package that one names (see below) | exact |
 | `container-boundaries` | none | code in one container imports a component of another container | exact |
 | `data-ownership` | none | a structure is changed by code outside the component that owns it | exact when seen or when the language enforces it; otherwise a guess |
 | `no-cycles` | none | siblings depend on each other in a cycle, through any relationship | exact |
 | `declared-libraries` | none | code imports a third-party package the project does not declare | exact |
-| `edge-types` | `bool-returns`, `bool-fields`: allowed or not (default allowed) | a type crossing a component boundary is not defined by the project (see below) | exact |
+| `edge-types` | `bool-parameters`, `bool-returns`, `bool-fields`: allowed or not (default allowed) | a type crossing a component boundary is not defined by the project (see below) | exact |
 | `declared-errors` | none | an error that can leave an operation used across a component boundary is not a project-defined type, or is not declared on that operation (see below) | exact where the adapter can trace what is raised; otherwise a question |
 | `representations-agree` | none | representations of one structure differ in fields, optionality, named types or references | exact |
 | `messages-agree` | none | senders and receivers on one queue use different structures | exact when the queue can be traced; otherwise a question |
@@ -340,16 +342,17 @@ Each check kind defines:
 | `one-writer-per-data-store` | none | more than one container writes the same data container | exact |
 | `permitted-effects` | none | code has a resource effect that the infrastructure does not grant | exact |
 | `least-privilege` | none | the infrastructure grants access that no code uses | guess |
-| `max-lines` | `function`: count, `class`: count | a function or class is longer | exact |
+| `max-lines` | `function`: count, `class`: count, `file`: count | a function, class or file is longer | exact |
 | `max-children` | `count` | an FR has more children (reads the record) | exact |
 | `described-names` | none | a public name has no one-line description (exact), or its description only repeats its name and type (guess) | both |
-| `min-depth` | `ratio` | a component's interface is large compared with the code behind it | guess |
-| `no-mode-parameters` | none | a parameter picks between behaviours, so one name holds two functions | guess |
 | `narrow-parameters` | none | a parameter is wider than what the function uses of it | guess |
 | `no-single-implementations` | none | an abstraction has exactly one implementation | guess |
 | `co-change` | `commits`, `threshold` | DPs keep changing together in git history without one depending on the other | guess |
 | `planned-effects` | none | a function that is not declared pure (§3) passes a call something other than a plan value or its own parameter, branches on something other than a plan value, or computes (see below) | exact; a question where a value cannot be traced |
 | `contracted-interfaces` | none | a function declared pure (§3) that another DP uses, or that code not declared pure calls, has no contract | exact |
+| `lint` | none | the project's linter reports a diagnostic on code under the name | exact; a tool's warning is a thing to do |
+| `types` | none | the project's type checker reports a diagnostic on code under the name | exact; a tool's warning is a thing to do |
+| `security` | none | the project's security checker reports an issue on code under the name | exact; a low-severity issue is a thing to do |
 | `mutation` | `paths` (default 200), `seconds` (default 10) | a mutant of a pure function with a contract survives its contract cases and every test that runs it, and a search within the bound finds an input that shows the change (§4.5) | guess |
 
 A rule's sentence names the places under its `except` when there are at most four, and counts them
@@ -358,7 +361,14 @@ when there are more, so that a long list of debt never makes the sentence too lo
 Examples of the sentences zigdag renders:
 - `effects`: "The core shall have no side effects." / "…no side effects other than reading files."
 - `may-depend-on`: "The emit shall depend only on semantics and models."
-- `max-lines`: "Functions under mojo2verus shall be at most 200 lines."
+- `max-lines`: "The mojo2verus shall keep each function within 200 lines, each class within 1000 lines and each
+  file within 1000 lines."
+
+**Why `designed-modules` is needed.** A DP that is a package covers what is inside the package (§7.5, rule 3), so
+coverage alone lets a new module in unseen: it belongs to the package's DP the moment it is written. This rule
+closes that. Every file of code must be named by a DP, by an FR of its own name or in `physical.yaml`; being
+inside a named package is not enough. A file with nothing in it is left alone. So a module the design does not
+name breaks, whoever wrote it, and the fix is a decision: design it, or remove it.
 
 **What `edge-types` means.** It applies to every signature one component uses from another: the
 parameters, return values and fields of public functions, methods and classes. Each leaf type in that
@@ -380,10 +390,8 @@ around project-defined leaves:
 - `list[Order]`, `Order | None` and `Callable[[Order], Receipt]` are fine;
 - `list[str]` breaks, and so does `dict[str, Order]`, because of its `str` keys.
 
-**Two exceptions, each of which can be turned off:** a `bool` return value, and a `bool` field, are
-allowed. A yes-or-no answer means what the function's name says, and a yes-or-no field what the
-field's name says. A `bool` parameter is never allowed: it picks a mode (`no-mode-parameters`), and a
-fact that arrives as a `bool` is given a name with two values instead.
+**A `bool` may cross,** as a parameter, a return value or a field: a yes or no means what its name says. Each
+of the three can be forbidden, with `bool-parameters`, `bool-returns` and `bool-fields`.
 
 **Named types are the minimum, not the ideal.**
 - A plain alias gives the value a name but no protection, since any `str` still fits.
@@ -431,20 +439,12 @@ makes answerable:
 So `data-flow` holds only when every release point is allowed, no protected value reaches an effect
 directly, no test run wrote one out, and nothing was left unknown.
 
-**What the interface checks measure.** All four are guesses, so a failure is a question.
-- **`min-depth`** applies to each component (§2.3). Its **interface size** counts each public function,
-  method, class, field, constant and named type in its code once, and each parameter of a public
-  function or method once. Its **depth** is the lines of its code divided by its interface size. A
-  component whose depth is below `ratio` is shallow. A component with no public names holds.
-- **`no-mode-parameters`** asks about a parameter that picks the behaviour: its type is `bool`, a
-  literal or a project enumeration, and the body branches on its value (`if flag:`,
-  `if kind == "x":`, `match kind:`). The function is then two functions under one name, and every
-  caller must know which one it wants.
+**What the interface checks measure.** Both are guesses, so a failure is a question.
 - **`narrow-parameters`** asks about a parameter whose type is a project class with more than one
   field, when the function only reads one of those fields. It never passes the value on, returns it,
   compares it, changes it or calls its methods. The function could take that field instead, and its
   callers would stop depending on the whole class.
-- `no-mode-parameters` and `narrow-parameters` look only at functions and methods that another DP
+- `narrow-parameters` looks only at functions and methods that another DP
   uses. Inside a DP, its code is its own business.
 - **`no-single-implementations`** asks about an abstraction with exactly one implementation.
   - An **abstraction** is a protocol or an abstract base class. In Python, that is a
@@ -510,27 +510,61 @@ plans come from (`planned-effects`).
 - A method counts as having a contract when its class has an invariant.
 - On existing code, `zigdag init` lists every function that breaks the rule under its `except`.
 
+**How `lint`, `types` and `security` use the project's own tools.** They enforce what the project's
+linter, type checker and security checker report, held to the record's scopes; they do not restate the tools' rules.
+- Which rules apply is the tool's configuration (for Python, `[tool.ruff]` and `[tool.ty]` in
+  `pyproject.toml`), so it is written once. The tool and its version are pinned by the project, since a
+  new release can change the findings of unchanged code; the project also names its rule selection
+  rather than relying on the tool's defaults, which change between releases.
+- zigdag runs the tools itself, on every check, only when a rule of the kind is in force. It never reads a
+  report someone saved: a saved report can be older than the code. A revision read from git has no tools
+  run on it, so these rules wait there.
+- Each diagnostic counts against the innermost symbol written over its line, or the unit when none is,
+  so `except` can name one function as well as a whole module.
+- A tool that cannot be started, fails, or writes a report that cannot be read is a break: a rule in
+  force that could not be checked must not pass as if it held (principle 6).
+- On existing code, list the modules that fail today under `except`, as debt to pay down. An excepted
+  module can gain new diagnostics unseen until it leaves the list.
+
 ### 4.2 Custom check kinds
 
-A custom check is a function registered in `zigdag.toml`:
+A custom check is a plain function in a Python file under `design/checks/`. Nothing is registered: what the check
+is, is written once, where the check is.
 
 ```python
-from zigdag.checks import Code, Scope, Violation
+# design/checks/ours.py
+from zigdag.checks import Context, RuleUse, broken
 
-def no_module_state(code: Code, scope: Scope, params: Params) -> Iterable[Violation]:
-    for unit in code.units(scope):
-        for name in unit.top_level_assignments():
-            if name.changeable:
-                yield Violation(name.location, f"{name} is changeable module state")
+def short_modules(context: Context, rule: RuleUse, *, lines: int = 300):
+    """Each module is short enough to read in one sitting."""
+    for path, unit in context.model.units.items():
+        if unit.size > lines and context.in_scope(rule, context.tree.unit_owner.get(path)):
+            yield broken(rule, path, unit.span, f"{path} is {unit.size} lines; at most {lines}")
 ```
 
-It receives the code model (§5.1), the same read-only model zigdag's own checks use.
+| What | Comes from |
+|---|---|
+| the check kind's name | the function's name, with hyphens: `short-modules`. A name that starts with `_` is a helper, not a check. |
+| its description | the first line of the docstring |
+| its parameters | the keyword arguments. Each needs a default, which gives its type: a whole number, a number, or text. |
+| what it reads | the context every built-in check reads: the record (`context.record`), the code model (`context.model`, §5.1), and what zigdag worked out from them. So a custom check can be about the code or about the design itself. |
+| break or question | `broken(...)` for what is certainly wrong, `asked(...)` for a guess |
+
+A rule then uses it as it uses a built-in kind, with `check: short-modules`, an `on`, and `with` for its
+parameters, which are checked against the function's own.
 
 **Why a custom check stays deterministic:**
-- It receives only the code model, never the file system.
-- zigdag analyses the check's own code and refuses a check that has any effect from §3.
+- It is handed the context, and nothing else.
+- zigdag reads the check's own file as it reads the project's code, and refuses the whole file, without running
+  it, when it finds any effect from §3 in it.
 - Its findings are sorted before they are reported.
-- It declares what it reads. If an adapter did not supply that, the result is a question.
+- It runs once the code is read. Before that it waits, as the built-in checks of the code do.
+
+**A custom check never passes by failing.** One that raises, or hands back something that is not a finding, breaks
+its rule, and a file that cannot be loaded breaks (principle 6).
+
+**Running a custom check runs the project's own code,** which `zigdag check` otherwise never does (§4.6). It is
+the project's choice to write one; a file in which zigdag finds an effect is never run.
 
 ### 4.3 Evidence
 
@@ -539,7 +573,7 @@ It receives the code model (§5.1), the same read-only model zigdag's own checks
 | `unit-test` | an example test | a test with `@verifies(...)` |
 | `property-test` | a test over generated inputs | a test with `@verifies(...)` that uses Hypothesis `@given` or `deal.cases` |
 | `contract` | a precondition, postcondition or invariant checked when the code runs | a deal contract with `@verifies(...)` |
-| `benchmark` | a timed test | a test with `@verifies(...)` that records its timing in the report |
+| `benchmark` | a test that measures time or memory | a test with `@verifies(...)` that records its timing in the report |
 | `test-report` | results from another tool | a report file named by a process variable |
 
 Each adapter says how its language provides these (§5.2).
@@ -551,7 +585,8 @@ Each adapter says how its language provides these (§5.2).
 - A statement has evidence when at least one linked test counts as evidence (§4.5).
 
 **Rules:**
-- A statement with a time bound ("within 5 s") needs `benchmark` evidence.
+- A statement that bounds performance (§4.7), such as one with "within 5 s", needs `benchmark`
+  evidence.
 - A `verification` process variable adds its evidence kind as a requirement for every statement it
   covers.
 
@@ -592,23 +627,26 @@ job, placed on the root:
 
 | Name | Domain | Check | Default |
 |---|---|---|---|
+| `designed-modules` | constraint | `designed-modules` | |
 | `declared-libraries` | constraint | `declared-libraries` | the project's declared dependencies, plus vendored packages |
-| `edge-types` | constraint | `edge-types` | `bool` returns and fields allowed |
+| `edge-types` | constraint | `edge-types` | `bool` parameters, returns and fields allowed |
 | `declared-errors` | constraint | `declared-errors` | |
 | `access-sanity` | constraint | `access-sanity` | |
 | `one-writer-per-data-store` | constraint | `one-writer-per-data-store` | |
 | `least-privilege` | constraint | `least-privilege` | |
-| `max-lines` | process | `max-lines` | function 200, class 1000 |
+| `max-lines` | process | `max-lines` | function 200, class 1000, file 1000: a file holds its classes whole, so its limit is not below theirs |
 | `max-children` | process | `max-children` | 9 |
 | `described-names` | process | `described-names` | |
-| `min-depth` | process | `min-depth` | |
-| `no-mode-parameters` | process | `no-mode-parameters` | |
 | `narrow-parameters` | process | `narrow-parameters` | |
 | `no-single-implementations` | process | `no-single-implementations` | |
 | `co-change` | process | `co-change` | the last 500 commits |
 | `planned-effects` | process | `planned-effects` | |
 | `contracted-interfaces` | process | `contracted-interfaces` | |
 | `mutation` | process | `mutation` | |
+
+**Designed, and not built yet:** `permitted-effects`, `least-privilege` and `co-change`. No adapter reads
+infrastructure or git history yet, so nothing can check them, and until one does they are not in force. In force
+and unchecked, each would leave every project with a standing question that no work on the project can settle.
 
 **Tuning a built-in:** write an entry with the built-in's name, in the file of its domain. The entry
 may set only:
@@ -641,7 +679,7 @@ on every edit. The observed ones come from the last `zigdag test`.
 
 **What is kept, and for how long.** The watcher records the digest of every source and test file as
 the run starts. Each observation names the files it was seen in, and counts only while all of them are
-unchanged. Observations about changed code are left out, and the check says how many, as a thing to do.
+unchanged. Observations about changed code are left out, and the check says how many, as out of date.
 
 Two rules keep the results trustworthy:
 - **Running code can only find breaks.** A run shows what did happen. It can turn a question into a
@@ -696,9 +734,17 @@ the stack, as it is when read from the code. Two kinds of work are charged to no
   iterator, is not replayed: its caller consumes what it gives as it runs.
 - **Cases from contracts.** Every function with a contract is run on generated inputs, filtered by its
   preconditions. This is property-based testing, with the contract as the property. In Python this is
-  `deal.cases`. A contract that fails on them breaks the always-on
-  rule `contracts` (§4.4). One whose inputs cannot be generated, or with no contract library to run it,
-  is a question.
+  `deal.cases`. A contract that fails on them breaks the always-on rule `contracts` (§4.4).
+- **Contracts on the tests' own calls.** The contract library checks a contract at every call, so the
+  tests that call a function check its contract too, on their own inputs. For some contracts that is
+  all there is:
+  - **inputs that cannot be generated,** for example an object that holds a whole parsed record;
+  - **methods and properties.** No object is generated for them to run on: one made from random field
+    values is often an object the program never makes, so a contract failing on it would say nothing
+    about the code.
+
+  Such a contract counts as checked by the tests that call it, and holds while they pass. One that no
+  test calls, or that has no contract library to run it, is a question.
 
 zigdag generates inputs only for functions with a contract. Without one, there is nothing to check the
 results against.
@@ -707,7 +753,9 @@ results against.
 nothing, and agents often write both. So once the tests pass, zigdag changes each pure function that
 has a contract, one small edit at a time, for example `<` to `<=`, `and` to `or`, or one constant to
 another. Each edited copy is a **mutant**. zigdag runs the function's contract cases against each
-mutant, then each test that ran the function. If one of them fails, it **kills** the mutant. A mutant
+mutant, then each test that ran the function. When the function's inputs cannot be generated, the
+tests judge alone, and the contract is checked on each call they make. If one of them fails, it
+**kills** the mutant. A mutant
 that **survives** is a change that nothing noticed, which is what `maintain.unrelated-breakage` is
 about. This is the built-in rule `mutation` (§4.4).
 
@@ -747,6 +795,12 @@ about. This is the built-in rule `mutation` (§4.4).
   function changes.
 - **Mutants run in `zigdag test`, never in `zigdag check`.** A result counts while the function's file
   is unchanged, and, for a survivor, while the tests that ran it are unchanged too.
+- **A function's mutants are made again only when what judged them changed.** That is the function's
+  own source, contract included, the tests that ran it and their files, and the bound of the search.
+  Otherwise `zigdag test` carries them over from the last run, so a run costs what changed, not what
+  there is. A change only in code the function calls is not looked for. That is a tradeoff: nearly
+  every function calls code that nearly every change touches, so following calls would make nearly
+  every mutant again. Deleting what the last run saw, `.zigdag/observed.json`, makes every mutant again.
 - **Nothing is left out quietly.** Apart from functions that are not declared and found pure, code
   goes unmutated only when its function is listed under the rule's `except`. A marker that stops a tool mutating code, such
   as mutmut's `# pragma: no mutate`, breaks unless the function is listed there too.
@@ -822,10 +876,153 @@ def carry_out(plan: Plan) -> None:             # does what the plan says, and no
 | it passed in the latest run | break if it failed or errored. If it was skipped, or no run was read, the statement is to do. |
 | it runs code in the statement's DP | break: it is linked to the wrong thing. A question when the test started another process. Before any watched run, a guess from what the test imports, so a question |
 | it is the kind the statement needs | to do |
-| it ran against the current code | to do: the evidence is out of date |
+| it ran against the current code | out of date |
 | no mutant in the statement's DP that it ran has survived, unless answered | to do: it misses a change. The finding shows the edit. |
 
 Tests with no link are listed, but they are not errors.
+
+### 4.6 Directions: one report, two commands, one answer
+
+Code quality runs in several directions: the design, style, types, security, correctness and speed.
+zigdag checks each direction the same way, so adding one costs a project a rule, not a new workflow:
+- **It is a rule in the record,** built in or registered, with the usual `on`, `with` and `except`. So
+  it can hold for one part of the design and not another, for example strict types only in the core.
+- **Its findings land on design parts.** `zigdag show <name>` gives every direction for that part at
+  once, and `zigdag review` shows what a change brought in each.
+- **Its debt is visible.** `zigdag init` lists what fails today under `except` (§7.9). The first check
+  holds, new code must be clean, and the list only shrinks.
+- **The same gates hold it.** A lint break stops a change as a layering break does (`stop-on-error`,
+  §7.6).
+- **Its tools are pinned,** so a new release of a tool cannot change the results of unchanged code.
+
+**What a direction needs decides which command checks it, not its topic.**
+- **`zigdag check` reads the code and never runs it.** No network, the same answer for the same files,
+  in seconds. That is what lets it run after every edit an agent makes (§10). It may start a tool that
+  reads the code, such as a linter, since that runs none of the project's code.
+- **`zigdag test` runs the project's code,** under the watcher (§4.5). It takes minutes, and has
+  effects. `zigdag check` reports what it saw for as long as that is current, so the two give one
+  report, and what is out of date says to run `zigdag test`.
+
+**`zigdag ready` gives one answer for a whole change.** It runs the tests under the watcher, as `zigdag test`
+does, checks everything with what they showed, and ends with one line: `ready: yes`, or `ready: no` with each
+reason under it. The answer is yes only when all of these hold:
+- the tests passed;
+- nothing breaks;
+- no question is open. An answered one does not stand in the way;
+- no result is out of date;
+- every design file is in its layout (`zigdag fmt --check`);
+- with `--base`, the workflow gates hold for what changed, and the change adds nothing to do. Things to do that
+  were there at the base are debt, and do not stand in the way; new ones are not let in.
+
+`check` and `test` pass by the same rule for what each of them sees: a break, an open question or a result out of
+date is a no, and a thing to do is not.
+
+Putting every direction in `check` would make every edit wait for the tests and the mutants, which is
+the one thing `check` cannot afford.
+
+| Direction | Checked by | How |
+|---|---|---|
+| Design: the record itself, its grammar, names, tree, rules and gates | `check` | the record rules (§4.4, §6) |
+| Architecture: whether the code matches the design, in its place in the tree, dependencies, effects, interfaces and data | `check` | the built-in check kinds (§4.1), and the physical mapping (§7.5) |
+| Security patterns in the code | `check` | `security`, with the project's security checker (§4.1): bandit, for Python |
+| Security while the code runs | `test` | the effects seen, and protected data written where it may not go (§4.5) |
+| Correctness | `test` | tests as evidence (§4.3), contracts on generated inputs, mutants (§4.5) |
+| Performance | `test` | constraints on time, memory, scaling and steadiness (§4.7); how each is measured is open (§12) |
+| Style | `check` | `lint`, with the project's linter (§4.1) |
+| Types | `check` | `types`, with the project's type checker (§4.1) |
+
+The report gives zigdag's own directions first, from the design to what the code does, then the project's
+linter and type checker.
+
+**The report reads as a linter's does, one direction at a time.** Each direction lists its findings, one a
+line, breaks first, in the form ty writes a diagnostic: `path:line:column: break[rule] about: what`, with
+`question` or `to-do` in place of `break`. A question ends with the handle it is answered by. Then the
+direction ends with one line:
+- **`lint: All checks passed!`** when every check of it that ran found nothing. What it leaves excepted is
+  counted after, as debt: the diagnostics its tools made on excepted code, or else the places excepted.
+- **`lint: Found 1 break and 2 questions.`** when it found something.
+- **`security: Not checked: …`** when no rule of it is in force, no code was read, or every rule of it
+  waits for what no adapter supplied. Not checked is never reported as passing (principle 6).
+
+The report's last line counts the findings of every direction. `zigdag check --json` gives each finding
+its direction too.
+
+**By default the report is a table, one row a direction.** `zigdag check` and `zigdag test` print, in
+aligned columns, each direction, how it stands, and either the file its findings are in or the debt a
+pass leaves out. Why a direction was not checked is in its file, and in `--full`:
+
+```
+lint          All checks passed!
+typecheck     All checks passed!     904 diagnostics are in excepted code
+correctness   Found 24 questions     .zigdag/check/correctness.txt
+```
+
+Each direction's findings are written in full to `.zigdag/check/<direction>.txt`. Every run rewrites
+every direction's file, so none is left from an earlier run. Breaks are listed under their direction's
+status all the same, the first 10 of them: a run that breaks must say why where it is
+read, such as the log of a build, where no file it wrote can be opened. `zigdag check --full` prints
+every finding instead, writing nothing; after `zigdag test`, it shows what the tests saw without running
+them again.
+
+**What does not join, and why.**
+- **A profile is a view, not a check.** A profiler such as scalene says where time and memory go, not
+  whether any of it is too much. Only a bound written down can say that (§4.7). The profile is shown
+  by `zigdag stats`, by design part.
+- **Advisories about dependencies change from day to day.** A tool such as pip-audit gives a different
+  answer tomorrow for the same files, and needs the network to ask. As it is, it fits neither command
+  (§12).
+
+### 4.7 Performance
+
+**A performance requirement is a constraint.** How fast a design part is, how much memory it takes
+and how its cost grows are seen at its edge, by whatever calls it. So each is a constraint (§2.2),
+enforced by a statement that a test verifies:
+
+```yaml
+constraints:
+  parses-fast:
+    on: shop.parser
+    serves: [checkout.slow-page]
+    statement: When given a 10,000-line file, the parser shall parse the file within 1 s.
+```
+
+A statement that bounds performance, with one of the phrases of §6.4, needs `benchmark` evidence
+(§4.3). How zigdag measures the bound, and judges it, is open (§12).
+
+**Where the time and memory go: `zigdag profile` and `zigdag stats`.** `zigdag profile` runs the tests
+once more, under the adapter's profiler: scalene, for Python. It is a run of its own, because
+profiling slows the tests, and the watcher of `zigdag test` would skew what it measures. It says what
+it is starting, since the run takes a while, and keeps the profile of the run before. The profiler
+samples CPU time, never wall-clock time: the mutants' time limit (§4.5) keeps the wall-clock timer, and
+two users of one timer reset each other, so a mutant that never returns would never be stopped.
+
+It then shows the run by design part: each part's CPU time, its share of the run, and the memory it
+allocated, beside what the same part cost in the run before. Then the lines the profiler suspects of
+leaking, by file and line, with how likely each is and how fast its memory grows:
+
+```
+the tests ran for 3.4 s, holding at most 8 MB at once; the run before, 3.4 s and 8 MB
+
+part                    CPU time         share      memory allocated
+zigdag.core.record      1.09 s → 1.51 s  32% → 45%  3.0 MB → 4.0 MB
+zigdag.core.language    0.29 s → 0.56 s  8% → 16%   1.0 MB → 0.0 MB
+zigdag.core.settings    none → 0.08 s    none → 2%  none → 0.0 MB
+
+suspected memory leaks, as scalene judges them:
+  src/shop/cache.py:41  shop.cache  99% likely  growing 1.50 MB/s
+```
+
+It ends by saying what the full profile holds beyond the table, line by line, and how to open it, in a
+browser or the terminal. For scalene that is CPU time in Python, native code and the system, memory, GPU
+and copy volume. A part's CPU time is its share of the time the run took. scalene suspects a line of leaking when what it
+allocates is seldom freed, and reports only lines it judges at least 95% likely to leak.
+
+A line counts for the design parameter whose code it is. A test's own lines count for the tests, and
+a library's, the test runner's among them, for what is outside the project. `zigdag stats` shows the
+same from the latest two profiles, without running anything.
+
+A profile is a view. It never breaks and never asks: it says where cost is, and only a bound written
+down can say that a cost is too much.
 
 ---
 
@@ -850,6 +1047,9 @@ nobody supplied gives a question.
 | **permissions and connections** | for infrastructure: who is granted what, what can reach what, which settings point at which resource |
 | **tests** | each test, its links, its evidence kind and its latest result |
 | **observations** | what was seen while tests ran |
+| **lint diagnostics** | what the project's linter reports, each with its tool, rule code, message, location and severity |
+| **type diagnostics** | the same, from the project's type checker |
+| **security diagnostics** | the same, from the project's security checker |
 
 ### 5.2 Languages and tools
 
@@ -864,12 +1064,26 @@ They are supported in this order: Python, Terraform, SQL, TypeScript, Go, Rust.
 | **Effects found from** | calls such as `open`, `socket`, `subprocess` | permissions and connections | statements that read or write | `fs`, `fetch`, `child_process`, `process.env` | `os`, `net`, `os/exec`, `time` | `std::fs`, `std::net`, `std::process`, `std::env` |
 | **Link form** | `@verifies(...)` | | | `verifies(...)` in the test name or tag | a `verifies:` line in the test's comment | `#[verifies(...)]` |
 | **Evidence tools** | pytest, Hypothesis, deal, pytest-benchmark | | | vitest or jest, fast-check | go test, rapid, testing.B | cargo test, proptest, Kani or contracts, criterion |
+| **Profiler** | scalene | | | clinic | pprof | cargo flamegraph |
 | **Mutation tool** | mutmut | | | Stryker | go-mutesting | cargo-mutants |
+| **Linter and type checker** | ruff, ty | | | eslint, tsc | golangci-lint, go vet | clippy, cargo check |
+| **Security checker** | bandit | | | eslint-plugin-security | gosec | cargo-audit |
 | **Watching tests** | strong: audit hooks, wrapped calls, `sys.monitoring` | none | none | partial | partial | weak |
 
 What Python's watching cannot see: reading the clock through `datetime` (its types cannot be wrapped),
 writing to a file that is already open (only opening it is an event), and the content of network
 sends, so protected text is looked for only in console output, log records and written files.
+
+Each adapter reads its linter and type checker in one form: the GitLab Code Quality report, which
+ruff and ty write with `--output-format=gitlab` and which tools in the other languages can write too. A
+report with an issue that lacks a rule code, a message, a path or a line is refused whole, so no
+diagnostic is dropped unseen.
+
+bandit writes no such report, so the Python adapter reads bandit's own JSON. It maps bandit's severity:
+a low issue, such as importing `subprocess`, is a thing to do, and a medium or high one breaks. A report
+that says bandit could not scan a file is refused whole, as a report with a bad issue is. bandit reads
+its `[tool.bandit]` settings only when told to, so a project that keeps them in `pyproject.toml` starts
+it as `bandit = "bandit -c pyproject.toml"`.
 
 mutmut mutates only code inside functions, so module-level code, such as a constant, is never
 mutated. It needs `fork`, so on Windows it runs under WSL.
@@ -1043,6 +1257,15 @@ emit".
 **FR rule:** an FR has exactly one ubiquitous statement, and it has no "not". This is what makes "one
 function per FR" checkable.
 
+**Performance phrases** bound what the response says (§4.7). A statement may use any of them:
+
+| Phrase | Units |
+|---|---|
+| `within <number> <unit>`, or `under`, `at most`, `less than`, `up to` | `ms`, `s`, `min`, `h`, and their long forms |
+| `using at most <number> <unit>`, or any of the words above | `KB`, `MB`, `GB`: binary, so a KB is 1,024 bytes |
+| `in time that grows at most linearly with <what>`, or `quadratically` | |
+| `keeping memory steady across repeated <what>` | |
+
 ### 6.5 Quality checks on every EARS statement (INCOSE)
 
 | Quality | Check |
@@ -1073,8 +1296,9 @@ clauses, open endings and modals. In `zigdag.toml`, each can be extended (`add`)
 ## 7. The record
 
 ```
-zigdag.toml           how zigdag runs here, and what it has been taught (adapters, effects, checks, lexicons)
+zigdag.toml           how zigdag runs here, and what it has been taught (adapters, effects, lexicons)
 design/
+  checks/               the project's own checks: plain Python functions (§4.2)
   customer.yaml         Customer domain
   functional.yaml       Functional domain
   physical.yaml         Physical domain
@@ -1228,10 +1452,9 @@ answer, critique and approve is logged.
 |---|---|---|
 | `[settings]` | `ruleset`, `tests`, `test_command`, `test_reports`, `vendor`, `editor`, `people` | the rule set the project is pinned to (now `1`; a new zigdag release never changes results until the project raises it), where tests are, how to run them, and who counts as a person for `person-approves-design`: anyone not listed is an agent |
 | `[adapters]` | `default` | the adapter for code names without a prefix |
-| `[adapters.<name>]` | that adapter's settings, for example `source` for a language, or `plan` and `source` for Terraform | where each adapter reads from |
+| `[adapters.<name>]` | that adapter's settings, for example `source` for a language, or `plan` and `source` for Terraform; for Python, also `ruff`, `ty` and `bandit`: how to start each tool, such as `"uv run ruff"` (default: its name) | where each adapter reads from, and how it runs the project's tools |
 | `[lexicon.<name>]` | `add`, `remove` | adjust a built-in lexicon |
 | `[effects."<name>"]` | `description`, `calls` | a custom effect: the calls that perform it |
-| `[checks.<name>]` | `description`, `code` (`path.py:function`), `params` (name → type and default), `reads`, `exact` (true or false) | a custom check kind |
 
 ### 7.9 Starting from existing code
 
@@ -1244,6 +1467,18 @@ answer, critique and approve is logged.
 
 Every `except` entry is visible debt. Improving the design then means removing entries and narrowing
 allow-lists, one reviewable change at a time.
+
+**A default setup: `zigdag init --default`.** The built-in rules are in force without being written (§4.4), which
+leaves a newcomer with nothing to read. A default setup writes them down. It writes:
+- `zigdag.toml`, with the conventional places for source and tests;
+- `design/customer.yaml`, holding only a comment that says what goes there, so the jobs stay a thing to do rather
+  than a made-up answer;
+- every built-in rule a project can tune, in the file of its domain, with the values it has by default and, as
+  its comment, the sentence it enforces. Tuning a rule is then changing what is already there.
+
+With code, it also records the code as `zigdag init` does. With no code yet, it writes a root FR named after the
+project's folder, with its function left to do, and refuses when that name cannot be an FR name. It never
+replaces a record. The always-on rules are not written out: there is nothing in them to tune.
 
 ---
 
@@ -1417,10 +1652,6 @@ source = ["src"]
 description = "Starts the Verus verifier"
 calls       = ["mojo2verus.verus.run_verus"]
 
-[checks.no-module-state]
-description = "Modules keep no changeable state at the top level"
-code        = "tools/zigdag_checks.py:no_module_state"
-reads       = ["symbols"]
 ```
 
 What zigdag renders, for example with `zigdag show mojo2verus.core`:
@@ -1431,8 +1662,8 @@ mojo2verus.core: The core shall translate Mojo source text into Verus source tex
   constraints in force:
     The core shall have no side effects, except in emit.translator_names and stdlib_names.
     The mojo2verus shall import only the standard library and its declared or vendored packages.
-  process in force: max-lines, max-children, described-names, min-depth,
-    no-mode-parameters, narrow-parameters, no-single-implementations, co-change,
+  process in force: max-lines, max-children, described-names,
+    narrow-parameters, no-single-implementations, co-change,
     property-tests, critique-first, stop-on-error
 
                 frontend  semantics  models  emit  erase
@@ -1583,9 +1814,10 @@ Views are generated from the record and the code. None of them is written by han
 
 | Command | Does |
 |---|---|
-| `zigdag init` | records what is there (§7.9) |
-| `zigdag check` | runs every static check, and uses the latest observed results that are still current. Fast enough to run after every edit. |
-| `zigdag test [arguments]` | runs the project's tests under observation, then zigdag's generated tests, then the tests against mutants, then everything `check` does (§4.5). Other arguments go to the test command. |
+| `zigdag init` | records what is there (§7.9). With `--default`, also writes `zigdag.toml`, a starter record and every tunable rule with its default values, and works before there is any code. |
+| `zigdag check` | runs every static check, and uses the latest observed results that are still current. Fast enough to run after every edit. Which directions it checks, and which wait for `test`: §4.6. Prints a line for each direction, and its breaks; `--full` prints every finding. It passes only when nothing breaks and no question is open: things to do do not stand in the way. |
+| `zigdag ready [--base <base>] [arguments]` | one answer for a whole change: runs the tests under observation, checks everything, and says `ready: yes`, or `ready: no` with each reason (§4.6). Other arguments go to the test command. |
+| `zigdag test [arguments]` | runs the project's tests under observation, then zigdag's generated tests, then the tests against mutants, then everything `check` does (§4.5). Other arguments go to the test command. It passes when the tests do and `check` would. |
 | `zigdag fmt` | gives every design file its canonical layout. With `--check`, changes nothing and fails if a file is not in it. |
 | `zigdag rename <old> <new>` | renames an FR and its DP everywhere it is used: the record, and every `verifies` link in the tests |
 | `zigdag show [name]` | one level of the zigzag: the FR's statements, its children, the design matrix, the constraints and process variables in force (as sentences), evidence, and what is broken |
@@ -1596,12 +1828,14 @@ Views are generated from the record and the code. None of them is written by han
 | `zigdag approve [entries] [--base <base>] --by <who>` | approves entries at their current content |
 | `zigdag critique --request [entries] [--base <base>]` | writes a request for a fresh critic: each entry, what it serves, and the rubric questions still to ask |
 | `zigdag critique --record <answer> --by <critic>` | records the answer: a `critiqued` event per entry, and a `raised` event per finding. Findings whose evidence is not words from the entry, and entries changed since the request, are refused. |
-| `zigdag agent install claude` | writes the skills, and hooks that start each session with `show` and report the breaks an edit made |
-| `zigdag next` | what is to do, in the order the design matrix allows building it |
+| `zigdag agent install claude` | writes the skills, and hooks that start each session with `show` and report the project's breaks when the agent ends its turn. No hook runs after each edit: partway through a change the code is unfinished, and a check of it mostly finds what the agent is about to fix. |
+| `zigdag next` | what is to do, in the order the design matrix allows building it. Things of one kind (the same rule saying the same of different names) share a line, and the first 10 kinds are shown, so one kind with many cases cannot bury the rest. |
+| `zigdag profile [arguments]` | runs the project's tests under the adapter's profiler, then shows where the time and memory went by design part, beside the run before (§4.7). Other arguments go to the test command. |
+| `zigdag stats` | the same, from the latest two profiles, without running anything |
 | `zigdag findings` | open threads and unanswered questions from the log, newest first |
 | `zigdag raise <kind> <on> <say> --by <who>` | adds a defect, question or idea to the log |
 | `zigdag answer <thread or question> <answer> <say> --by <who>` | answers an open thread or a question a check asked: `fixed`, `accepted`, `declined` or `answered`, optionally with a countermeasure |
-| `zigdag checks` / `zigdag effects` | the registered check kinds and effects, with their parameters and meanings |
+| `zigdag checks` | every rule there is: what each holds a project to, its settings and their defaults, and whether failing it is a break or a question; the project's own checks among them. `docs/rules.md` is what it prints. |
 
 C4's views are cuts of the physical domain: context, containers, components and code are its levels.
 
@@ -1618,6 +1852,7 @@ project zigdag keeps at all. The skill text names no agent product; only the ins
 
 | Skill | Produces | Offered when | Finished when |
 |---|---|---|---|
+| `guide` | a person who can steer the design and read what zigdag tells them, starting from who the system is for | someone is new to zigdag, or asks how to use it | the person has corrected the design once, and can say what a break and a thing to do are |
 | `interview-for-jobs` | jobs, performers and outcomes, from a jobs-to-be-done interview with a person | the customer domain is empty, or a request arrives phrased as a solution | the job and outcome grammars hold, and the person has confirmed each outcome |
 | `write-frs` | FRs and their statements, from the outcomes | an outcome is served by no FR | the EARS and quality checks hold, and every first-level FR serves an outcome |
 | `decompose` | the next level of the zigzag: a DP for an FR, then the FRs it gives rise to | an FR has no DP, or `max-children` breaks | FRs and DPs pair one-to-one, and `no-cycles` and `max-children` hold |
@@ -1656,7 +1891,7 @@ A critic answers questions about what checks cannot see, one set for each kind o
 | Axiomatic design (Suh) | the four domains, both matrices, the zigzag, the independence axiom (`no-cycles`), the information axiom (judgement) |
 | Object-oriented axiomatic design (Do and Suh) | structures as the lowest DPs, with operations as the matrix entries that relate them to FRs |
 | EARS and INCOSE | the statement grammar and its quality checks |
-| Parnas and Ousterhout | `encapsulation` and `data-ownership`, always on; worked-out interface size and depth; the `min-depth`, `no-mode-parameters`, `narrow-parameters`, `edge-types` and `described-names` checks |
+| Parnas and Ousterhout | `encapsulation` and `data-ownership`, always on; the `narrow-parameters`, `edge-types` and `described-names` checks |
 | C4 | the four levels of the physical domain, and its views |
 | Baldwin and Clark (design rules) | structures and named types that other components build against, and `edge-types` |
 | Design by contract (deal) and property tests | the effect vocabulary, contracts and property tests as evidence, generated cases |
@@ -1692,3 +1927,11 @@ A critic answers questions about what checks cannot see, one set for each kind o
 11. **Which test killed a mutant:** tools stop at the first test that fails, so a test that checks
     nothing can hide behind one that checks well. Finding it means running each statement's tests on
     their own against the mutants they reach: one more run per statement, for every mutant.
+12. **Advisories about dependencies,** such as pip-audit's: a known vulnerability in a locked version
+    is worth a break, but the answer changes from day to day and needs the network. A run that saves
+    what it was told, with the date, would let `check` report it while it is recent, as it does what
+    `zigdag test` saw.
+13. **Measuring a performance bound.** A statement can bound time, memory, how time grows with size,
+    or whether memory stays steady (§6.4), and needs `benchmark` evidence. What measures it, and how
+    zigdag judges the measurement against the bound, is not settled: a fixture in the test, or the
+    profile of the test that verifies it, from `zigdag profile`.

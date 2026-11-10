@@ -13,6 +13,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import NewType
 
+import deal
+
 from zigdag.core.record.read import DESIGN_DIR
 from zigdag.core.findings import Digest, Finding, RecordPath, Report, Result, RuleName, Span, Subject, digest_of, finding
 from zigdag.core.measures import Line, Version
@@ -108,6 +110,8 @@ class Log:
     events: tuple[Event, ...]  # in time order
 
     @property
+    @deal.ensure(lambda self, result: len(result) == sum(isinstance(e, Raised) for e in self.events))
+    @deal.ensure(lambda self, result: all(a.id == t.raised.id for t in result for a in t.answers))
     def threads(self) -> tuple[Thread, ...]:
         answers: dict[ThreadId, list[Answered]] = {}
         for e in self.events:
@@ -115,21 +119,26 @@ class Log:
                 answers.setdefault(e.id, []).append(e)
         return tuple(Thread(e, tuple(answers.get(e.id, ()))) for e in self.events if isinstance(e, Raised))
 
+    @deal.ensure(lambda self, id, result: result is None or result.raised.id == id)
     def thread(self, id: ThreadId) -> Thread | None:
         return next((t for t in self.threads if t.raised.id == id), None)
 
+    @deal.ensure(lambda self, on, digest, result: all(c.on == on and c.digest == digest for c in result))
     def critiques(self, on: Subject, digest: Digest) -> tuple[Critiqued, ...]:
         return tuple(e for e in self.events if isinstance(e, Critiqued) and e.on == on and e.digest == digest)
 
+    @deal.ensure(lambda self, on, digest, result: all(a.on == on and a.digest == digest for a in result))
     def approvals(self, on: Subject, digest: Digest) -> tuple[Approved, ...]:
         return tuple(e for e in self.events if isinstance(e, Approved) and e.on == on and e.digest == digest)
 
     @property
+    @deal.ensure(lambda self, result: len(result) <= sum(isinstance(e, Answered) for e in self.events))
     def answered_questions(self) -> frozenset[tuple[RuleName, Subject, Digest]]:
         return frozenset((e.check, Subject(e.on), e.digest) for e in self.events
                          if isinstance(e, Answered) and e.check is not None and e.on is not None and e.digest)
 
 
+@deal.post(lambda result: _DIGEST.fullmatch(result) is not None)
 def thread_id(at: Timestamp, by: Actor, on: Subject, say: Say) -> ThreadId:
     return ThreadId(digest_of(at, by, on, say))
 
@@ -186,6 +195,9 @@ def _event(raw: object, line: int) -> tuple[Event | None, str | None]:
         return None, f"{kind}: {e}"
 
 
+@deal.ensure(lambda text, result: [(e.at, e.line) for e in result[0].events] == sorted(
+    (e.at, e.line) for e in result[0].events))  # in time order, whatever order the lines are in
+@deal.ensure(lambda text, result: all(p.result is Result.BREAKS and p.rule == LOG_RULE for p in result[1]))
 def read_log(text: FileText | None) -> tuple[Log, tuple[Finding, ...]]:
     if not text:
         return Log(()), ()
@@ -212,6 +224,9 @@ def read_log(text: FileText | None) -> tuple[Log, tuple[Finding, ...]]:
     return Log(tuple(events)), tuple(problems)
 
 
+@deal.ensure(lambda report, log, result: set(result.findings) <= set(report.findings))
+@deal.ensure(lambda report, log, result: all(f.result is Result.QUESTION
+                                             for f in set(report.findings) - set(result.findings)))
 def without_answered(report: Report, log: Log) -> Report:
     """The report, less the questions that have been answered for exactly their current content."""
     answered = log.answered_questions
@@ -224,31 +239,55 @@ def line_of(fields: Mapping[str, str]) -> str:
     return json.dumps(dict(sorted(fields.items())), ensure_ascii=False, separators=(", ", ": "))
 
 
+def _read_back(line: EventLine) -> tuple[Event, ...]:
+    """The events one written line reads back as: what each event writer promises to be exactly what it was given."""
+    return read_log(line)[0].events
+
+
+@deal.pre(lambda at, by, kind, on, say, evidence: _TIMESTAMP.fullmatch(at) is not None)
+@deal.ensure(lambda at, by, kind, on, say, evidence, result: _read_back(result) == (
+    Raised(at, by, thread_id(at, by, on, say), on, kind, say, evidence or None, 1),))
 def raised(at: Timestamp, by: Actor, kind: Kind, on: Subject, say: Say, evidence: Written | None) -> EventLine:
     fields = {"at": at, "by": by, "event": "raised", "id": thread_id(at, by, on, say), "kind": kind.value, "on": on,
               "say": say}
     return line_of({**fields, **({"evidence": evidence} if evidence else {})})
 
 
+@deal.pre(lambda at, by, id, answer, say, countermeasure: _TIMESTAMP.fullmatch(at) is not None)
+@deal.ensure(lambda at, by, id, answer, say, countermeasure, result: _read_back(result) == (
+    Answered(at, by, answer, say, id, None, None, None, countermeasure or None, 1),))
 def answered_thread(at: Timestamp, by: Actor, id: ThreadId, answer: Answer, say: Say,
                     countermeasure: Subject | None) -> EventLine:
     fields = {"at": at, "by": by, "event": "answered", "id": id, "answer": answer.value, "say": say}
     return line_of({**fields, **({"countermeasure": countermeasure} if countermeasure else {})})
 
 
+@deal.pre(lambda at, by, question, answer, say: _TIMESTAMP.fullmatch(at) is not None
+          and _DIGEST.fullmatch(question.digest) is not None)
+@deal.ensure(lambda at, by, question, answer, say, result: _read_back(result) == (
+    Answered(at, by, answer, say, None, question.rule, question.about, question.digest, None, 1),))
 def answered_question(at: Timestamp, by: Actor, question: Finding, answer: Answer, say: Say) -> EventLine:
     return line_of({"at": at, "by": by, "event": "answered", "check": question.rule, "on": question.about,
                     "digest": question.digest, "answer": answer.value, "say": say})
 
 
+@deal.pre(lambda at, by, on, digest, rubric: _TIMESTAMP.fullmatch(at) is not None
+          and _DIGEST.fullmatch(digest) is not None and rubric >= 0)
+@deal.ensure(lambda at, by, on, digest, rubric, result: _read_back(result) == (
+    Critiqued(at, by, on, digest, rubric, 1),))
 def critiqued(at: Timestamp, by: Actor, on: Subject, digest: Digest, rubric: Version) -> EventLine:
     return line_of({"at": at, "by": by, "event": "critiqued", "on": on, "digest": digest, "rubric": str(rubric)})
 
 
+@deal.pre(lambda at, by, on, digest: _TIMESTAMP.fullmatch(at) is not None and _DIGEST.fullmatch(digest) is not None)
+@deal.ensure(lambda at, by, on, digest, result: _read_back(result) == (Approved(at, by, on, digest, 1),))
 def approved(at: Timestamp, by: Actor, on: Subject, digest: Digest) -> EventLine:
     return line_of({"at": at, "by": by, "event": "approved", "on": on, "digest": digest})
 
 
+@deal.post(lambda result: all(t.open for t in result))
+@deal.post(lambda result: [(t.raised.at, t.raised.line) for t in result] == sorted(
+    ((t.raised.at, t.raised.line) for t in result), reverse=True))
 def open_threads(log: Log) -> Iterable[Thread]:
     """Open threads, newest first."""
     return sorted((t for t in log.threads if t.open), key=lambda t: (t.raised.at, t.raised.line), reverse=True)

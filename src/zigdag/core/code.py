@@ -11,12 +11,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import NewType
 
+import deal
+
 from zigdag.core.effects import Effect
 from zigdag.core.kinds.registry import Part
 from zigdag.core.record.model import EvidenceKind
-from zigdag.core.findings import Digest, Finding, RecordPath, Span
+from zigdag.core.findings import Digest, Finding, RecordPath, RuleName, Span
 from zigdag.core.names import AdapterName, CodePath
-from zigdag.core.measures import Count, LineCount
+from zigdag.core.measures import Count, LineCount, Seconds
 from zigdag.core.names import Api, Identifier, Library
 from zigdag.core.texts import Say, Written
 
@@ -58,6 +60,7 @@ class Abstraction(enum.Enum):
     ABSTRACT_BASE = "abstract base class"  # implemented by naming it as a base
 
     @property
+    @deal.ensure(lambda self, result: result.split(" ", 1) in (["a", self.value], ["an", self.value]))
     def with_article(self) -> Say:
         return f"{'an' if self.value[0] in 'aeiou' else 'a'} {self.value}"
 
@@ -82,6 +85,8 @@ class TypeExpr:
     values: tuple[Written, ...] = ()  # a literal's values, as written: paid, shipped
 
     @property
+    @deal.ensure(lambda self, result: self.kind is not TypeKind.REF or result == self.name)
+    @deal.ensure(lambda self, result: result is None or self.kind in (TypeKind.REF, TypeKind.UNION))
     def named(self) -> Qualified | None:
         """The one named type a value of this type is, looking through `| None`; None for anything else."""
         if self.kind is TypeKind.REF:
@@ -138,19 +143,24 @@ class Symbol:
     declared_errors: tuple[TypeExpr, ...] | None = None  # from @deal.raises / @deal.pure / @deal.safe
 
     @property
+    @deal.ensure(lambda self, result: result == f"{self.unit}.{self.name}")
     def qualified(self) -> Qualified:
         return Qualified(f"{self.unit}.{self.name}")
 
     @property
+    @deal.ensure(lambda self, result: result == (self.declared_effects is not None and not self.declared_effects))
     def declared_pure(self) -> bool:
         """Its code declares that it has no effects at all."""
         return self.declared_effects == ()
 
     @property
+    @deal.ensure(lambda self, result: str(result) == self.qualified)  # it runs where it is named
     def place(self) -> Place:
         """Where its code runs."""
         return Place(self.unit, self.name)
 
+    @deal.ensure(lambda self, name, result: result is None or (result.name == name and result in self.fields))
+    @deal.ensure(lambda self, name, result: result is not None or all(f.name != name for f in self.fields))
     def field(self, name: Identifier) -> Field | None:
         return next((f for f in self.fields if f.name == name), None)
 
@@ -208,6 +218,8 @@ class TypeOf:
     called: bool  # the value is what a call to root returns: a constructor's object, or a function's result
     path: tuple[Identifier, ...] = ()
 
+    @deal.ensure(lambda self, name, result: (result.root, result.called) == (self.root, self.called))
+    @deal.ensure(lambda self, name, result: result.path == (*self.path, name))  # one field further in
     def field(self, name: Identifier) -> TypeOf:
         return TypeOf(self.root, self.called, (*self.path, name))
 
@@ -364,12 +376,26 @@ class Replay:
 
 @dataclass(frozen=True)
 class Cases:
-    """A contract's operation run on generated inputs."""
+    """A contract's operation run on generated inputs, and the tests that called it: the contract library checks a
+    contract at every call, so those tests checked it too, on their own inputs (DESIGN2 §4.5)."""
 
     at: Place
-    outcome: Outcome
+    outcome: Outcome  # on the generated inputs: an error when none could be made, skipped for a method
     detail: Say
     span: Span
+    called_by: tuple[TestId, ...] = ()  # empty when no contract library ran, since then no call checked it
+
+    @property
+    @deal.ensure(lambda self, result: result != (self.outcome in (Outcome.ERROR, Outcome.SKIPPED)))
+    def generated(self) -> bool:
+        """Whether the contract ran on generated inputs at all."""
+        return self.outcome in (Outcome.PASSED, Outcome.FAILED)
+
+    @property
+    @deal.ensure(lambda self, result: result == (not self.generated and bool(self.called_by)))
+    def checked_by_tests(self) -> bool:
+        """Whether no inputs were generated, so the tests' own calls are all that checked the contract."""
+        return not self.generated and bool(self.called_by)
 
 
 class MutantFate(enum.Enum):
@@ -393,6 +419,14 @@ class Witness:
 
 
 @dataclass(frozen=True)
+class SearchBound:
+    """How far the search for an input a mutant behaves differently on may go."""
+
+    paths: Count  # at most this many paths through the code
+    seconds: Seconds  # and for at most this long
+
+
+@dataclass(frozen=True)
 class Mutant:
     """One small edit to a function that has a contract, run against the contract's cases and the tests that run the
     function (DESIGN2 §4.5)."""
@@ -405,8 +439,13 @@ class Mutant:
     span: Span  # the function
     unnoticed_by: tuple[TestId, ...] = ()  # for a survivor: the tests that ran the function and still passed
     witness: Witness | None = None  # for a survivor: an input it behaves differently on, when the search found one
+    judged_by: tuple[TestId, ...] = ()  # the tests that ran the function: it stands while they are unchanged
+    bound: SearchBound | None = None  # how far a survivor's search could go
+    depends: Digest | None = None  # what its fate depended on besides the function: the code the function calls, and
+    # the files of the tests that judged it; None for a mutant made before zigdag recorded it, which is made again
 
     @property
+    @deal.post(lambda result: result.startswith("`") and (" became `" in result or result.endswith("` was removed")))
     def summary(self) -> Say:
         """The change in one line: what was written, and what it became."""
         lines = [line for line in self.edit.splitlines() if not line.startswith(_HEADER)]
@@ -469,11 +508,58 @@ class Observations:
     unwatched: tuple[CodePath, ...] = ()  # units whose running the watcher cannot see: its own
     stale: Count = 0  # observations left out because the code they were seen in has changed since
 
+    @deal.ensure(lambda self, test, result: result is None or result.test == test)
     def run_of(self, test: TestId) -> Run | None:
         return self.runs.get(test)
 
+    @deal.ensure(lambda self, place, result: result is None or result.at == place)
+    @deal.ensure(lambda self, place, result: result is not None or all(c.at != place for c in self.cases))
     def cases_of(self, place: Place | None) -> Cases | None:
         return next((c for c in self.cases if c.at == place), None)
+
+
+class Diagnosis(enum.Enum):
+    """What a tool that reports on code checks it for. Each is its own part of the code model, since one tool can
+    run while the other cannot."""
+
+    LINT = "lint"
+    TYPES = "types"
+    SECURITY = "security"
+
+    @property
+    @deal.ensure(lambda self, result: result.value == f"{self.value.removesuffix('s')} diagnostics")
+    def part(self) -> Part:
+        """The part of the code model what it reports is."""
+        return _DIAGNOSED_PARTS[self]
+
+
+TOOL_FAILED = RuleName("tools")  # the rule that breaks when a tool could not report: about what it diagnoses
+_DIAGNOSED_PARTS: Mapping[Diagnosis, Part] = {Diagnosis.LINT: Part.LINT_DIAGNOSTICS,
+                                              Diagnosis.TYPES: Part.TYPE_DIAGNOSTICS,
+                                              Diagnosis.SECURITY: Part.SECURITY_DIAGNOSTICS}
+
+
+class Severity(enum.Enum):
+    """How much a tool says a diagnostic matters. Which rules are which is the tool's configuration, not zigdag's."""
+
+    ERROR = "error"
+    WARNING = "warning"
+
+
+ToolName = NewType("ToolName", str)  # the tool that reported, as people know it: ruff, ty
+DiagnosticCode = NewType("DiagnosticCode", str)  # the tool's own name for the rule broken: E501, invalid-return-type
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    """One thing a linter or a type checker reported about the code."""
+
+    diagnosis: Diagnosis
+    tool: ToolName
+    code: DiagnosticCode
+    say: Say  # the tool's message, without its code
+    span: Span
+    severity: Severity
 
 
 @dataclass(frozen=True)
@@ -503,32 +589,57 @@ class CodeModel:
     observed: Observations | None = None  # None until the tests have been run under observation
     reports_read: bool = False
     libraries: Libraries = field(default_factory=lambda: Libraries(None, frozenset(), frozenset()))
+    diagnostics: tuple[Diagnostic, ...] = ()  # from the linters and type checkers that ran on the code as it is
     supplied: frozenset[Part] = frozenset()
     problems: tuple[Finding, ...] = ()
 
     @property
+    @deal.ensure(lambda self, result: all(u.adapter in result for u in self.units.values()))
+    @deal.ensure(lambda self, result: len(result) <= len(self.units))  # no adapter without code of its own
     def adapters(self) -> frozenset[AdapterName]:
         """The adapters whose code this model holds."""
         return frozenset(u.adapter for u in self.units.values())
 
+    @deal.ensure(lambda self, path, result: result is None or result.span.path == path)
+    @deal.ensure(lambda self, path, result: result is not None or all(u.span.path != path
+                                                                       for u in self.units.values()))
     def unit_at(self, path: RecordPath) -> Unit | None:
         """The unit read from a file: the most specific one, since a folder with no file of its own is placed at
         the first file inside it."""
         return max((u for u in self.units.values() if u.span.path == path), key=lambda u: u.path.count("."),
                    default=None)
 
+    @deal.ensure(lambda self, span, result: result is None or self.unit_of(Qualified(result)) is not None)
+    @deal.ensure(lambda self, span, result: (result is None) == (self.unit_at(span.path) is None))
+    def code_at(self, span: Span) -> Qualified | None:
+        """The innermost symbol written over a place in a file, or the file's unit when no symbol is; None for a file
+        that is no unit."""
+        unit = self.unit_at(span.path)
+        if unit is None:
+            return None
+        around = [s for s in self.symbols.values() if s.span.path == span.path
+                  and s.span.line <= span.line < s.span.line + max(s.size, 1)]
+        innermost = max(around, key=lambda s: (s.span.line, s.name.count(".")), default=None)
+        return innermost.qualified if innermost is not None else Qualified(unit.path)
+
     @property
+    @deal.ensure(lambda self, result: all(self.units[unit].span.path == path for path, unit in result.items()))
     def files(self) -> Mapping[RecordPath, CodePath]:
         """Each file the units were read from, and the unit it is."""
         paths = sorted({u.span.path for u in self.units.values()})
         return {p: unit.path for p in paths if (unit := self.unit_at(p)) is not None}
 
+    @deal.ensure(lambda self, cls, result: all(s.kind is SymbolKind.METHOD and s.unit == cls.unit
+                                                and s.name.rpartition(".")[0] == cls.name for s in result))
+    @deal.ensure(lambda self, cls, result: [s.qualified for s in result] == sorted(s.qualified for s in result))
     def members_of(self, cls: Symbol) -> list[Symbol]:
         """What using a class exposes: its public methods and its constructor."""
         prefix = f"{cls.qualified}."
         return [s for q, s in sorted(self.symbols.items()) if q.startswith(prefix) and s.kind is SymbolKind.METHOD
                 and (s.public or s.name.endswith(CONSTRUCTOR)) and "." not in q[len(prefix):]]
 
+    @deal.ensure(lambda self, name, result: result is None or (result in self.units and (
+        name == result or name.startswith(f"{result}."))))
     def unit_of(self, name: Qualified) -> CodePath | None:
         """The most specific unit a qualified name is in, or None when it is outside the project."""
         parts = name.split(".")
@@ -538,6 +649,9 @@ class CodeModel:
                 return candidate
         return None
 
+    @deal.ensure(lambda self, value, result: result is None or value.root in self.symbols)
+    @deal.ensure(lambda self, value, result: value.called or bool(value.path) or result == (
+        value.root if value.root in self.symbols else None))  # a value of a named type, read whole, is of that type
     def type_of(self, value: TypeOf) -> Qualified | None:
         """The named type a value has, worked out through constructors, return types and fields; None when the code
         does not say."""

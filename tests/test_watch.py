@@ -6,11 +6,13 @@ import json
 import sys
 from pathlib import Path
 
+
 from test_code import found, run
 
 from zigdag import verifies
 from zigdag.cli import main
 from zigdag.core.findings import Result
+from zigdag.watchers.python.values import UNRENDERED, said
 
 SETTINGS = f"""[settings]
 ruleset = 1
@@ -283,9 +285,9 @@ def test_evidence_must_run_the_code_it_verifies_and_be_current(tmp_path):
     billing = root / "src/shop/billing.py"
     billing.write_text(billing.read_text() + "\n")
     a = run(root)
-    todo = found(a, "evidence", Result.TODO)
+    todo = found(a, "evidence", Result.OUT_OF_DATE)  # stale results are answered by running the tests, not by work
     assert any("test_ship passed against code that has changed since" in s for s in todo)
-    assert any("are about code that has changed since" in s for s in found(a, "observations", Result.TODO))
+    assert any("are about code that has changed since" in s for s in found(a, "observations", Result.OUT_OF_DATE))
     assert not any("ship changed Order.status" in s for s in found(a, "data-ownership"))
 
 
@@ -304,3 +306,17 @@ def test_generated_inputs_and_calls_made_again_give_the_same_results_every_run(t
     seen = [json.loads((root / ".zigdag/observed.json").read_text()) for root in (first, second)]
     assert seen[0]["cases"] == seen[1]["cases"] and seen[0]["replays"] == seen[1]["replays"]
     assert seen[0]["cases"][0]["outcome"] == "failed"
+
+
+
+class _Unrenderable(Exception):
+    """An error whose message raises as it is rendered, as deal's does for a contract written over two lines with
+    another stacked under it (deal 4.24, in deal._source)."""
+
+    def __str__(self) -> str:
+        raise IndexError("list index out of range")
+
+
+def test_an_error_whose_message_cannot_be_shown_is_still_told_by_its_type():
+    assert said(_Unrenderable()) == f"_Unrenderable: {UNRENDERED}"
+    assert said(ValueError("\x1b[31mred\x1b[0m")) == "ValueError: red"  # colours are left out

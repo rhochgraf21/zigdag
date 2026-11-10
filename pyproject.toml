@@ -2,11 +2,13 @@
 name = "zigdag"
 version = "0.0.1"
 description = "Zigzag from needs to code, and keep it a DAG"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["ruamel.yaml>=0.18"]
+# deal: zigdag states its own interfaces' promises as contracts, which are checked at every call
+dependencies = ["ruamel.yaml>=0.18", "deal>=4.24"]
 
 [project.optional-dependencies]
-contracts = ["deal>=4.24"]  # zigdag test runs deal contracts on generated inputs
+contracts = ["hypothesis>=6"]  # zigdag test runs deal contracts on inputs that Hypothesis generates
 test = ["pytest>=8"]  # zigdag test runs the tests with pytest, and its watcher is a pytest plugin
 # mutants of functions with contracts, and CrossHair's search for an input a mutant changes; both pinned, since
 # zigdag uses their internals
@@ -17,14 +19,36 @@ zigdag = "zigdag.cli:main"
 zd = "zigdag.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "hypothesis>=6", "deal>=4.24", "mutmut==3.8.1", "crosshair-tool==0.0.113"]
+# ruff, ty and bandit are pinned because zigdag check enforces what they report, and a new release of any of them
+# changes the findings of an unchanged project
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "deal>=4.24",
+    "mutmut==3.8.1",
+    "crosshair-tool==0.0.113",
+    "ruff==0.17.4",
+    "ty==0.0.99",
+    "bandit==1.9.4",
+    "scalene==2.4.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]
 build-backend = "uv_build"
+
+[tool.bandit]
+# Importing subprocess or xml is no risk in itself; the calls bandit flags are. zigdag check reads these settings
+# because zigdag.toml starts bandit with -c pyproject.toml.
+skips = ["B404", "B405"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
+# ruff's own defaults grew from these four groups to hundreds of rules in later releases; naming them keeps an upgrade
+# of ruff from changing what zigdag check enforces. Widening them is a decision, made here.
+select = ["E4", "E7", "E9", "F"]

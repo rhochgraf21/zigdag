@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
+import deal
+
 from zigdag.core.effects import BUILT_IN as BUILT_IN_EFFECTS
 from zigdag.core.effects import resource_container
 from zigdag.core.kinds.params import Params, convert
-from zigdag.core.kinds.registry import BUILT_IN_KINDS, CheckKind, Part
+from zigdag.core.kinds.registry import BUILT_IN_KINDS, CheckKind, Direction, Exactness, Part
 from zigdag.core.language import quality
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Pattern, Problem, parse_ears, parse_job, parse_outcome, parse_performer
@@ -48,10 +50,16 @@ class _Waiting:
     names: int = 0
 
 
+@deal.ensure(lambda settings, result: set(result) == {*BUILT_IN_KINDS, *settings.checks})
+@deal.ensure(lambda settings, result: all(result[k] is kind for k, kind in BUILT_IN_KINDS.items()
+                                          if k not in settings.checks))
 def registry(settings: Settings) -> Mapping[CheckKindName, CheckKind]:
     custom = {
-        name: CheckKind(name, c.params, c.reads, c.exactness,
-                        lambda s, p, x, n=name: f"The {s} shall pass the {n} check{_except_text(x)}.")
+        # A custom check is handed everything a check can read, and runs once the code is read: without the code
+        # it waits, as the built-in checks of the code do. Its failures break or ask, as its author chose for each.
+        name: CheckKind(name, c.params, frozenset({Part.UNITS}), Exactness.BOTH,
+                        lambda s, p, x, n=name: f"The {s} shall pass the {n} check{_except_text(x)}.",
+                        Direction.ARCHITECTURE)
         for name, c in settings.checks.items()
     }
     return {**BUILT_IN_KINDS, **custom}

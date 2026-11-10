@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
+import deal
+
 from zigdag.core.record.builtins import BUILT_INS, MAINTAIN, MAINTAIN_JOB
 from zigdag.core.record import tree as t
 from zigdag.core.record.model import (
@@ -49,17 +51,20 @@ DESIGN_DIR = "design"
 DESIGN_SUFFIX = ".yaml"
 
 
+@deal.ensure(lambda domain, result: domain_of(result) is domain)  # each domain's file is read as that domain
 def domain_file(domain: Domain) -> RecordPath:
     """The file a domain is written in, before it grows into a folder: design/functional.yaml."""
     return RecordPath(f"{DESIGN_DIR}/{domain.value}{DESIGN_SUFFIX}")
 
 
+@deal.ensure(lambda path, result: result is None or (path.startswith(f"{DESIGN_DIR}/")
+                                                     and path.endswith(DESIGN_SUFFIX)))
 def domain_of(path: RecordPath) -> Domain | None:
     """design/<domain>.yaml, or any .yaml file in design/<domain>/."""
     parts = path.split("/")
-    if len(parts) == 2 and parts[0] == DESIGN_DIR and parts[1].endswith(".yaml"):
-        name = parts[1].removesuffix(".yaml")
-    elif len(parts) == 3 and parts[0] == DESIGN_DIR and parts[2].endswith(".yaml"):
+    if len(parts) == 2 and parts[0] == DESIGN_DIR and parts[1].endswith(DESIGN_SUFFIX):
+        name = parts[1].removesuffix(DESIGN_SUFFIX)
+    elif len(parts) == 3 and parts[0] == DESIGN_DIR and parts[2].endswith(DESIGN_SUFFIX):
         name = parts[1]
     else:
         return None
@@ -383,6 +388,8 @@ def _span(item) -> Span:
     return item.span
 
 
+@deal.ensure(lambda files, result: [j.name for j in result[0].jobs].count(MAINTAIN) == 1)  # the built-in job, once
+@deal.ensure(lambda files, result: all(fr_name(n) == n for n in result[0].frs))  # only well-formed names are kept
 def read_record(files: Mapping[RecordPath, FileText]) -> tuple[Record, tuple[Finding, ...]]:
     """The record from the design files, given as path to text. Paths are relative to the project root."""
     r = _Reader()

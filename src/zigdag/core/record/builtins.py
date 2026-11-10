@@ -54,6 +54,9 @@ def _rule(name: str, domain: Domain, serves: OutcomeRef, always_on: bool = False
 
 _F, _P = Domain.FUNCTIONAL, Domain.PROCESS
 
+# permitted-effects, least-privilege and co-change are designed (DESIGN2 §4.4) and not here: no adapter reads
+# infrastructure or git history yet, so nothing could check them. In force, each would only leave every project with
+# a standing question that no work on the project can settle. They join when an adapter can feed them.
 BUILT_INS: Mapping[RuleId, BuiltIn] = {
     b.name: b
     for b in (
@@ -61,25 +64,21 @@ BUILT_INS: Mapping[RuleId, BuiltIn] = {
         _rule("container-boundaries", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("data-ownership", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("no-cycles", _F, UNRELATED_BREAKAGE, always_on=True),
-        _rule("permitted-effects", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("representations-agree", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("messages-agree", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("endpoints-agree", _F, UNRELATED_BREAKAGE, always_on=True),
         _rule("references-resolve", _F, UNRELATED_BREAKAGE, always_on=True),
+        _rule("designed-modules", _F, FIND_CODE),
         _rule("declared-libraries", _F, UNRELATED_BREAKAGE),
         _rule("edge-types", _F, UNRELATED_BREAKAGE),
         _rule("declared-errors", _F, UNRELATED_BREAKAGE),
         _rule("access-sanity", _F, UNRELATED_BREAKAGE),
         _rule("one-writer-per-data-store", _F, UNRELATED_BREAKAGE),
-        _rule("least-privilege", _F, UNRELATED_BREAKAGE),
         _rule("max-lines", _P, FIND_CODE),
         _rule("max-children", _P, FIND_CODE),
         _rule("described-names", _P, REVIEW_TIME),
-        _rule("min-depth", _P, FIND_CODE),
-        _rule("no-mode-parameters", _P, UNRELATED_BREAKAGE),
         _rule("narrow-parameters", _P, UNRELATED_BREAKAGE),
         _rule("no-single-implementations", _P, FIND_CODE),
-        _rule("co-change", _P, UNRELATED_BREAKAGE),
         _rule("mutation", _P, UNRELATED_BREAKAGE),
         _rule("planned-effects", _P, UNRELATED_BREAKAGE),
         _rule("contracted-interfaces", _P, UNRELATED_BREAKAGE),

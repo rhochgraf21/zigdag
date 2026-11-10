@@ -5,9 +5,12 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.tokens import Token, tokenize, words
 from zigdag.core.findings import RuleName
+from zigdag.core.measures import Count
 from zigdag.core.texts import Say, SentenceText, Word
 
 
@@ -50,12 +53,19 @@ class Ears:
     response: tuple[Token, ...]
 
     @property
+    @deal.ensure(lambda self, result: (result is Pattern.UBIQUITOUS) == (self._clauses == 0))
+    @deal.ensure(lambda self, result: (result is Pattern.COMPLEX) == (self._clauses > 1))
     def pattern(self) -> Pattern:
         present = [p for p, c in ((Pattern.OPTIONAL, self.where), (Pattern.STATE, self.while_),
                                   (Pattern.EVENT, self.when), (Pattern.UNWANTED, self.if_)) if c is not None]
         if not present:
             return Pattern.UBIQUITOUS
         return present[0] if len(present) == 1 else Pattern.COMPLEX
+
+    @property
+    def _clauses(self) -> Count:
+        """How many of its optional clauses it has: Where, While, When and If."""
+        return sum(c is not None for c in (self.where, self.while_, self.when, self.if_))
 
 
 EARS = "ears"
@@ -89,6 +99,9 @@ def _lowered(tokens: tuple[Token, ...]) -> str:
     return " ".join(t.lower for t in tokens)
 
 
+@deal.ensure(lambda text, lexicons, result: result[0] is not None or bool(result[1]))  # what does not parse says why
+@deal.ensure(lambda text, lexicons, result: result[0] is None or "shall" in words(result[0].tokens))
+@deal.ensure(lambda text, lexicons, result: all(p.rule == EARS and p.exact for p in result[1]))
 def parse_ears(text: SentenceText, lexicons: Lexicons) -> tuple[Ears | None, tuple[Problem, ...]]:
     tokens = tokenize(text)
     if not tokens or tokens[-1].text != ".":
@@ -161,6 +174,8 @@ _MEASURES = (
 )
 
 
+@deal.ensure(lambda text, result: bool(result) or words(tokenize(text))[:2] == ("minimize", "the"))
+@deal.ensure(lambda text, result: len(result) <= 1 and all(p.rule == OUTCOME and p.exact for p in result))
 def parse_outcome(text: SentenceText) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     if w[:2] != ("minimize", "the"):
@@ -179,6 +194,8 @@ def parse_outcome(text: SentenceText) -> tuple[Problem, ...]:
     return ()
 
 
+@deal.ensure(lambda text, lexicons, result: bool(result) or words(tokenize(text))[0] in lexicons.verbs)
+@deal.ensure(lambda text, lexicons, result: len(result) <= 1 and all(p.rule == JOB and p.exact for p in result))
 def parse_job(text: SentenceText, lexicons: Lexicons) -> tuple[Problem, ...]:
     w = words(tokenize(text))
     if not w:
@@ -190,5 +207,6 @@ def parse_job(text: SentenceText, lexicons: Lexicons) -> tuple[Problem, ...]:
     return ()
 
 
+@deal.ensure(lambda text, result: (not result) == bool(words(tokenize(text))))
 def parse_performer(text: SentenceText) -> tuple[Problem, ...]:
     return () if words(tokenize(text)) else (Problem(PERFORMER, True, "a performer cannot be empty"),)

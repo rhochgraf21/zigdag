@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
+import deal
+
 from zigdag.core.checks.context import Check, Context, a_type, asked, broken, short_name
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import AccessKind, CodeModel, Place, Qualified, SymbolKind, UseKind
@@ -124,6 +126,8 @@ def endpoints_agree(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
 
 # ---- data flow ---------------------------------------------------------------------------------------------------
 
+@deal.ensure(lambda ctx, rule, result: all(q in ctx.model.symbols for q in result[0]))
+@deal.ensure(lambda ctx, rule, result: all(p.result is Result.BREAKS for p in result[1]))
 def protected_types(ctx: Context, rule: RuleUse) -> tuple[frozenset[Qualified], list[Finding]]:
     """The types a data-flow rule protects: recorded structures by DP name, or named types by code name."""
     out: set[Qualified] = set()

@@ -1,5 +1,5 @@
-"""The interface checks (DESIGN2 §4.1): deep components, parameters that pick a mode or carry more than is used,
-and abstractions with one implementation. All of them are guesses, so each failure is a question.
+"""The interface checks (DESIGN2 §4.1): parameters that pick a mode or carry more than is used, and abstractions
+with one implementation. All of them are guesses, so each failure is a question.
 """
 
 from __future__ import annotations
@@ -8,58 +8,15 @@ from collections.abc import Iterable, Iterator, Mapping
 
 from zigdag.core.checks.context import Check, Context, a_type, asked, broken, short_name
 from zigdag.core.checks.rules import RuleUse
-from zigdag.core.code import CONSTRUCTOR, CONSTRUCTOR_NAME, Abstraction, CodeModel, Param, Qualified, Symbol, SymbolKind, TypeExpr, \
+from zigdag.core.code import CONSTRUCTOR_NAME, Abstraction, CodeModel, Param, Qualified, Symbol, SymbolKind, TypeExpr, \
     TypeKind
 from zigdag.core.findings import Finding
-from zigdag.core.names import CheckKindName, CodePath
-from zigdag.core.resolve import Level
+from zigdag.core.names import CheckKindName
 
 _OPERATIONS = (SymbolKind.FUNCTION, SymbolKind.METHOD)
 _DUNDER = "__"
 _PRIVATE = "_"
 
-
-# ---- min-depth ---------------------------------------------------------------------------------------------------
-
-def _interface(model: CodeModel, symbols: list[Symbol]) -> Iterator[str]:
-    """The interface of a unit's symbols, one element at a time: each public name, each parameter of a public
-    function or method (a public class's constructor included), and each public field of a public class."""
-    for s in symbols:
-        constructor = s.kind is SymbolKind.METHOD and s.name.endswith(CONSTRUCTOR) and _class_public(model, s)
-        if s.public:
-            yield s.qualified
-        if (s.public or constructor) and s.signature is not None:
-            yield from (f"{s.qualified}({p.name})" for p in s.signature.params)
-        if s.public and s.kind is SymbolKind.CLASS:
-            yield from (f"{s.qualified}.{f.name}" for f in s.fields if not f.name.startswith(_PRIVATE))
-
-
-def _class_public(model: CodeModel, method: Symbol) -> bool:
-    owner = model.symbols.get(Qualified(method.qualified.rpartition(".")[0]))
-    return owner is not None and owner.public
-
-
-def min_depth(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
-    """Each component hides enough code behind each element of its interface."""
-    ratio = rule.params["ratio"]
-    by_unit: dict[CodePath, list[Symbol]] = {}
-    for s in ctx.model.symbols.values():
-        by_unit.setdefault(s.unit, []).append(s)
-    for name, dp in sorted(ctx.tree.dps.items()):
-        if dp.level is not Level.COMPONENT or not ctx.in_scope(rule, name):
-            continue
-        units = [ctx.model.units[u] for u, owner in sorted(ctx.tree.unit_owner.items())
-                 if owner == name and u in ctx.model.units and not rule.skips(ctx.tree, u)]
-        interface = sorted({e for u in units for e in _interface(ctx.model, by_unit.get(u.path, []))})
-        lines = sum(u.size for u in units)
-        if interface and lines / len(interface) < ratio:
-            yield asked(rule, name, units[0].span,
-                        f"{name} has {lines} lines of code behind {len(interface)} names and parameters in its "
-                        f"interface: {lines / len(interface):.1f} lines each, where {ratio:g} are asked for",
-                        *interface)
-
-
-# ---- parameters --------------------------------------------------------------------------------------------------
 
 def _operations(ctx: Context, rule: RuleUse) -> Iterator[Symbol]:
     """The functions and methods another DP uses: used directly, or exposed by a class it uses."""
@@ -76,27 +33,6 @@ def _alone(t: TypeExpr) -> TypeExpr:
         others = [a for a in t.args if a.kind is not TypeKind.NONE]
         return others[0] if len(others) == 1 else t
     return t
-
-
-def _picks(model: CodeModel, t: TypeExpr | None) -> bool:
-    """Whether a type is one a mode is picked by: a bool, a literal, or a project enumeration."""
-    if t is None:
-        return False
-    alone = _alone(t)
-    if alone.kind in (TypeKind.BOOL, TypeKind.LITERAL):
-        return True
-    symbol = model.symbols.get(alone.name) if alone.kind is TypeKind.REF and alone.name else None
-    return symbol is not None and symbol.kind is SymbolKind.CLASS and bool(symbol.members)
-
-
-def no_mode_parameters(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
-    """No function another DP uses picks its behaviour by a parameter."""
-    for s in _operations(ctx, rule):
-        for p in s.signature.params:
-            if p.branched_on and _picks(ctx.model, p.type):
-                yield asked(rule, s.qualified, p.span,
-                            f"{s.qualified} picks what it does by its {p.name} parameter ({p.type.text}), so it is "
-                            f"two functions under one name", p.name, p.type.text)
 
 
 def _carried(model: CodeModel, p: Param) -> tuple[Symbol, str] | None:
@@ -218,8 +154,6 @@ def contracted_interfaces(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
 
 
 CHECKS: Mapping[CheckKindName, Check] = {
-    CheckKindName("min-depth"): min_depth,
-    CheckKindName("no-mode-parameters"): no_mode_parameters,
     CheckKindName("narrow-parameters"): narrow_parameters,
     CheckKindName("no-single-implementations"): no_single_implementations,
     CheckKindName("contracted-interfaces"): contracted_interfaces,

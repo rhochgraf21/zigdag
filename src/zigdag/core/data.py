@@ -10,6 +10,8 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.code import (
     AccessKind,
     CodeModel,
@@ -27,7 +29,7 @@ from zigdag.core.code import (
 from zigdag.core.relate import Relations
 from zigdag.core.resolve import Tree
 from zigdag.core.findings import Span
-from zigdag.core.names import AdapterName, FrName
+from zigdag.core.names import AdapterName, FrName, subject
 from zigdag.core.texts import Word
 
 
@@ -47,6 +49,8 @@ _MAPPINGS = frozenset({"builtins.dict", "typing.Dict", "typing.Mapping", "typing
                        "collections.OrderedDict", "typing.DefaultDict", "typing.OrderedDict"})
 
 
+@deal.ensure(lambda t, result: result[1] is not Cardinality.MANY or t.kind in (TypeKind.CONTAINER, TypeKind.UNION))
+@deal.ensure(lambda t, result: result[1] is not Cardinality.OPTIONAL or t.kind is TypeKind.UNION)
 def shape(t: TypeExpr | None) -> tuple[Qualified | None, Cardinality]:
     """The one named type a field holds, and how many: `B`, `B | None`, `list[B]`; for a mapping, its values."""
     if t is None:
@@ -65,6 +69,8 @@ def shape(t: TypeExpr | None) -> tuple[Qualified | None, Cardinality]:
     return None, Cardinality.ONE
 
 
+@deal.ensure(lambda model, t, result: t is not None or result is None)
+@deal.ensure(lambda model, t, result: t is None or t.kind is not TypeKind.LITERAL or result == t.values)
 def choices(model: CodeModel, t: TypeExpr | None) -> tuple[Word, ...] | None:
     """The values a field can hold when it is an enumeration or a literal, looking through `| None`."""
     if t is None:
@@ -78,6 +84,8 @@ def choices(model: CodeModel, t: TypeExpr | None) -> tuple[Word, ...] | None:
     return symbol.members if symbol is not None and symbol.members else None
 
 
+@deal.ensure(lambda t, result: not result or t.kind in (TypeKind.BOOL, TypeKind.UNION))
+@deal.ensure(lambda t, result: t is None or t.kind is not TypeKind.BOOL or result)
 def is_flag(t: TypeExpr | None) -> bool:
     """A yes-or-no field, looking through `| None`."""
     if t is None:
@@ -99,19 +107,23 @@ class Structure:
     span: Span
 
     @property
+    @deal.ensure(lambda self, result: result in self.representations.values())
     def primary(self) -> Symbol:
         """The representation its relationships are read from: the first adapter's, in name order."""
         return self.representations[min(self.representations)]
 
     @property
+    @deal.ensure(lambda self, result: result == self.primary.fields)
     def fields(self) -> tuple[Field, ...]:
         return self.primary.fields
 
     @property
+    @deal.ensure(lambda self, result: result is None or (result.key and result in self.fields))
     def key(self) -> Field | None:
         return next((f for f in self.fields if f.key), None)
 
     @property
+    @deal.ensure(lambda self, result: result == subject(self.dp))  # as the statements name it
     def name(self) -> Word:
         """The words a statement uses for it: the last part of its DP's name."""
         return self.dp.rpartition(".")[2].replace("_", " ")
@@ -162,14 +174,18 @@ class DataModel:
     uses: tuple[ValueUse, ...]
     identities: Mapping[Qualified, Qualified]  # an identity type -> the class whose key it is
 
+    @deal.ensure(lambda self, type_name, result: result is None or self.by_type.get(type_name) == result.dp)
     def structure_of(self, type_name: Qualified | None) -> Structure | None:
         dp = self.by_type.get(type_name) if type_name else None
         return self.structures[dp] if dp is not None else None
 
+    @deal.ensure(lambda self, words, result: all(s.name == words for s in result))
     def named(self, words: Word) -> list[Structure]:
         """The structures a statement can mean by these words: the last part of the DP's name."""
         return [s for _, s in sorted(self.structures.items()) if s.name == words]
 
+    @deal.ensure(lambda self, types, result: types <= result)
+    @deal.ensure(lambda self, types, result: all(t in self.by_type for t in result - types))  # only structures added
     def holding(self, types: frozenset[Qualified]) -> frozenset[Qualified]:
         """The types given, and the type of every structure that holds one of them in a field, however deep."""
         out = set(types)
@@ -184,6 +200,9 @@ class DataModel:
         return frozenset(out)
 
 
+@deal.ensure(lambda model, tree, relations, result: set(result.by_type.values()) == set(result.structures))
+@deal.ensure(lambda model, tree, relations, result: all(r.source in result.structures for r in result.relations)
+             and all(a.structure in result.structures for a in result.accesses))
 def work_out(model: CodeModel, tree: Tree, relations: Relations) -> DataModel:
     structures: dict[FrName, Structure] = {}
     by_type: dict[Qualified, FrName] = {}

@@ -6,6 +6,8 @@ import ast
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 
+import deal
+
 from zigdag.adapters.python import apis
 from zigdag.adapters.python.scan import Scanner
 from zigdag.core.code import Link, Outcome, Qualified, Test
@@ -14,6 +16,7 @@ from zigdag.core.names import CodePath
 from zigdag.core.record.model import EvidenceKind
 
 
+@deal.ensure(lambda path, result: "/" not in result and result.count(".") >= path.count("/"))  # a dotted name
 def test_module(path: RecordPath) -> CodePath:
     return path.removesuffix(".py").replace("/", ".")
 

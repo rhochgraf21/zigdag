@@ -158,7 +158,7 @@ def test_review_approve_and_rename_through_the_command_line(tmp_path, capsys):
 
 
 @verifies("zigdag.agents#install", "zigdag.agents#feedback")
-def test_the_agent_gets_skills_hooks_and_feedback_on_its_edits(tmp_path, capsys, monkeypatch):
+def test_the_agent_gets_skills_hooks_and_feedback_when_its_turn_ends(tmp_path, capsys, monkeypatch):
     assert claude.merged_settings("not json", "zigdag") is None
     once = claude.merged_settings('{"permissions": {}}', "zigdag")
     twice = claude.merged_settings(once, "zigdag")
@@ -167,11 +167,18 @@ def test_the_agent_gets_skills_hooks_and_feedback_on_its_edits(tmp_path, capsys,
     root = build(tmp_path)
     assert main(["--project", str(root), "agent", "install", "claude"]) == 0
     assert (root / ".claude/skills/zigdag/SKILL.md").is_file()
-    payload = json.dumps({"tool_input": {"file_path": str(root / "src/tiny/core/rules.py")}})
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(payload))
-    capsys.readouterr()
-    assert main(["--project", str(root), "hook", "post-edit"]) == claude.FEEDBACK_EXIT
-    assert "pure-core" in capsys.readouterr().err
+    installed = json.loads((root / ".claude/settings.json").read_text())["hooks"]
+    assert set(installed) == {"SessionStart", "Stop"}  # nothing runs after each edit
+    earlier = json.dumps({"hooks": {"PostToolUse": [{"hooks": [{"command": "zigdag hook post-edit"}]}]}})
+    assert json.loads(claude.merged_settings(earlier, "zigdag"))["hooks"]["PostToolUse"] == []
+
+    def turn_ends(payload: dict) -> int:
+        monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps(payload)))
+        capsys.readouterr()
+        return main(["--project", str(root), "hook", "turn-end"])
+
+    assert turn_ends({}) == claude.FEEDBACK_EXIT and "pure-core" in capsys.readouterr().err
+    assert turn_ends({"stop_hook_active": True}) == 0  # told once: an agent that cannot fix a break may still stop
     assert main(["--project", str(root), "hook", "session-start"]) == 0
 
 

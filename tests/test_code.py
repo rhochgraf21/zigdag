@@ -267,3 +267,71 @@ def test_init_records_existing_code_so_the_first_check_holds(tmp_path, capsys):
     assert main(["--project", str(root), "init"]) == 2  # it never overwrites a record without --force
     written, _ = init(ProjectFiles(None, {}, None), a.code)
     assert "tiny.core.rules: {}" in written["design/functional.yaml"]
+
+
+LONG_LINES = 100  # longer than every file of the tiny project
+
+
+@verifies("zigdag.core.analysis.checks#oversized")
+def test_a_file_longer_than_the_rule_allows_breaks_and_one_within_it_holds(tmp_path):
+    long_file = '"""Notes."""\n' + "".join(f"N{i} = {i}\n" for i in range(LONG_LINES))
+    limit = "max-lines:\n  with:\n    file: {}\n"
+    over = run(build(tmp_path, extra={"src/tiny/core/notes.py": long_file,
+                                      "design/process.yaml": limit.format(LONG_LINES)}))
+    assert found(over, "max-lines") == [f"tiny.core.notes: the file of tiny.core.notes is {LONG_LINES + 1} lines; "
+                                        f"at most {LONG_LINES}"]
+    (tmp_path / "design/process.yaml").write_text(limit.format(LONG_LINES + 1))
+    assert found(run(tmp_path), "max-lines") == []
+
+
+@verifies("zigdag.core.views#next")
+def test_next_puts_things_of_one_kind_in_one_line_and_shows_only_the_first_kinds(tmp_path):
+    untested = "".join(f"\n  tiny.core.rules.r{i}:\n    statements:\n      hold: The r{i} shall hold a rule.\n"
+                       for i in range(3))
+    lines = views.next_steps(run(build(tmp_path, functional=FUNCTIONAL.replace("\nconstraints:", untested
+                                                                                + "\nconstraints:")))).splitlines()
+    assert "  tiny.core.rules.r0 and 2 more like it: no code yet: write the module, package or class this DP is" in lines
+    assert sum("no test verifies" in line for line in lines) == 1 and not any("r1" in line for line in lines)
+    assert len(lines) <= views.NEXT_SHOWN + 2
+
+
+@verifies("zigdag.core.analysis.checks#undesigned")
+def test_a_module_the_design_does_not_name_breaks_until_the_design_names_it(tmp_path):
+    root = build(tmp_path, extra={"src/tiny/core/surprise.py": '"""Nobody designed this."""\nX = 1\n'})
+    assert [s.split(":")[0] for s in found(run(root), "designed-modules")] == ["tiny.core.surprise"]
+    (root / "design/physical.yaml").write_text("tiny.core: [core, core.surprise]\n")
+    assert found(run(root), "designed-modules") == []
+
+
+@verifies("zigdag.core.init#default-setup")
+def test_a_default_setup_writes_the_settings_a_starter_record_and_every_tunable_rule(tmp_path, capsys):
+    from zigdag.cli import main
+    from zigdag.core.init import tunable
+
+    empty = tmp_path / "shop-site"
+    empty.mkdir()
+    assert main(["--project", str(empty), "init", "--default"]) == 0
+    written = "".join((empty / name).read_text() for name in ("design/functional.yaml", "design/process.yaml"))
+    assert "shop_site: {}" in written and all(f"\n{rule}:" in written.replace("  ", "") for rule in tunable())
+    assert "file: 1000" in written and "# The shop site shall keep each function within 200 lines" in written
+    assert (empty / "zigdag.toml").is_file() and (empty / "design/customer.yaml").read_text().startswith("#")
+    assert not run(empty).report.breaks  # nothing is broken before any code is written
+    assert main(["--project", str(empty), "init", "--default"]) == 2  # it never replaces a record
+
+    coded = build(tmp_path / "coded")
+    for name in ("design/functional.yaml", "design/customer.yaml", "zigdag.toml", "tests/test_tiny.py"):
+        (coded / name).unlink()
+    assert main(["--project", str(coded), "init", "--default"]) == 0
+    assert "tiny.core.rules: {}" in (coded / "design/functional.yaml").read_text()  # the code is recorded as init does
+    assert "max-lines:" in (coded / "design/process.yaml").read_text()
+    assert [f.rule for f in run(coded).report.of_result(Result.BREAKS)] == ["declared-effects"]  # as plain init leaves
+
+
+@verifies("zigdag.core.views#rules")
+def test_the_list_of_rules_in_the_docs_is_what_zigdag_checks_prints():
+    from zigdag.core.kinds.registry import BUILT_IN_KINDS
+    from zigdag.core.settings import Settings
+
+    listed = views.rules(Settings())
+    assert all(f"| `{kind}` |" in listed for kind in BUILT_IN_KINDS)  # no rule is left out
+    assert listed == Path("docs/rules.md").read_text(), "the rules changed: write the list again with zigdag checks"

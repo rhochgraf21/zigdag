@@ -6,12 +6,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import CodeModel, Observations, Qualified, SymbolKind
 from zigdag.core.data import DataModel
 from zigdag.core.findings import Digest, Finding, Result, RuleName, Span, Subject, finding
 from zigdag.core.kinds.registry import EFFECTS
-from zigdag.core.names import FrName
+from zigdag.core.names import FrName, is_within
 from zigdag.core.record.model import Record
 from zigdag.core.relate import Relations
 from zigdag.core.resolve import Tree
@@ -29,13 +31,18 @@ class Context:
     answered: frozenset[tuple[RuleName, Subject, Digest]] = frozenset()  # questions answered for their content
     declared_pure: frozenset[Qualified] = frozenset()  # functions declared pure (§3), in code or by an effects rule
 
+    @deal.ensure(lambda self, question, result: result == ((question.rule, question.about, question.digest)
+                                                            in self.answered))
     def is_answered(self, question: Finding) -> bool:
         return (question.rule, question.about, question.digest) in self.answered
 
+    @deal.ensure(lambda self, rule, dp, result: result == (dp is not None and is_within(dp, rule.on)))
     def in_scope(self, rule: RuleUse, dp: FrName | None) -> bool:
         """Whether code of this DP is covered by the rule."""
         return dp is not None and self.tree.within(dp, rule.on)
 
+    @deal.ensure(lambda self, rule, result: all(name in self.model.symbols and self.tree.owner(name) is not None
+                                                 for name in result))
     def used_from_other_dps(self, rule: RuleUse) -> dict[Qualified, Span]:
         """Project symbols used from another DP, inside the rule's scope, with where each is first used."""
         out: dict[Qualified, Span] = {}
@@ -51,6 +58,7 @@ class Context:
         return out
 
     @property
+    @deal.ensure(lambda self, result: self.model.observed is None or result is self.model.observed)
     def observed(self) -> Observations:
         """What was seen while the tests ran and is still current; nothing, before the first watched run."""
         return self.model.observed or Observations()
@@ -59,6 +67,11 @@ class Context:
 Check = Callable[[Context, RuleUse], Iterable[Finding]]
 
 
+@deal.ensure(lambda model, tree, rules, result: all(model.symbols[n].kind in (SymbolKind.FUNCTION, SymbolKind.METHOD)
+                                                    for n in result))
+@deal.ensure(lambda model, tree, rules, result: all(n in result for n, s in model.symbols.items()
+                                                    if s.declared_pure and s.kind in (SymbolKind.FUNCTION,
+                                                                                      SymbolKind.METHOD)))
 def declared_pure(model: CodeModel, tree: Tree, rules: Iterable[RuleUse]) -> frozenset[Qualified]:
     """The functions declared pure (DESIGN2 §3): by their code, or by an effects rule that allows nothing."""
     allow_nothing = [r for r in rules if r.kind == EFFECTS and not r.params["allow"]]
