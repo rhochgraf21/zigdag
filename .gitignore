@@ -1,10 +1,11 @@
 .venv/
 __pycache__/
 *.egg-info/
-.arch/cache/
+.arch/
 .hypothesis/
 .pytest_cache/
-.claude/settings.local.json
+.claude/
+old/
 
 .zigdag/
 .DS_Store
