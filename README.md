@@ -1,5 +1,7 @@
 # zigdag
 
+> Zigzag from needs to code, and keep it a DAG. 
+
 `zigdag` is for devs who want to manage a large codebase with agents, without all the effort.
 
 It gets agents to write better code, by following... the design.
