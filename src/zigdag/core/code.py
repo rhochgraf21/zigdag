@@ -7,7 +7,7 @@ every language-specific judgement, such as which types are standard containers, 
 from __future__ import annotations
 
 import enum
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import NewType
 
@@ -16,7 +16,7 @@ import deal
 from zigdag.core.effects import Effect
 from zigdag.core.kinds.registry import Part
 from zigdag.core.record.model import EvidenceKind
-from zigdag.core.findings import Digest, Finding, RecordPath, RuleName, Span
+from zigdag.core.findings import Digest, Finding, RecordPath, Result, RuleName, Span, Subject, finding
 from zigdag.core.names import AdapterName, CodePath
 from zigdag.core.measures import Count, LineCount, Seconds
 from zigdag.core.names import Api, Identifier, Library
@@ -29,10 +29,21 @@ Qualified = NewType("Qualified", str)  # a fully qualified name, inside the proj
 TestId = NewType("TestId", str)  # tests.test_names::test_fr_names_are_dotted (module, then function)
 
 
+class Level(enum.IntEnum):
+    """The levels of the design (DESIGN2 §2.3), outermost first: each sits inside the one before it."""
+
+    SYSTEM = 0
+    CONTAINER = 1
+    COMPONENT = 2
+    STRUCTURE = 3
+
+
 class UnitKind(enum.Enum):
     PACKAGE = "package"
     MODULE = "module"
     TABLE = "table"  # stored data: its structures are stored structures
+    RESOURCE = "resource"  # deployed: it runs code or stores data, so it is a container
+    SUPPORT = "supporting resource"  # deployed for the sake of a container: a role, a policy, a security group
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,7 @@ class Unit:
     public: bool  # its language marks it public: no part of its name starts with _
     span: Span
     size: LineCount  # lines
+    level: Level = Level.COMPONENT  # the level of the design it can be: a deployed resource is a container
 
 
 class SymbolKind(enum.Enum):
@@ -179,6 +191,8 @@ class Place:
 class DependencyKind(enum.Enum):
     IMPORT = "import"
     REFERENCE = "reference"  # a use of a name: a call, an attribute, a type
+    CONNECTION = "connection"  # for infrastructure: a network rule lets the source reach the target
+    GRANT = "grant"  # for infrastructure: the source is granted access to the target
 
 
 @dataclass(frozen=True)
@@ -207,6 +221,47 @@ class EffectStart:
     via: Api  # the API, as written: open, subprocess.run, print
     span: Span
     seen: TestId | None = None
+
+
+class ResourceAccess(enum.Enum):
+    """What code does to a data container, and what infrastructure grants on one (DESIGN2 §3, resource effects)."""
+
+    READ = "read"
+    WRITE = "write"
+
+
+@dataclass(frozen=True)
+class ResourceUse:
+    """A call to a client of a deployed resource, such as a storage client's write (DESIGN2 §5.3). Which resource
+    it is on is known only through the setting that carries the resource's name to the call."""
+
+    at: Place
+    access: ResourceAccess
+    via: Api  # the call, as written: s3.put_object
+    setting: Identifier | None  # the setting the resource's name comes from: RECEIPTS_BUCKET; None when not traced
+    span: Span
+
+
+@dataclass(frozen=True)
+class Setting:
+    """A setting the infrastructure gives a deployed unit, whose value names another resource: an environment
+    variable set to a bucket's name or a database's address (DESIGN2 §5.3)."""
+
+    at: CodePath  # the deployed unit that is given it
+    name: Identifier  # DATABASE_URL
+    target: CodePath  # the resource its value names
+    span: Span
+
+
+@dataclass(frozen=True)
+class Grant:
+    """Access the infrastructure grants on a resource (DESIGN2 §5.3): to a role, which is its container's."""
+
+    to: CodePath  # the deployed unit that is granted: a role
+    on: CodePath  # the resource it may act on
+    access: ResourceAccess | None  # None when what is granted could not be read, so it may be either
+    action: Written  # as granted: s3:PutObject
+    span: Span
 
 
 @dataclass(frozen=True)
@@ -590,6 +645,9 @@ class CodeModel:
     reports_read: bool = False
     libraries: Libraries = field(default_factory=lambda: Libraries(None, frozenset(), frozenset()))
     diagnostics: tuple[Diagnostic, ...] = ()  # from the linters and type checkers that ran on the code as it is
+    resource_uses: tuple[ResourceUse, ...] = ()  # the code's calls to clients of deployed resources
+    settings: tuple[Setting, ...] = ()  # for infrastructure: which settings point at which resource
+    grants: tuple[Grant, ...] = ()  # for infrastructure: who is granted what
     supplied: frozenset[Part] = frozenset()
     problems: tuple[Finding, ...] = ()
 
@@ -614,13 +672,20 @@ class CodeModel:
     def code_at(self, span: Span) -> Qualified | None:
         """The innermost symbol written over a place in a file, or the file's unit when no symbol is; None for a file
         that is no unit."""
-        unit = self.unit_at(span.path)
+        unit = self._unit_over(span)
         if unit is None:
             return None
         around = [s for s in self.symbols.values() if s.span.path == span.path
                   and s.span.line <= span.line < s.span.line + max(s.size, 1)]
         innermost = max(around, key=lambda s: (s.span.line, s.name.count(".")), default=None)
         return innermost.qualified if innermost is not None else Qualified(unit.path)
+
+    def _unit_over(self, span: Span) -> Unit | None:
+        """The unit written over a place in a file. A file may hold several, as a Terraform file holds resources:
+        then the one whose lines the place is in, and otherwise the file's own unit."""
+        over = [u for u in self.units.values() if u.span.path == span.path
+                and u.span.line <= span.line < u.span.line + max(u.size, 1)]
+        return max(over, key=lambda u: (u.span.line, u.path.count(".")), default=self.unit_at(span.path))
 
     @property
     @deal.ensure(lambda self, result: all(self.units[unit].span.path == path for path, unit in result.items()))
@@ -671,3 +736,68 @@ class CodeModel:
                 return None
             current = found.type.named
         return current
+
+
+ADAPTERS_RULE = RuleName("adapters")  # the rule that breaks when what two adapters read cannot be told apart
+
+
+def _same_name(models: Sequence[CodeModel]) -> list[Finding]:
+    """A break for each unit that two adapters name alike. The model names a unit by its path alone, so two such
+    units would be read as one, and every check about either would be about both."""
+    seen: dict[CodePath, Unit] = {}
+    problems: list[Finding] = []
+    for model in models:
+        for path, unit in model.units.items():
+            first = seen.setdefault(path, unit)
+            if first.adapter != unit.adapter:
+                problems.append(finding(Result.BREAKS, ADAPTERS_RULE, Subject(path), unit.span, Say(
+                    f"{first.adapter} and {unit.adapter} both have code named {path}, which zigdag cannot tell "
+                    f"apart yet: rename one of them")))
+    return problems
+
+
+def _libraries(models: Sequence[CodeModel]) -> Libraries:
+    # An adapter that could read no declaration says None. One that could stands for the project here, so a second
+    # language whose own declaration is missing goes unnoticed: Libraries has to be kept by adapter before two
+    # languages that import are read together.
+    declared = [m.libraries.declared for m in models if m.libraries.declared is not None]
+    return Libraries(frozenset().union(*declared) if declared else None,
+                     frozenset().union(*(m.libraries.vendored for m in models)),
+                     frozenset().union(*(m.libraries.standard for m in models)))
+
+
+@deal.pre(lambda models: bool(models))  # with no adapter's model there is no code, which is said as None, not as empty
+@deal.ensure(lambda models, result: len(models) > 1 or result == models[0])  # one adapter's model is the whole of it
+@deal.ensure(lambda models, result: all(set(m.units) <= set(result.units) and m.supplied <= result.supplied
+                                        for m in models))
+def joined(models: Sequence[CodeModel]) -> CodeModel:
+    """What several adapters read, as one code model (DESIGN2 §5.1): each supplies the parts it can. The adapters
+    know nothing of each other; what a container is and the code that runs in it are joined by the record, where one
+    design parameter names both."""
+    if len(models) == 1:
+        return models[0]
+    return CodeModel(
+        units={path: unit for m in reversed(models) for path, unit in m.units.items()},  # the first to name it stays
+        symbols={name: symbol for m in reversed(models) for name, symbol in m.symbols.items()},
+        dependencies=tuple(d for m in models for d in m.dependencies),
+        calls=tuple(c for m in models for c in m.calls),
+        effects=tuple(e for m in models for e in m.effects),
+        unknowns=tuple(u for m in models for u in m.unknowns),
+        raises=tuple(r for m in models for r in m.raises),
+        accesses=tuple(a for m in models for a in m.accesses),
+        uses=tuple(u for m in models for u in m.uses),
+        planned_uses=tuple(u for m in models for u in m.planned_uses),
+        computations=tuple(c for m in models for c in m.computations),
+        tests=tuple(t for m in models for t in m.tests),
+        results={test: outcome for m in models for test, outcome in m.results.items()},
+        # One adapter has a watcher today. When a second does, what each saw has to be joined run by run.
+        observed=next((m.observed for m in models if m.observed is not None), None),
+        reports_read=any(m.reports_read for m in models),
+        libraries=_libraries(models),
+        diagnostics=tuple(d for m in models for d in m.diagnostics),
+        resource_uses=tuple(u for m in models for u in m.resource_uses),
+        settings=tuple(s for m in models for s in m.settings),
+        grants=tuple(g for m in models for g in m.grants),
+        supplied=frozenset().union(*(m.supplied for m in models)),
+        problems=(*(p for m in models for p in m.problems), *_same_name(models)),
+    )

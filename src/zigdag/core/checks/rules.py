@@ -86,6 +86,8 @@ def rules_in_force(record: Record, settings: Settings, kinds: Mapping[CheckKindN
         tuning = record.tunings.get(name)
         if tuning is not None and tuning.off and not b.always_on:
             continue
+        if not b.applies(settings.adapters):
+            continue
         on = tuning.on.value if tuning is not None and tuning.on is not None else root
         add(name, b.kind, tuning.params if tuning else {}, on, tuning.excepted if tuning else (),
             tuning.span if tuning else BUILT_IN_SPAN)

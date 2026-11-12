@@ -13,10 +13,11 @@ from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 
+from zigdag.adapters.adapter import Adapter, Presence
 from zigdag.agents import claude
 from zigdag.cli import plans
 from zigdag.cli.files import from_disk, from_git, loaded, ran, text
-from zigdag.cli.plans import Files, GitError, Outcome, Presence, WatchedRun
+from zigdag.cli.plans import Files, GitError, Outcome, WatchedRun
 from zigdag.core import log as lg
 from zigdag.core.checks.run import Analysis
 from zigdag.core.settings import PLAN_FILE, PROFILE_BEFORE, PROFILE_FILE
@@ -40,6 +41,10 @@ class Project:
     @cached_property
     def files(self) -> Files:
         return from_disk(self.root)
+
+    @property
+    def adapters(self) -> tuple[Adapter, ...]:
+        return plans.reading_of(self.files).adapters
 
     @cached_property
     def analysis(self) -> Analysis:
@@ -110,7 +115,7 @@ def check_full(project: Project, base: Revision | None) -> int:
 
 def profile(project: Project, extra: list[str]) -> int:
     """Run the project's tests under the profiler, keeping the run before's profile to compare with."""
-    run = plans.profile(project.analysis, project.root, extra)
+    run = plans.profile(project.analysis, project.adapters, project.root, extra)
     if run.refused:
         return perform(project, run.refusal)
     perform(project, run.starting)
@@ -121,19 +126,22 @@ def profile(project: Project, extra: list[str]) -> int:
         run.profile.replace(run.before)
     ran_ = subprocess.run(run.command, cwd=run.root)
     return perform(project, plans.profiled_run(run, Presence(run.profile.is_file()), plans.ExitCode(ran_.returncode),
-                                               project.analysis, text(run.profile), text(run.before)))
+                                               project.analysis, project.adapters, text(run.profile),
+                                               text(run.before)))
 
 
 def stats(project: Project) -> int:
-    return perform(project, plans.costs(project.analysis, project.root, project.read(PROFILE_FILE),
-                                        project.read(PROFILE_BEFORE)))
+    return perform(project, plans.costs(project.analysis, project.adapters, project.root,
+                                        project.read(PROFILE_FILE), project.read(PROFILE_BEFORE)))
 
 
-def _watched(project: Project, run: WatchedRun) -> subprocess.CompletedProcess:
-    """Run the tests with the watcher, having cleared what the run before saw so that only this run's is read."""
+def _watched(project: Project, run: WatchedRun) -> plans.ExitCode:
+    """Run the tests, the watched ones with the watcher, having cleared what the run before saw so that only this
+    run's is read; then the tests of the adapters that have no watcher."""
     project.write(PLAN_FILE, run.watch)
     run.observed.unlink(missing_ok=True)
-    return subprocess.run(run.command, cwd=run.root, env=run.environment)
+    return plans.exited([plans.ExitCode(subprocess.run(command, cwd=run.root, env=run.environment).returncode)
+                         for command in run.commands])
 
 
 def test(project: Project, extra: list[str]) -> int:
@@ -142,7 +150,7 @@ def test(project: Project, extra: list[str]) -> int:
     if run.refused:
         return perform(project, run.refusal)
     ran = _watched(project, run)
-    return perform(project, plans.tested(run, Presence(run.observed.is_file()), ran.returncode,
+    return perform(project, plans.tested(run, Presence(run.observed.is_file()), ran,
                                          Project(run.root).analysis))
 
 
@@ -157,7 +165,7 @@ def ready(project: Project, base: Revision | None, extra: list[str]) -> int:
         return perform(project, run.refusal)
     ran = _watched(project, run)
     after = Project(run.root)
-    return perform(project, plans.ready(run, Presence(run.observed.is_file()), ran.returncode, after.analysis,
+    return perform(project, plans.ready(run, Presence(run.observed.is_file()), ran, after.analysis,
                                         earlier, base, after.files))
 
 

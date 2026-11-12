@@ -8,7 +8,7 @@ import io
 import tokenize
 from dataclasses import dataclass, field
 
-from zigdag.adapters.python import apis, plans
+from zigdag.adapters.python import apis, plans, resources
 from zigdag.core.code import (
     Abstraction,
     Access,
@@ -37,6 +37,7 @@ from zigdag.core.code import (
     Unknown,
     Use,
     UseKind,
+    ResourceUse,
 )
 from zigdag.core.effects import Effect
 from zigdag.core.findings import RecordPath, Span
@@ -71,6 +72,7 @@ class Facts:
     planned_uses: list[PlannedUse] = field(default_factory=list)
     computations: list[Computation] = field(default_factory=list)
     contracts: list[Test] = field(default_factory=list)
+    resource_uses: list[ResourceUse] = field(default_factory=list)
 
 
 def _longest(table, name: str):
@@ -157,6 +159,11 @@ class Scanner(ast.NodeVisitor):
         self.facts = Facts()
         self._statement_lines = frozenset(n.lineno for n in ast.walk(tree) if isinstance(n, ast.stmt))
         self._collect_names()
+        self.resources = resources.Tracker(self.resolve)
+        for node in tree.body:  # a module's own clients and settings are bound before any function uses them
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    self.resources.assigned(target, node.value)
 
     # ---- names -------------------------------------------------------------------------------------------------
 
@@ -462,6 +469,7 @@ class Scanner(ast.NodeVisitor):
         self.generic_visit(node)
         for target in node.targets:
             self._bind(target, self.value_type(node.value))
+            self.resources.assigned(target, node.value)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if len(self.places) == 1 and not self.classes:
@@ -606,6 +614,10 @@ class Scanner(ast.NodeVisitor):
             for a in arguments:
                 self._use(a, UseKind.RELEASE, (callee or apis.FORMAT_METHOD).removeprefix(apis.BUILTINS_PREFIX), None)
         self._changes(node, callee)
+        client_call = self.resources.call(node)
+        if client_call is not None:
+            self.facts.resource_uses.append(ResourceUse(self.place, client_call.access, client_call.via,
+                                                        client_call.setting, self.span(node)))
         self.generic_visit(node)
 
     def _call_effect(self, node: ast.Call, callee: str | None) -> tuple[Effect | None, str]:

@@ -293,6 +293,8 @@ def _rules(record: Record, settings: Settings, lexicons: Lexicons, kinds: Mappin
                         settings, lexicons, kinds, waiting)
     for name, b in sorted(BUILT_INS.items()):
         tn = record.tunings.get(name)
+        if not b.applies(settings.adapters):
+            continue
         if tn is not None and tn.off:
             if b.always_on:
                 out.append(finding(Result.BREAKS, TUNING, name, tn.span,

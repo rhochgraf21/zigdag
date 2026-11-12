@@ -25,23 +25,33 @@ zigdag.core.analysis.watch.mutation_target: [Mutated]
 zigdag.cli.plans.git_error: [GitError]
 zigdag.core.record.sentences.sentence: [model.Sentence]
 zigdag.core.record.sentences.statement: [model.Statement]
-zigdag.adapters: [adapters, adapters.code_quality]
+zigdag.adapters: [adapters, adapters.adapter, adapters.code_quality, adapters.known, adapters.sarif]
+zigdag.adapters.interface: [adapter.Adapter]
+zigdag.adapters.terraform:
+  - terraform
+  - terraform.access
+  - terraform.adapter
+  - terraform.plan
+  - terraform.policy_text
+  - terraform.source
+  - terraform.tests
+  - terraform.tools
+zigdag.adapters.terraform.mode: [tests.Mode]
 zigdag.adapters.python:
   - python
+  - python.adapter
   - python.apis
   - python.bandit
   - python.observed
   - python.plans
   - python.profiler
+  - python.resources
   - python.scan
   - python.tests
   - python.tools
 zigdag.adapters.python.watched_test: [observed.Ran]
 zigdag.adapters.python.recording: [observed.Recording]
-zigdag.adapters.python.tool: [tools.Tool]
-zigdag.adapters.python.tool_run: [tools.ToolRun]
-zigdag.adapters.python.tool_output: [tools.ToolOutput]
-zigdag.adapters.python.tool_start: [tools.Started]
+zigdag.adapters.tools.tool_start: [Started]
 zigdag.agents: [agents, agents.claude, agents.skills]
 zigdag.cli: [cli, cli.commands, cli.files]
 zigdag.core.analysis.checks:

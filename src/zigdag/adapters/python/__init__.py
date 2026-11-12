@@ -14,7 +14,8 @@ from zigdag.adapters.python import apis
 from zigdag.adapters.python.observed import Observed, Recording, current
 from zigdag.adapters.python.scan import Facts, scan
 from zigdag.adapters.python.tests import read_reports, read_tests
-from zigdag.adapters.python.tools import ToolOutput, diagnostics
+from zigdag.adapters.python.tools import diagnostics
+from zigdag.adapters.tools import ToolOutput
 from zigdag.core.codec import Unreadable
 from zigdag.core.code import CodeModel, Diagnostic, Libraries, Unit, UnitKind
 from zigdag.core.findings import Finding, RecordPath, Result, Span, digest_of, finding
@@ -146,6 +147,7 @@ def read_python(files: PythonFiles) -> CodeModel:
         reports_read=bool(files.reports),
         observed=seen.observations if seen else None,
         diagnostics=tuple(diagnosed),
+        resource_uses=tuple(u for f in facts for u in f.resource_uses),
         libraries=Libraries(declared_libraries(files.pyproject), frozenset(vendored),
                             frozenset(sys.stdlib_module_names) | {"__future__"}),
         supplied=frozenset(supplied | ({Part.OBSERVATIONS} if seen else set())),

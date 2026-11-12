@@ -14,6 +14,7 @@ These cannot be switched off. A known break can be listed under the rule's `exce
 | `endpoints-agree` | The project shall use the structures of an endpoint when calling the endpoint. | none | a break, or a question |
 | `messages-agree` | The project shall use one structure for every message on a queue. | none | a break, or a question |
 | `no-cycles` | The project shall keep the dependencies between sibling design parameters free of cycles. | none | a break |
+| `permitted-effects` | The project shall use only the access that the infrastructure grants. | none | a break |
 | `references-resolve` | The project shall refer only to recorded structures. | none | a break |
 | `representations-agree` | The project shall keep every representation of a structure in agreement. | none | a break |
 
@@ -38,6 +39,7 @@ These are on without being written. To change one, write an entry with its name 
 | `described-names` | The project shall describe each public name in one line. | none | a break, or a question |
 | `designed-modules` | The project shall hold only the modules that the design names. | none | a break |
 | `edge-types` | The project shall pass only project-defined types between components. | `bool-parameters` = allowed, `bool-returns` = allowed, `bool-fields` = allowed | a break |
+| `least-privilege` | The project shall request only the access that the code uses. | none | a question |
 | `max-children` | The project shall have at most 9 children under each functional requirement. | `count` = 9 | a break |
 | `max-lines` | The project shall keep each function within 200 lines, each class within 1000 lines and each file within 1000 lines. | `function` = 200, `class` = 1000, `file` = 1000 | a break |
 | `mutation` | The project shall have the contract of each function declared without effects notice every small change to the function. | `paths` = 200, `seconds` = 10 | a break, or a question |
@@ -66,8 +68,6 @@ Nothing checks these in this version: no adapter reads infrastructure or git his
 | Rule | What it holds the code to | Settings | When it fails, it is |
 |---|---|---|---|
 | `co-change` | The project shall not change sibling design parameters together without a dependency between the siblings. | `commits` = 500, `threshold` = 0.5 | a question |
-| `least-privilege` | The project shall request only the access that the code uses. | none | a question |
-| `permitted-effects` | The project shall use only the access that the infrastructure grants. | none | a break |
 
 ## Gates on a change
 

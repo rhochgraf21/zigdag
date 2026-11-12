@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+import deal
+
 from zigdag.core.findings import BUILT_IN_SPAN
-from zigdag.core.names import CheckKindName, OutcomeRef, RuleId, Slug
+from zigdag.core.names import INFRASTRUCTURE, AdapterName, CheckKindName, OutcomeRef, RuleId, Slug
 from zigdag.core.record.model import Domain, Job, Outcome, Sentence
 from zigdag.core.names import ParamName
 from zigdag.core.texts import Written
@@ -46,17 +48,27 @@ class BuiltIn:
     params: Mapping[ParamName, Written | tuple[Written, ...]]
     serves: OutcomeRef
     always_on: bool
+    # In force only where the project sets an infrastructure adapter up. A project that describes no infrastructure
+    # grants nothing, so such a rule has nothing to check there, and a rule in force that checked nothing would
+    # show its direction as passing (DESIGN2 §5.3, principle 6).
+    of_infrastructure: bool = False
+
+    @deal.ensure(lambda self, adapters, result: result or self.of_infrastructure)  # any other rule is every project's
+    def applies(self, adapters: Iterable[AdapterName]) -> bool:
+        """Whether a project that sets these adapters up has this rule."""
+        return not self.of_infrastructure or bool(INFRASTRUCTURE & set(adapters))
 
 
-def _rule(name: str, domain: Domain, serves: OutcomeRef, always_on: bool = False, **params) -> BuiltIn:
-    return BuiltIn(RuleId(name), domain, CheckKindName(name), params, serves, always_on)
+def _rule(name: str, domain: Domain, serves: OutcomeRef, always_on: bool = False, of_infrastructure: bool = False,
+          **params) -> BuiltIn:
+    return BuiltIn(RuleId(name), domain, CheckKindName(name), params, serves, always_on, of_infrastructure)
 
 
 _F, _P = Domain.FUNCTIONAL, Domain.PROCESS
 
-# permitted-effects, least-privilege and co-change are designed (DESIGN2 §4.4) and not here: no adapter reads
-# infrastructure or git history yet, so nothing could check them. In force, each would only leave every project with
-# a standing question that no work on the project can settle. They join when an adapter can feed them.
+# co-change is designed (DESIGN2 §4.4) and not here: no adapter reads git history yet, so nothing could check it.
+# In force, it would only leave every project with a standing question that no work on the project can settle. It
+# joins when an adapter can feed it.
 BUILT_INS: Mapping[RuleId, BuiltIn] = {
     b.name: b
     for b in (
@@ -74,6 +86,8 @@ BUILT_INS: Mapping[RuleId, BuiltIn] = {
         _rule("declared-errors", _F, UNRELATED_BREAKAGE),
         _rule("access-sanity", _F, UNRELATED_BREAKAGE),
         _rule("one-writer-per-data-store", _F, UNRELATED_BREAKAGE),
+        _rule("permitted-effects", _F, UNRELATED_BREAKAGE, always_on=True, of_infrastructure=True),
+        _rule("least-privilege", _F, UNRELATED_BREAKAGE, of_infrastructure=True),
         _rule("max-lines", _P, FIND_CODE),
         _rule("max-children", _P, FIND_CODE),
         _rule("described-names", _P, REVIEW_TIME),

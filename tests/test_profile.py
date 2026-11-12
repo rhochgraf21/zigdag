@@ -10,7 +10,12 @@ from zigdag.adapters.python.profiler import read_profile
 from zigdag.cli import plans
 from zigdag.cli.files import from_disk
 from zigdag.core.codec import Unreadable
+from zigdag.adapters.adapter import Presence
+from zigdag.adapters.known import adapters
 from zigdag.core.names import ProjectRoot
+from zigdag.core.settings import Settings
+
+ADAPTERS = adapters(Settings(), Presence.ABSENT)
 
 
 def scalene(root, elapsed: float, core: float, tests: float) -> str:
@@ -38,7 +43,7 @@ def test_a_profile_is_read_line_by_line_with_paths_the_project_names(tmp_path):
 def test_each_part_is_shown_beside_what_it_cost_in_the_run_before(tmp_path):
     root = build(tmp_path)
     a = plans.analysis(from_disk(root))
-    shown = plans.costs(a, ProjectRoot(root), scalene(root, 3.0, 60.0, 5.0), scalene(root, 2.0, 30.0, 5.0)).out[0]
+    shown = plans.costs(a, ADAPTERS, ProjectRoot(root), scalene(root, 3.0, 60.0, 5.0), scalene(root, 2.0, 30.0, 5.0)).out[0]
     lines = shown.splitlines()
     assert lines[0] == "the tests ran for 3.0 s, holding at most 40 MB at once; the run before, 2.0 s and 40 MB"
     core = next(line for line in lines if line.startswith("shop.core"))
@@ -52,7 +57,7 @@ def test_each_part_is_shown_beside_what_it_cost_in_the_run_before(tmp_path):
 
 def test_without_a_profile_it_says_how_to_make_one(tmp_path):
     a = plans.analysis(from_disk(build(tmp_path)))
-    told = plans.costs(a, ProjectRoot(tmp_path), None, None)
+    told = plans.costs(a, ADAPTERS, ProjectRoot(tmp_path), None, None)
     assert told.exit == plans.REFUSED and "run zigdag profile" in told.err[0]
 
 
@@ -60,6 +65,6 @@ def test_without_a_profile_it_says_how_to_make_one(tmp_path):
 def test_a_line_the_profiler_suspects_of_leaking_is_shown_with_its_part(tmp_path):
     root = build(tmp_path)
     a = plans.analysis(from_disk(root))
-    lines = plans.costs(a, ProjectRoot(root), scalene(root, 3.0, 60.0, 5.0), None).out[0].splitlines()
+    lines = plans.costs(a, ADAPTERS, ProjectRoot(root), scalene(root, 3.0, 60.0, 5.0), None).out[0].splitlines()
     leak = lines[lines.index("suspected memory leaks, as scalene judges them:") + 1]
     assert leak.split() == ["src/shop/core.py:6", "shop.core", "99%", "likely", "growing", "1.50", "MB/s"]

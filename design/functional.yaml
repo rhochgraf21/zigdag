@@ -327,6 +327,8 @@ frs:
   zigdag.core.code.model:
     statements:
       hold: The model shall hold the code model with the units and the libraries of the code model.
+      joined: When more than one adapter reads a project, the model shall join what the adapters read into one code model.
+      same-name: If two adapters name a unit alike, then the model shall report a break.
 
   zigdag.core.code.model.code_model:
     statements:
@@ -338,7 +340,31 @@ frs:
 
   zigdag.core.code.model.unit_kind:
     statements:
-      hold: The unit kind shall name whether a unit is a module, a package or a table.
+      hold: The unit kind shall name whether a unit is a module, a package, a table or a deployed resource.
+
+  zigdag.core.code.model.resources:
+    statements:
+      hold: The resources shall hold what the code uses and what the infrastructure grants of the deployed resources.
+
+  zigdag.core.code.model.resources.resource_access:
+    statements:
+      hold: The resource access shall name whether a resource is read or written.
+
+  zigdag.core.code.model.resources.resource_use:
+    statements:
+      hold: The resource use shall hold one call to a client of a deployed resource.
+
+  zigdag.core.code.model.resources.setting:
+    statements:
+      hold: The setting shall hold one setting of a deployed unit that names another resource.
+
+  zigdag.core.code.model.resources.grant:
+    statements:
+      hold: The grant shall hold the access that the infrastructure grants on one resource.
+
+  zigdag.core.code.model.level:
+    statements:
+      hold: The level shall name whether a part of the design is a system, a container, a component or a structure.
 
   zigdag.core.code.model.libraries:
     statements:
@@ -547,6 +573,8 @@ frs:
   zigdag.core.analysis.resolve:
     statements:
       own: The resolve shall give every unit of code exactly one design parameter.
+      supporting: When the record places a supporting resource nowhere, the resolve shall give the supporting resource the design parameter of the container that the supporting resource supports.
+      own-adapter: If a code name names no code of the adapter of the code name, then the resolve shall report a break.
 
   zigdag.core.analysis.resolve.dp:
     statements:
@@ -563,6 +591,10 @@ frs:
   zigdag.core.analysis.relate.edge:
     statements:
       hold: The edge shall link a place in one design parameter to the code in another design parameter that the place depends on.
+
+  zigdag.core.analysis.relate.resource_effect:
+    statements:
+      hold: The resource effect shall hold one call to a client of a deployed resource with the container that the call reads or writes.
 
   zigdag.core.analysis.relate.origin:
     statements:
@@ -660,6 +692,8 @@ frs:
       data: When a rule covers data, the checks shall report each use of the data that the rule does not allow.
       states: When a statement names a state or a feature, the checks shall report each state or feature that the data does not have.
       evidence-runs: If a test ran no code of the design parameter that the test verifies, then the checks shall report a break.
+      permitted: If code has a resource effect that the infrastructure does not grant, then the checks shall report a break.
+      least: If the infrastructure grants access that no code uses, then the checks shall report a question.
       evidence-current: When a test passed against code that has changed since, the checks shall report the evidence as out of date.
       narrow: If a function that another design parameter uses reads a single field of a class that the function takes, then the checks shall ask about the function.
       single-implementation: If an abstraction has exactly one implementation, then the checks shall ask about the abstraction.
@@ -723,6 +757,71 @@ frs:
     statements:
       read: The adapters shall read the code of each supported language into the code model.
       reports: When a linter or a type checker reports on the code, the adapters shall read each diagnostic from the Code Quality report of the tool.
+      known: When the cli reads a project, the adapters shall give each adapter that the settings of the project set up.
+      sarif: When a tool writes a SARIF report, the adapters shall read each diagnostic from the report.
+
+  zigdag.adapters.interface:
+    statements:
+      ask: The interface shall name what the cli asks of each adapter.
+
+  zigdag.adapters.presence:
+    statements:
+      hold: The presence shall name whether the shell found something that the cli looked for.
+
+  zigdag.adapters.test_run:
+    statements:
+      hold: The test run shall give the command that runs the tests of one adapter.
+
+  zigdag.adapters.profiling:
+    statements:
+      hold: The profiling shall give the command that runs the tests of one adapter under the profiler of the adapter.
+
+  zigdag.adapters.tools:
+    statements:
+      run: The tools shall give the command that runs each tool that a rule needs.
+
+  zigdag.adapters.tools.tool:
+    statements:
+      hold: The tool shall name a tool that an adapter runs on the source.
+
+  zigdag.adapters.tools.tool_run:
+    statements:
+      hold: The tool run shall give the command that runs one tool on the source.
+
+  zigdag.adapters.tools.tool_output:
+    statements:
+      hold: The tool output shall hold what the shell saw when the shell ran one tool.
+
+  zigdag.adapters.tools.tool_start:
+    statements:
+      hold: The tool start shall name whether the shell started a tool.
+
+  zigdag.adapters.terraform:
+    statements:
+      read: The terraform shall read each resource of a rendered plan into the code model, with the resources that the resource references.
+      locate: When the source writes a resource, the terraform shall place the resource at the block of the source.
+      unrendered: If the source of a project has no rendered plan, then the terraform shall report a thing to do.
+      untraced: If a resource refers to a local value, then the terraform shall report a question.
+      older: If the source declares a resource that the rendered plan lacks, then the terraform shall report a thing to do.
+      tests: When a test file holds a run, the terraform shall read the run as a test with the statements that the run verifies.
+      plan-only: If a run applies while the project lets the tests only plan, then the terraform shall report a break.
+      tools: When a rule needs lint or security diagnostics, the terraform shall read what tflint or trivy report about the source.
+      grants: When a policy grants an action on a resource, the terraform shall read the grant with the role that holds the policy.
+      written-policies: When a block writes a policy as text, the terraform shall read each statement of the policy from the source.
+      connections: When a network rule lets one security group reach another, the terraform shall read the connection.
+      settings: When a block gives a resource a setting that names another resource, the terraform shall read the setting.
+
+  zigdag.adapters.terraform.mode:
+    statements:
+      hold: The mode shall name what the tests of a project do to the infrastructure.
+
+  zigdag.adapters.terraform.terraform_files:
+    statements:
+      hold: The terraform files shall hold the text that the shell read for the Terraform adapter.
+
+  zigdag.adapters.terraform.terraform_adapter:
+    statements:
+      choose: The terraform adapter shall name the files of a project that the Terraform adapter reads.
 
   zigdag.adapters.python:
     statements:
@@ -731,6 +830,7 @@ frs:
       security: When a rule needs security diagnostics, the python shall read what bandit reports about the source of the project.
       profile: When the tests are profiled, the python shall read the time and the memory of each line from the profile that scalene writes.
       tool-failed: If a tool that a rule needs cannot report on the source, then the python shall report a break.
+      resource-uses: When the code calls a client of a deployed resource, the python shall read the call with the setting that names the resource.
 
   zigdag.adapters.python.python_files:
     statements:
@@ -744,21 +844,10 @@ frs:
     statements:
       hold: The recording shall hold everything that one watched run of the tests saw.
 
-  zigdag.adapters.python.tool:
+  zigdag.adapters.python.python_adapter:
     statements:
-      hold: The tool shall name a tool that the Python adapter runs on the source.
-
-  zigdag.adapters.python.tool_run:
-    statements:
-      hold: The tool run shall give the command that runs one tool on the source.
-
-  zigdag.adapters.python.tool_output:
-    statements:
-      hold: The tool output shall hold what the shell saw when the shell ran one tool.
-
-  zigdag.adapters.python.tool_start:
-    statements:
-      hold: The tool start shall name whether the shell started a tool.
+      choose: The python adapter shall name the files of a project that the Python adapter reads.
+      run: When the cli runs the tools or the tests of a project, the python adapter shall give the command of each run.
 
   zigdag.watchers:
     serves:
@@ -836,10 +925,6 @@ frs:
   zigdag.cli.plans.write:
     statements:
       hold: The write shall hold one file with the text to write to the file.
-
-  zigdag.cli.plans.presence:
-    statements:
-      hold: The presence shall name whether the shell found something that the cli looked for.
 
   zigdag.cli.plans.view:
     statements:

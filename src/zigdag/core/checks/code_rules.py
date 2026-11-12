@@ -14,17 +14,20 @@ from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import (
     RETURNED,
     Crossing,
+    Grant,
+    ResourceAccess,
     Outcome,
     Place,
     Qualified,
     Symbol,
+    UnitKind,
     SymbolKind,
     TypeExpr,
     TypeKind,
     Verdict,
 )
 from zigdag.core.effects import Effect, expand, phrase
-from zigdag.core.relate import Edge, Where, classify
+from zigdag.core.relate import Edge, ResourceEffect, Where, classify
 from zigdag.core.resolve import Level
 from zigdag.core.findings import Finding, Result, finding
 from zigdag.core.names import CheckKindName, FrName
@@ -164,8 +167,73 @@ def container_boundaries(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
 
 
 def one_writer_per_data_store(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
-    """Data containers come from infrastructure adapters; with none described, there is nothing to share."""
-    return ()
+    """Each data container is written by the code of one container. Data containers come from infrastructure
+    adapters; with none described, there is nothing to share."""
+    writers: dict[FrName, dict[FrName, ResourceEffect]] = {}
+    for r in ctx.relations.resource_effects:
+        if r.use.access is ResourceAccess.WRITE and r.container != r.on:
+            writers.setdefault(r.on, {}).setdefault(r.container, r)
+    for on, by in sorted(writers.items()):
+        if len(by) > 1 and ctx.in_scope(rule, on):
+            first, *others = (by[c] for c in sorted(by))
+            for other in others:
+                yield broken(rule, on, other.use.span,
+                             f"{on} is written by {other.container} (at {other.use.at}, through {other.use.via}) and "
+                             f"by {first.container}: one container writes a data container", other.container)
+
+
+def _granted(ctx: Context, r: ResourceEffect) -> list[Grant]:
+    """The grants that let a container's code do what it does to another: given to a unit that is the container's,
+    or the whole system's, on a unit of the other."""
+    return [g for g in ctx.model.grants if g.access in (r.use.access, None)
+            and ctx.tree.unit_owner.get(g.on) == r.on
+            and (to := ctx.tree.unit_owner.get(g.to)) is not None and ctx.tree.within(r.container, to)]
+
+
+def permitted_effects(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
+    """The code never needs access the infrastructure does not grant: otherwise it would fail once deployed
+    (DESIGN2 §5.3). A call whose resource cannot be told is a question."""
+    for use in ctx.relations.untraced:
+        if ctx.in_scope(rule, ctx.relations.dp_of(use.at)) and not rule.skips(ctx.tree, use.at):
+            why = (f"the name of the resource reaches it through {use.setting}, which the infrastructure sets on no "
+                   f"container this code is deployed in" if use.setting is not None else
+                   "the name of the resource does not reach it through a setting that zigdag can trace")
+            yield asked(rule, str(use.at), use.span,
+                        f"{use.at} {_ACCESS[use.access]} a deployed resource (through {use.via}), and which one "
+                        f"cannot be told: {why}", use.via)
+    for r in ctx.relations.resource_effects:
+        if not ctx.in_scope(rule, ctx.relations.dp_of(r.use.at)) or rule.skips(ctx.tree, r.use.at):
+            continue
+        granted = _granted(ctx, r)
+        if not granted:
+            yield broken(rule, str(r.use.at), r.use.span,
+                         f"{r.use.at} is {phrase(r.effect)} (through {r.use.via}), and the infrastructure grants "
+                         f"{r.container} no such access: it would fail once deployed", r.effect)
+        elif all(g.access is None for g in granted):
+            yield asked(rule, str(r.use.at), r.use.span,
+                        f"{r.use.at} is {phrase(r.effect)} (through {r.use.via}), and what the infrastructure "
+                        f"grants {r.container} on {r.on} could not be read ({granted[0].action})", r.effect)
+
+
+def least_privilege(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
+    """The infrastructure grants no access that no code uses. A guess: code zigdag does not read may use it."""
+    used = {(r.container, r.on, r.use.access) for r in ctx.relations.resource_effects}
+    asked_of: set[tuple[FrName, FrName, ResourceAccess]] = set()
+    for g in sorted(ctx.model.grants, key=lambda g: (g.span, g.action)):
+        to, on = ctx.tree.unit_owner.get(g.to), ctx.tree.unit_owner.get(g.on)
+        if g.access is None or to is None or on is None or to == on or not ctx.in_scope(rule, to):
+            continue
+        # A grant to a unit the whole system owns is used when any container's code uses it.
+        if any(ctx.tree.within(c, to) and o == on and a is g.access for c, o, a in used):
+            continue
+        if (to, on, g.access) not in asked_of:
+            asked_of.add((to, on, g.access))
+            yield asked(rule, to, g.span,
+                        f"the infrastructure lets {to} {g.access.value} {on} ({g.action}), and no code of {to} does",
+                        f"{on}.{g.access.value}")
+
+
+_ACCESS: Mapping[ResourceAccess, str] = {ResourceAccess.READ: "reads", ResourceAccess.WRITE: "writes to"}
 
 
 # ---- effects -----------------------------------------------------------------------------------------------------
@@ -441,6 +509,8 @@ def designed_modules(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
         owner = ctx.tree.unit_owner.get(path)
         if path in named or unit.size == NO_LINES or owner is None or rule.skips(ctx.tree, path):
             continue  # a file with nothing in it adds nothing; a file nobody owns is already a coverage break
+        if unit.kind is UnitKind.SUPPORT:
+            continue  # a supporting resource is its container's by design, with no name of its own (DESIGN2 §5.3)
         if ctx.in_scope(rule, owner):
             yield broken(rule, path, unit.span,
                          f"{path} is not in the design: it sits inside the code of {owner}, and no design parameter "
@@ -455,6 +525,8 @@ CHECKS: Mapping[CheckKindName, Check] = {
     CheckKindName("declared-libraries"): declared_libraries,
     CheckKindName("container-boundaries"): container_boundaries,
     CheckKindName("one-writer-per-data-store"): one_writer_per_data_store,
+    CheckKindName("permitted-effects"): permitted_effects,
+    CheckKindName("least-privilege"): least_privilege,
     CheckKindName("effects"): effects,
     CheckKindName("edge-types"): edge_types,
     CheckKindName("declared-errors"): declared_errors,

@@ -38,6 +38,7 @@ TYPESCRIPT = AdapterName("typescript")
 GO = AdapterName("go")
 RUST = AdapterName("rust")
 ADAPTERS: frozenset[AdapterName] = frozenset({PYTHON, TERRAFORM, SQL, TYPESCRIPT, GO, RUST})
+INFRASTRUCTURE: frozenset[AdapterName] = frozenset({TERRAFORM})  # the adapters that read what is deployed
 
 _FR = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*")
 _SLUG = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")

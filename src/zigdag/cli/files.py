@@ -9,9 +9,10 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
-from zigdag.adapters.python.tools import ExitStatus, ToolOutput, ToolRun, finished, not_started
+from zigdag.adapters.tools import ExitStatus, ToolOutput, ToolRun, finished, not_started
 from zigdag.cli import plans
-from zigdag.cli.plans import Files, GitError, Presence
+from zigdag.adapters.adapter import Presence
+from zigdag.cli.plans import Files, GitError
 from zigdag.core.checks.custom import Loaded, Loading, defined, unloaded
 from zigdag.core.texts import ToolText
 
@@ -31,7 +32,7 @@ def text(path: Path) -> str | None:
 def from_disk(root: Path) -> Files:
     where = plans.on_disk(root)
     reading = plans.Reading.of(text(where.settings), Presence(where.conventional_source.is_dir()))
-    paths = plans.present(root, [(path, Presence(path.is_file())) for path in where.always])
+    paths = plans.present(root, [(path, Presence(path.is_file())) for path in plans.always(root, reading)])
     for base in plans.walked(root, reading):
         for here, folders, names in os.walk(base):
             folders[:] = plans.visited(folders)

@@ -5,27 +5,20 @@ Hides the mapping rules: relative names, defaults, the most specific claim winni
 
 from __future__ import annotations
 
-import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 import deal
 
 from zigdag.core.record.model import Record
-from zigdag.core.code import CodeModel, Place, Qualified, SymbolKind
+from zigdag.core.code import CodeModel, DependencyKind, Level, Place, Qualified, SymbolKind, UnitKind
 from zigdag.core.findings import Finding, Result, Span, finding
 from zigdag.core.names import AdapterName, CodePath, FrName, is_within, parent
 
+DEPLOYED = (UnitKind.RESOURCE, UnitKind.SUPPORT)  # what infrastructure adapters read: named absolutely, not in code
 COVERAGE = "coverage"
 LEVELS = "levels"
 PLACEMENT = "placement"
-
-
-class Level(enum.IntEnum):
-    SYSTEM = 0
-    CONTAINER = 1
-    COMPONENT = 2
-    STRUCTURE = 3
 
 
 @dataclass(frozen=True)
@@ -72,6 +65,19 @@ class Tree:
     def within(self, name: FrName, ancestor: FrName) -> bool:
         return name == ancestor or name.startswith(ancestor + ".")
 
+    @deal.ensure(lambda self, name, result: result is None or (
+        is_within(name, result) and self.dps[result].level is Level.CONTAINER))
+    def container_of(self, name: FrName) -> FrName | None:
+        """The container a design parameter is, or is deployed in: the nearest at or above it; None when the record
+        puts it in none."""
+        at: FrName | None = name
+        while at is not None:
+            dp = self.dps.get(at)
+            if dp is not None and dp.level is Level.CONTAINER:
+                return at
+            at = parent(at)
+        return None
+
     @deal.ensure(lambda self, name, result: result <= set(self.dps) and (name in result) == (name in self.dps))
     @deal.ensure(lambda self, name, result: all(is_within(n, name) for n in result))
     def subtree(self, name: FrName) -> frozenset[FrName]:
@@ -106,16 +112,87 @@ def _camel(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_"))
 
 
-def _claim(model: CodeModel, bases: tuple[str, ...], path: str) -> Claim | None:
-    """A unit or type named relative to the bases (or absolutely, when no base has it)."""
+def _claim(model: CodeModel, adapter: AdapterName | None, bases: tuple[str, ...], path: str) -> Claim | None:
+    """A unit or type of an adapter, named relative to the bases (or absolutely, when no base has it)."""
     for base in (*bases, ""):
         candidate = f"{base}.{path}" if base else path
-        if CodePath(candidate) in model.units:
-            return Claim(CodePath(candidate))
+        unit = model.units.get(CodePath(candidate))
+        if unit is not None and unit.adapter == adapter:
+            return Claim(unit.path)
         symbol = model.symbols.get(Qualified(candidate))
-        if symbol is not None and symbol.kind is SymbolKind.CLASS:
+        if symbol is not None and symbol.kind is SymbolKind.CLASS and model.units[symbol.unit].adapter == adapter:
             return Claim(symbol.unit, Qualified(candidate))
     return None
+
+
+def _kinds_of(model: CodeModel, adapter: AdapterName | None) -> str:
+    """What an adapter's code names can name, for saying that one names nothing."""
+    deployed = any(u.adapter == adapter and u.kind in DEPLOYED for u in model.units.values())
+    return "resource" if deployed else "module, package or class"
+
+
+def _level(model: CodeModel, claims: tuple[Claim, ...]) -> Level:
+    """The level of a DP that has code: the outermost its code can be, so a container with the code deployed in it
+    is a container."""
+    return min(Level.STRUCTURE if c.type else model.units[c.unit].level for c in claims)
+
+
+def _references(model: CodeModel) -> dict[CodePath, set[CodePath]]:
+    """Each deployed unit, and the deployed units it references."""
+    out: dict[CodePath, set[CodePath]] = {}
+    for d in model.dependencies:
+        # Only what a resource is made from says whose it is: that one may reach another, or is granted access to
+        # it, says how two containers relate.
+        target = model.unit_of(d.target) if d.kind is DependencyKind.REFERENCE else None
+        if target is not None and target != d.source.unit and model.units[target].kind in DEPLOYED:
+            out.setdefault(d.source.unit, set()).add(target)
+    return out
+
+
+def _one_owner(owners: set[FrName], root: FrName | None) -> FrName | None:
+    """Whose a supporting resource is, given the containers it belongs with: theirs when they are one design
+    parameter's, and the system's when they are several's (DESIGN2 §5.3)."""
+    return next(iter(owners)) if len(owners) == 1 else root
+
+
+def _supported(model: CodeModel, unit_owner: Mapping[CodePath, FrName], root: FrName | None) -> dict[CodePath, FrName]:
+    """Whose each supporting resource is, when the record places it nowhere (DESIGN2 §5.3). One that no container
+    leads to is left out, for coverage to report.
+
+    First, as the spec has it: a supporting resource belongs to the container that references it, directly or
+    through other supporting resources. Then the other way round, which the spec does not say: one that nothing
+    references belongs with what it references, since an attachment, a bucket policy or a permission is written
+    pointing at what it is for."""
+    references = _references(model)
+    reached: dict[CodePath, set[FrName]] = {}
+    for start, owner in sorted(unit_owner.items()):
+        ahead = [start] if model.units[start].kind in DEPLOYED else []
+        while ahead:
+            for target in sorted(references.get(ahead.pop(), ())):
+                unowned = target not in unit_owner and model.units[target].kind is UnitKind.SUPPORT
+                if unowned and owner not in reached.setdefault(target, set()):
+                    reached[target].add(owner)
+                    ahead.append(target)
+    found = {**unit_owner, **{unit: owner for unit, owners in reached.items()
+                              if (owner := _one_owner(owners, root)) is not None}}
+    reached_back: dict[CodePath, FrName] = {}
+
+    def pointed_at(unit: CodePath, passed: frozenset[CodePath]) -> set[FrName]:
+        """The owners of everything a unit leads to by references, through supporting resources nobody owns."""
+        owners: set[FrName] = set()
+        for target in references.get(unit, ()):
+            if target in found:
+                owners.add(found[target])
+            elif target not in passed:
+                owners |= pointed_at(target, passed | {target})
+        return owners
+
+    for unit in sorted(model.units):
+        if unit not in found and model.units[unit].kind is UnitKind.SUPPORT:
+            owner = _one_owner(owners, root) if (owners := pointed_at(unit, frozenset({unit}))) else None
+            if owner is not None:
+                reached_back[unit] = owner
+    return {**{u: o for u, o in found.items() if u not in unit_owner}, **reached_back}
 
 
 def _default(model: CodeModel, bases: tuple[str, ...], last: str) -> Claim | None:
@@ -154,10 +231,10 @@ def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | Non
                 if adapter not in model.adapters:
                     other_adapters.setdefault(adapter, []).append(name)
                     continue
-                claim = _claim(model, inherited, unit.value.path)
+                claim = _claim(model, adapter, inherited, unit.value.path)
                 if claim is None:
                     problems.append(finding(Result.BREAKS, PLACEMENT, name, unit.span,
-                                            f'no module, package or class "{unit.value.path}" in the code'))
+                                            f'no {_kinds_of(model, adapter)} "{unit.value.path}" in the code'))
                 else:
                     found.append(claim)
         else:
@@ -165,7 +242,8 @@ def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | Non
             if claim is not None:
                 found.append(claim)
         claims[name] = tuple(found)
-        own = tuple(c.unit if c.type is None else c.type for c in found)
+        # Names are read inside code, never inside a deployed resource, which holds no names (§7.5).
+        own = tuple(c.unit if c.type is None else c.type for c in found if model.units[c.unit].kind not in DEPLOYED)
         bases[name] = own if own else inherited
 
     for adapter, dps in sorted(other_adapters.items()):
@@ -178,7 +256,7 @@ def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | Non
         if "." not in name:
             levels[name] = Level.SYSTEM
         elif claims[name]:
-            levels[name] = Level.STRUCTURE if any(c.type for c in claims[name]) else Level.COMPONENT
+            levels[name] = _level(model, claims[name])
         else:
             child_levels = [levels[c] for c in children[name] if levels.get(c) is not None]
             levels[name] = min(child_levels) if child_levels else None
@@ -212,6 +290,7 @@ def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | Non
             if owners:
                 unit_owner[unit] = owners[0]
                 break
+    unit_owner.update(_supported(model, dict(unit_owner), names[0] if names and "." not in names[0] else None))
     for unit in sorted(set(model.units) - set(unit_owner)):
         u = model.units[unit]
         if any(other.startswith(unit + ".") and other in unit_owner for other in model.units) and u.size == 0:

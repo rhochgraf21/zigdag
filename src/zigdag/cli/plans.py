@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import enum
-import fnmatch
 import json
 import shlex
 from collections.abc import Iterable, Mapping, Sequence
@@ -17,11 +16,13 @@ from typing import NewType
 
 import deal
 
+from zigdag.adapters.adapter import Adapter, Files, Presence, Profiling
+from zigdag.adapters.known import adapters as known_adapters
 from zigdag.adapters.python import PythonFiles, read_python
+from zigdag.adapters.python.adapter import CONVENTIONAL_SOURCE, PythonAdapter
+from zigdag.adapters.python.adapter import SUFFIX as PYTHON_SUFFIX
 from zigdag.adapters.python.observed import Recording
-from zigdag.adapters.python.profiler import PROFILER, full_profile, profiled, read_profile
-from zigdag.adapters.python import tools
-from zigdag.adapters.python.tools import ToolOutput, ToolRun
+from zigdag.adapters.tools import ToolOutput, ToolRun
 from zigdag.agents import claude
 from zigdag.core import log as lg
 from zigdag.core import views
@@ -45,8 +46,6 @@ from zigdag.core.review import Change, ChangeKind, diff, new_findings, render
 from zigdag.core.rubric import RUBRIC_VERSION
 from zigdag.core.settings import (
     CARRIED_FILE,
-    DEFAULT_REPORT,
-    DEFAULT_TEST_COMMAND,
     OBSERVED_FILE,
     PLAN_FILE,
     PROFILE_BEFORE,
@@ -59,11 +58,11 @@ from zigdag.core.settings import (
 )
 from zigdag.core.watch import PLAN_VARIABLE, LastRun
 from zigdag.core.watch import plan as watch_plan
-from zigdag.core.code import CodeModel
+from zigdag.core.code import CodeModel, ToolName, joined
 from zigdag.core.findings import Finding, RecordPath, Report, Result, Span, finding
 from zigdag.core.log import LOG_FILE
 from zigdag.core.measures import Count
-from zigdag.core.names import PYTHON, FolderName, FrName, RuleId, fr_name
+from zigdag.core.names import FolderName, FrName, RuleId, fr_name
 from zigdag.core.checks.custom import CHECKS_DIR, CUSTOM_CHECKS, CompiledCode, Loaded, Loading, fresh_names, read_checks
 from zigdag.core.measures import Column, Line
 from zigdag.core.effects import phrase
@@ -75,17 +74,9 @@ from zigdag.core.texts import FileText, Say, Shown, Written
 ExitCode = NewType("ExitCode", int)
 OK, FOUND, REFUSED = ExitCode(0), ExitCode(1), ExitCode(2)  # nothing wrong; something breaks or would change; refused
 
-Files = Mapping[RecordPath, FileText]  # project-relative path -> text
 GitInput = NewType("GitInput", bytes)  # what git is asked, on its standard input
 GitOutput = NewType("GitOutput", bytes)  # what git answers, on its standard output or error
 Environment = NewType("Environment", dict[str, str])  # the environment variables, read once by the shell
-
-
-class Presence(enum.Enum):
-    """Whether something is there, as the shell found it: a file, a folder."""
-
-    PRESENT = True
-    ABSENT = False
 
 
 class View(enum.Enum):
@@ -98,14 +89,11 @@ class View(enum.Enum):
 class GitError(Exception):
     """A git revision could not be read."""
 
-PYPROJECT = RecordPath("pyproject.toml")
 _WHOLE_FILE = "exec"  # how Python is told to compile a whole file, not one expression
-CONVENTIONAL_SOURCE = "src"  # where Python source is, when zigdag.toml does not say
-PYTHON_SUFFIX = ".py"
 SKIPPED_FOLDERS = frozenset({"node_modules", "__pycache__"})
 HIDDEN_PREFIX = "."
 DESIGN_DEPTHS = (2, 3)  # design/<domain>.yaml, and design/<domain>/<part>.yaml
-ALWAYS_READ = frozenset({RecordPath(SETTINGS_FILE), PYPROJECT, LOG_FILE, OBSERVED_FILE, CARRIED_FILE})
+ALWAYS_READ = frozenset({RecordPath(SETTINGS_FILE), LOG_FILE, OBSERVED_FILE, CARRIED_FILE})  # zigdag's own
 GIT_MISSING = "missing"  # what `git cat-file --batch` says instead of a size for a path absent at the revision
 
 GIT_ATTRIBUTES = RecordPath(".gitattributes")
@@ -118,8 +106,6 @@ READY = "ready: yes"
 NOT_READY = "ready: no"
 FULL = "zigdag check --full"  # what shows every finding, with what the last zigdag test saw
 HOOK_FINDINGS = 15  # at most this many findings in what a hook tells an agent
-WATCHER = "zigdag.watchers.python"  # the pytest plugin that watches the tests run
-PLUGIN_OPTION, REPORT_OPTION = "-p", "--junitxml"
 TEST = "test"
 LINE_END = "\n"
 
@@ -189,45 +175,36 @@ def _under(path: str, root: str) -> bool:
 
 @dataclass(frozen=True)
 class Reading:
-    """What to read, once the settings are known."""
+    """What to read, once the settings are known: zigdag's own files, and what each adapter wants."""
 
     settings: Settings
-    source_roots: tuple[str, ...]
+    adapters: tuple[Adapter, ...]
 
     @staticmethod
-    @deal.post(lambda result: bool(result.source_roots))  # source is always somewhere, if only the project itself
-    def of(settings_text: FileText | None, has_conventional_source: Presence) -> Reading:
+    @deal.post(lambda result: len({adapter.name for adapter in result.adapters}) == len(result.adapters))
+    def of(settings_text: FileText | None, conventional_source: Presence) -> Reading:
         settings, _ = read_settings(settings_text)
-        configured = settings.source_roots(PYTHON)
-        default = (CONVENTIONAL_SOURCE,) if has_conventional_source is Presence.PRESENT else (PROJECT_ROOT,)
-        return Reading(settings, configured if configured is not None else default)
+        return Reading(settings, known_adapters(settings, conventional_source))
 
     @property
     def folders(self) -> tuple[str, ...]:
-        """The folders to walk; the whole project when the source is the project itself."""
-        if PROJECT_ROOT in self.source_roots:
-            return (PROJECT_ROOT,)
-        return (DESIGN_DIR, WORK_DIR, *self.source_roots, *self.settings.test_roots)
+        """The folders to walk; the whole project when an adapter's files may be anywhere in it."""
+        wanted = tuple(folder for adapter in self.adapters for folder in adapter.folders)
+        return (PROJECT_ROOT,) if PROJECT_ROOT in wanted else (DESIGN_DIR, WORK_DIR, *wanted)
 
-    def is_source(self, path: str) -> bool:
-        # A file of custom checks is the project's design, not its code: where the source is the whole project, it
-        # must not be read as a module that some design parameter has to own.
-        return path.endswith(PYTHON_SUFFIX) and any(_under(path, r) for r in self.source_roots) and not (
-            self.is_test(path) or is_custom_check(path))
-
-    def is_test(self, path: str) -> bool:
-        return path.endswith(PYTHON_SUFFIX) and any(_under(path, r) for r in self.settings.test_roots)
-
-    def is_report(self, path: str) -> bool:
-        return any(fnmatch.fnmatch(path, pattern) for pattern in self.settings.report_patterns)
+    @property
+    @deal.ensure(lambda self, result: ALWAYS_READ <= set(result) and result == sorted(result))
+    def always(self) -> list[RecordPath]:
+        """The single files read wherever they are, since no folder that is walked need hold them."""
+        return sorted(ALWAYS_READ | {file for adapter in self.adapters for file in adapter.files})
 
     def wants(self, path: str) -> bool:
         parts = path.split("/")
         if not all(_visited(p) for p in parts[:-1]):
             return False
         is_design = parts[0] == DESIGN_DIR and path.endswith(DESIGN_SUFFIX) and len(parts) in DESIGN_DEPTHS
-        return (path in ALWAYS_READ or is_design or is_custom_check(path) or self.is_source(path)
-                or self.is_test(path) or self.is_report(path))
+        return (path in ALWAYS_READ or is_design or is_custom_check(path)
+                or any(adapter.wants(RecordPath(path)) for adapter in self.adapters))
 
     @deal.ensure(lambda self, paths, result: result == sorted(set(result)) and all(self.wants(p) for p in result))
     def chosen(self, paths: Iterable[str]) -> list[RecordPath]:
@@ -244,13 +221,17 @@ class OnDisk:
 
     settings: Path
     conventional_source: Path
-    always: tuple[Path, ...]  # read wherever the source is
 
 
-@deal.ensure(lambda root, result: len(result.always) == len(ALWAYS_READ) and all(
-    p.is_relative_to(root) for p in (result.settings, result.conventional_source, *result.always)))
+@deal.ensure(lambda root, result: all(p.is_relative_to(root) for p in (result.settings, result.conventional_source)))
 def on_disk(root: ProjectRoot) -> OnDisk:
-    return OnDisk(root / SETTINGS_FILE, root / CONVENTIONAL_SOURCE, tuple(root / name for name in sorted(ALWAYS_READ)))
+    return OnDisk(root / SETTINGS_FILE, root / CONVENTIONAL_SOURCE)
+
+
+@deal.ensure(lambda root, reading, result: len(result) == len(reading.always))
+def always(root: ProjectRoot, reading: Reading) -> tuple[FilePath, ...]:
+    """Where each file is that is read wherever the source is."""
+    return tuple(root / name for name in reading.always)
 
 
 @deal.ensure(lambda root, reading, result: len(result) == len(reading.folders))
@@ -298,7 +279,8 @@ def listed(revision: Revision, returncode: ExitCode, stdout: GitOutput, stderr: 
     return Listed(False, "", tuple(stdout.decode(errors="surrogateescape").splitlines()))
 
 
-@deal.post(lambda result: bool(result.source_roots))
+@deal.ensure(lambda listing, settings, result: result.settings == read_settings(
+    settings.get(RecordPath(SETTINGS_FILE)))[0])
 def git_reading(listing: Listed, settings: Mapping[RecordPath, FileText]) -> Reading:
     return Reading.of(settings.get(RecordPath(SETTINGS_FILE)),
                       Presence(any(_under(p, CONVENTIONAL_SOURCE) for p in listing.paths)))
@@ -340,8 +322,13 @@ def git_files(reading: Reading, texts: Mapping[RecordPath, FileText]) -> dict[Re
 
 # ---- what was read -----------------------------------------------------------------------------------------------
 
+def _conventional(files: Files) -> Presence:
+    return Presence(any(_under(p, CONVENTIONAL_SOURCE) for p in files))
+
+
+@deal.ensure(lambda files, result: result.settings == read_settings(files.get(RecordPath(SETTINGS_FILE)))[0])
 def reading_of(files: Files) -> Reading:
-    return Reading.of(files.get(RecordPath(SETTINGS_FILE)), Presence(any(_under(p, CONVENTIONAL_SOURCE) for p in files)))
+    return Reading.of(files.get(RecordPath(SETTINGS_FILE)), _conventional(files))
 
 
 @deal.ensure(lambda files, result: all(p in files and p.startswith(f"{DESIGN_DIR}/") for p in result.design))
@@ -350,41 +337,28 @@ def project_files(files: Files) -> ProjectFiles:
     return ProjectFiles(files.get(RecordPath(SETTINGS_FILE)), design, files.get(LOG_FILE))
 
 
-def python_files(files: Files, ran: Sequence[ToolOutput] = ()) -> PythonFiles | None:
-    """What the Python adapter reads, with what its tools printed, or None when there is no Python source."""
-    reading = reading_of(files)
-    sources = {p: t for p, t in files.items() if reading.is_source(p)}
-    if not sources:
-        return None
-    return PythonFiles(sources, reading.source_roots, reading.settings.vendor,
-                       {p: t for p, t in files.items() if reading.is_test(p)}, files.get(PYPROJECT),
-                       {p: t for p, t in files.items() if reading.is_report(p)}, files.get(OBSERVED_FILE), tuple(ran))
-
-
-@deal.ensure(lambda files, result: not result or python_files(files) is not None)  # no source, nothing to run
+@deal.ensure(lambda files, result: len({run.tool for run in result}) == len(result))  # each tool once
 def tool_runs(files: Files) -> tuple[ToolRun, ...]:
-    """The linters and type checkers to run before the checks: only those that a rule in the record needs."""
-    if python_files(files) is None:
-        return ()
+    """The linters and type checkers to run before the checks: only those that a rule in the record needs, and only
+    those of an adapter that has code here."""
     record, _ = read_record(project_files(files).design)  # what cannot be read is reported when the record is checked
-    reading = reading_of(files)
-    return tools.runs(reading.settings, reading.source_roots, wanted(kinds_named(record)))
+    needed = tuple(wanted(kinds_named(record)))
+    return tuple(run for adapter in reading_of(files).adapters for run in adapter.tool_runs(files, needed))
 
 
-def source_roots(files: Files) -> tuple[str, ...]:
-    """Where the project's Python source is."""
-    return reading_of(files).source_roots
+@deal.ensure(lambda files, ran=(), *, result: result is None or bool(result.units) or bool(result.problems))
+def code_model(files: Files, ran: Sequence[ToolOutput] = ()) -> CodeModel | None:
+    """What every adapter read of the project, each given what its own tools printed, as one code model; None when
+    no adapter found anything of its kind."""
+    models = [model for adapter in reading_of(files).adapters
+              if (model := adapter.read(files, [o for o in ran if o.tool.adapter == adapter.name])) is not None]
+    return joined(models) if models else None
 
 
 def test_files(files: Files) -> dict[RecordPath, str]:
-    reading = reading_of(files)
-    return {p: t for p, t in files.items() if reading.is_test(p)}
-
-
-@deal.ensure(lambda files, ran=(), *, result: (result is None) == (python_files(files) is None))  # no source, no model
-def code_model(files: Files, ran: Sequence[ToolOutput] = ()) -> CodeModel | None:
-    python = python_files(files, ran)
-    return read_python(python) if python is not None else None
+    """The files of the project's tests, whatever they are written in."""
+    roots = reading_of(files).settings.test_roots
+    return {p: t for p, t in files.items() if any(_under(p, r) for r in roots)}
 
 
 def _custom_sources(files: Files) -> dict[RecordPath, FileText]:
@@ -426,7 +400,7 @@ def loadings(files: Files) -> tuple[Loading, ...]:
     return _compiled(files)[0]
 
 
-@deal.ensure(lambda files, ran=(), loaded=(), *, result: (result.code is None) == (python_files(files) is None))
+@deal.ensure(lambda files, ran=(), loaded=(), *, result: (result.code is None) == (code_model(files) is None))
 def analysis(files: Files, ran: Sequence[ToolOutput] = (), loaded: Sequence[Loaded] = ()) -> Analysis:
     """The analysis of the files, of what the tools that tool_runs chose printed, and with the custom checks that
     were loaded; a revision read from git has no tools run on it, so the rules that need them wait there."""
@@ -639,18 +613,32 @@ class ProfiledRun:
     root: Path
     profile: Path  # where the profiler writes the profile
     before: Path  # where the profile from the run before is kept, to compare with
+    unwritten: Say = Say("")  # what to look at when the tests ran and the profiler wrote no profile
 
 
-@deal.ensure(lambda a, root, extra, result: result.refused or PROFILE_FILE in result.command)
-def profile(a: Analysis, root: ProjectRoot, extra: Sequence[Argument]) -> ProfiledRun:
+def _profiler(a: Analysis, adapters: Sequence[Adapter],
+              extra: Sequence[Argument] = ()) -> tuple[Adapter, Profiling] | None:
+    """The adapter whose profiler the tests run under, and how: the first that has both code here and a profiler,
+    since a profile is of one run of the tests."""
+    having = a.code.adapters if a.code is not None else frozenset()
+    return next(((adapter, profiling) for adapter in adapters if adapter.name in having
+                 and (profiling := adapter.profiled_tests(extra)) is not None), None)
+
+
+@deal.ensure(lambda a, adapters, root, extra, result: result.refused or PROFILE_FILE in result.command)
+def profile(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot, extra: Sequence[Argument]) -> ProfiledRun:
     """The tests run once more, under the adapter's profiler, for zigdag stats (DESIGN2 §4.7)."""
     written, before = root / PROFILE_FILE, root / PROFILE_BEFORE
     if a.code is None:
         return ProfiledRun(True, refused("no code was read, so there is nothing to profile"), Outcome(), (), root,
                            written, before)
-    command = profiled(a.settings, extra)
+    chosen = _profiler(a, adapters, extra)
+    if chosen is None:
+        return ProfiledRun(True, refused("no adapter that read code here has a profiler"), Outcome(), (), root,
+                           written, before)
+    command = chosen[1].command
     starting = Outcome(out=(Shown(f"profiling the tests: {shlex.join(command)}"),))
-    return ProfiledRun(False, Outcome(), starting, command, root, written, before)
+    return ProfiledRun(False, Outcome(), starting, command, root, written, before, chosen[1].unwritten)
 
 
 NEW = "none"  # what a part cost in the run before, when it had no cost then
@@ -661,13 +649,13 @@ def _shown(c: Cost | None) -> tuple[str, str, str]:
     return (f"{c.seconds:.2f} s", f"{c.time:.0f}%", f"{c.allocated:.1f} MB") if c is not None else (NEW, NEW, NEW)
 
 
-def _leaks(found: tuple[Suspect, ...]) -> list[str]:
+def _leaks(found: tuple[Suspect, ...], profiler: ToolName) -> list[str]:
     """The lines the profiler suspects of leaking, the likeliest first, or that it suspects none."""
     if not found:
         return ["no suspected memory leaks"]
     rows = [(f"{s.leak.span.path}:{s.leak.span.line}", s.part, f"{s.leak.likelihood:.0%} likely",
              f"growing {s.leak.growth:.2f} MB/s") for s in found]  # a whole line: scalene names no column
-    return [f"suspected memory leaks, as {PROFILER} judges them:", *(f"  {r}" for r in _table(rows))]
+    return [f"suspected memory leaks, as {profiler} judges them:", *(f"  {r}" for r in _table(rows))]
 
 
 def _change(now: str, before: str) -> str:
@@ -680,17 +668,22 @@ def _table(rows: list[tuple[str, ...]]) -> list[str]:
     return [(" " * COLUMN_GAP).join(cell.ljust(w) for cell, w in zip(r, widths)).rstrip() for r in rows]
 
 
-@deal.ensure(lambda a, root, now, before, result: _changes_nothing(result))
-def costs(a: Analysis, root: ProjectRoot, now: FileText | None, before: FileText | None) -> Outcome:
+@deal.ensure(lambda a, adapters, root, now, before, result: _changes_nothing(result))
+def costs(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot, now: FileText | None,
+          before: FileText | None) -> Outcome:
     """Where the time and memory of the latest profiled run went, by design part, beside the run before it."""
     if a.code is None or a.tree is None:
         return refused("no code was read, so a profile cannot be told by design part")
+    chosen = _profiler(a, adapters)
+    if chosen is None:
+        return refused("no adapter that read code here has a profiler")
+    adapter, profiling = chosen
     if now is None:
         return refused("there is no profile yet: run zigdag profile")
-    latest = read_profile(now, root)
+    latest = adapter.read_profile(now, root)
     if isinstance(latest, Unreadable):
         return refused(f"{PROFILE_FILE} cannot be read: {latest.say}")
-    earlier = read_profile(before, root) if before is not None else None
+    earlier = adapter.read_profile(before, root) if before is not None else None
     earlier = earlier if isinstance(earlier, Profile) else None  # one that cannot be read compares with nothing
     tests = a.settings.test_roots
     parts = by_part(latest, a.code, a.tree, tests)
@@ -704,19 +697,20 @@ def costs(a: Analysis, root: ProjectRoot, now: FileText | None, before: FileText
     more = len(parts) - PARTS_SHOWN
     found = suspects(latest, a.code, a.tree, tests)
     return Outcome(out=(Shown("\n".join([head, "", *_table(rows), *([f"and {more} more parts"] if more > 0 else []),
-                                         "", *_leaks(found), "", full_profile(a.settings)])),))
+                                         "", *_leaks(found, profiling.profiler), "", profiling.full])),))
 
 
-@deal.ensure(lambda run, written, returncode, a, now, before, result: _changes_nothing(result) or result.exit == REFUSED)
-@deal.ensure(lambda run, written, returncode, a, now, before, result: written is Presence.PRESENT
+@deal.ensure(lambda run, written, returncode, a, adapters, now, before, result:
+             _changes_nothing(result) or result.exit == REFUSED)
+@deal.ensure(lambda run, written, returncode, a, adapters, now, before, result: written is Presence.PRESENT
              or result.exit == REFUSED)
-def profiled_run(run: ProfiledRun, written: Presence, returncode: ExitCode, a: Analysis, now: FileText | None,
-                 before: FileText | None) -> Outcome:
+def profiled_run(run: ProfiledRun, written: Presence, returncode: ExitCode, a: Analysis, adapters: Sequence[Adapter],
+                 now: FileText | None, before: FileText | None) -> Outcome:
     shown = shlex.join(run.command)
     if written is Presence.ABSENT:
         return refused(f"the tests ran under the profiler ({shown} exited {returncode}), but it wrote no profile: "
-                       f"is scalene installed where the tests run?")
-    table = costs(a, ProjectRoot(run.root), now, before)
+                       f"{run.unwritten}")
+    table = costs(a, adapters, ProjectRoot(run.root), now, before)
     return Outcome(OK if returncode == 0 else FOUND, (*table.out, Shown(f"tests: {shown} exited {returncode}")))
 
 
@@ -731,6 +725,26 @@ class WatchedRun:
     command: tuple[Argument, ...]
     root: ProjectRoot
     environment: Environment
+    unseen: Say = Say("")  # what to look at when the tests ran and the watcher wrote nothing
+    unwatched: tuple[tuple[Argument, ...], ...] = ()  # the test commands of adapters that have no watcher, run after
+
+    @property
+    @deal.ensure(lambda self, result: len(result) == len(self.unwatched) + bool(self.command))
+    def commands(self) -> tuple[tuple[Argument, ...], ...]:
+        """Every test command of the run, in the order they are run: the watched one, when there is one, first."""
+        return (*((self.command,) if self.command else ()), *self.unwatched)
+
+    @property
+    @deal.ensure(lambda self, result: all(shlex.join(command) in result for command in self.commands))
+    def shown(self) -> Shown:
+        return Shown("; ".join(shlex.join(command) for command in self.commands))
+
+
+@deal.post(lambda result: result >= 0)
+@deal.ensure(lambda codes, result: (result == OK) == all(code == OK for code in codes))
+def exited(codes: Sequence[ExitCode]) -> ExitCode:
+    """What several test commands exited with, as one: the first that is not zero, so a failure of any is one."""
+    return next((code for code in codes if code != OK), OK)
 
 
 def _kept(files: Files) -> LastRun | None:
@@ -750,26 +764,33 @@ def carried(files: Files) -> LastRun:
 
 
 @deal.ensure(lambda a, files, root, extra, environment, result: result.refused or (
-    WATCHER in result.command and PLAN_VARIABLE in result.environment))  # the watcher is always told its plan
+    bool(result.commands) and PLAN_VARIABLE in result.environment))  # the watcher is always told its plan
 def test(a: Analysis, files: Files, root: ProjectRoot, extra: Sequence[Argument],
          environment: Environment) -> WatchedRun:
     watch = watch_plan(a, test_files(files), files)
     observed = root / OBSERVED_FILE
     if watch is None:
         return WatchedRun(True, refused("no code was read, so there is nothing to watch"), "", observed, (), root, {})
-    command = (*shlex.split(a.settings.test_command or DEFAULT_TEST_COMMAND), PLUGIN_OPTION, WATCHER,
-               f"{REPORT_OPTION}={DEFAULT_REPORT}", *extra)
-    return WatchedRun(False, Outcome(), replace(watch, last_run=carried(files)).to_text(), observed, command, root,
-                      {**environment, PLAN_VARIABLE: str(root / PLAN_FILE)})
+    runs = [run for adapter in reading_of(files).adapters if (run := adapter.test_run(files, extra)) is not None]
+    # One run is watched, since a watcher writes what it saw to one file: the first adapter's that has a watcher.
+    watching = next((run for run in runs if run.watched), None)
+    if not runs:
+        return WatchedRun(True, refused("no adapter that read code here has tests to run"), "", observed, (),
+                          root, {})
+    return WatchedRun(False, Outcome(), replace(watch, last_run=carried(files)).to_text(), observed,
+                      watching.command if watching is not None else (), root,
+                      {**environment, PLAN_VARIABLE: str(root / PLAN_FILE)},
+                      (watching.unseen if watching is not None else None) or Say(""),
+                      tuple(run.command for run in runs if run is not watching))
 
 
 @deal.ensure(lambda run, seen, returncode, after, result: _reports_only(result))
 @deal.ensure(lambda run, seen, returncode, after, result: seen is Presence.PRESENT or result.exit == REFUSED)
 def tested(run: WatchedRun, seen: Presence, returncode: ExitCode, after: Analysis) -> Outcome:
-    shown = shlex.join(run.command)
-    if seen is Presence.ABSENT:
-        return refused(f"the tests ran ({shown} exited {returncode}), but the watcher saw nothing: the tests' Python "
-                       f"must be able to import zigdag")
+    shown = run.shown
+    if seen is Presence.ABSENT and run.command:
+        return refused(f"the tests ran ({shown} exited {returncode}), but the watcher saw nothing: "
+                       f"{run.unseen}")
     report = after.report
     summed, writes = summary(standings(after, report))
     return Outcome(OK if report.passes and returncode == OK else FOUND, (summed, f"tests: {shown} exited {returncode}"),
@@ -803,10 +824,10 @@ def ready(run: WatchedRun, seen: Presence, returncode: ExitCode, after: Analysis
     """One answer to "is this change ready?", after the tests ran under the watcher. Yes only when the tests pass,
     nothing breaks, no question is open, no result is out of date, the design files are in their layout and, when
     there is a base to compare with, the change adds nothing to do."""
-    shown = shlex.join(run.command)
-    if seen is Presence.ABSENT:
-        return refused(f"the tests ran ({shown} exited {returncode}), but the watcher saw nothing: the tests' Python "
-                       f"must be able to import zigdag")
+    shown = run.shown
+    if seen is Presence.ABSENT and run.command:
+        return refused(f"the tests ran ({shown} exited {returncode}), but the watcher saw nothing: "
+                       f"{run.unseen}")
     report = _gated(after, earlier, base)
     summed, writes = summary(standings(after, report))
     brought = [f for before in earlier for f in Changeset.of(base or Revision(""), before, after).brought
@@ -962,15 +983,22 @@ def init_default(files: Files, folder: FolderName) -> Outcome:
         f"put the code in {CONVENTIONAL_SOURCE}/{root}/"]),), writes=writes)
 
 
+def _python_source(files: Files) -> tuple[RecordPath, ...]:
+    """Where the project's Python source is. A setup records Python: it is the one adapter that reads a project
+    that has configured nothing."""
+    reading = reading_of(files)
+    return PythonAdapter.of(reading.settings, _conventional(files)).source_roots
+
+
 def _recorded(files: Files, spelled: frozenset[RuleId], also: tuple[Write, ...]) -> Outcome:
     """The code recorded as it is, with what else the command writes beside the record."""
     read = project_files(files)
     code = code_model(files)
     if code is None:
-        return refused("no Python code found to record")
+        return refused("no code found to record")
     writes: list[Write] = []
     if read.settings is None:
-        new_settings = settings_text(source_roots(files))
+        new_settings = settings_text(_python_source(files))
         writes.append(Write(RecordPath(SETTINGS_FILE), new_settings))
         read = project_files({**files, RecordPath(SETTINGS_FILE): new_settings})
     written, left = init_record(read, code, spelled)

@@ -644,9 +644,13 @@ job, placed on the root:
 | `contracted-interfaces` | process | `contracted-interfaces` | |
 | `mutation` | process | `mutation` | |
 
-**Designed, and not built yet:** `permitted-effects`, `least-privilege` and `co-change`. No adapter reads
-infrastructure or git history yet, so nothing can check them, and until one does they are not in force. In force
-and unchecked, each would leave every project with a standing question that no work on the project can settle.
+`permitted-effects` and `least-privilege` are in force only where the project sets an infrastructure adapter up.
+A project that describes no infrastructure grants nothing, so there they would have nothing to check, and a rule
+in force that checked nothing would show its direction as passing.
+
+**Designed, and not built yet:** `co-change`. No adapter reads git history yet, so nothing can check it, and
+until one does it is not in force. In force and unchecked, it would leave every project with a standing question
+that no work on the project can settle.
 
 **Tuning a built-in:** write an entry with the built-in's name, in the file of its domain. The entry
 may set only:
@@ -1031,6 +1035,23 @@ down can say that a cost is too much.
 An adapter reads one language or tool into the code model. The model and the record never mention a
 language; only adapters do.
 
+An adapter never touches the project. It says what it needs, the shell fetches it, and the adapter reads
+the text that comes back. So everything an adapter is asked is one half of such an exchange:
+
+| The adapter says | The shell does | The adapter reads |
+|---|---|---|
+| which files are its own | reads them | its part of the code model |
+| which tools report on its code | runs them | their diagnostics |
+| how its tests are run | runs them | what the run wrote: a report, and what its watcher saw |
+| how its tests are profiled | runs them | the profile |
+
+An adapter that has no tools, no tests, no watcher or no profiler says so, and nothing else changes. Each
+adapter is set up once from its own section of `zigdag.toml`. Supporting another language or tool is
+writing its adapter and naming it in one list: nothing else in zigdag knows which adapters there are.
+
+The adapters know nothing of each other. A container and the code deployed in it are joined by the
+record, where one design parameter names both (§5.3).
+
 ### 5.1 The code model
 
 Every adapter supplies the parts it can, and declares the parts it cannot. A check that needs a part
@@ -1062,12 +1083,12 @@ They are supported in this order: Python, Terraform, SQL, TypeScript, Go, Rust.
 | **Public names** | the `_` convention | outputs, and what other resources reference | tables other components may read | `export` | capitalized names; `internal/` packages | `pub` |
 | **Dependencies** | imports; `pyproject.toml` | references | foreign keys | imports; `package.json` | imports; `go.mod` | `use`; `Cargo.toml` |
 | **Effects found from** | calls such as `open`, `socket`, `subprocess` | permissions and connections | statements that read or write | `fs`, `fetch`, `child_process`, `process.env` | `os`, `net`, `os/exec`, `time` | `std::fs`, `std::net`, `std::process`, `std::env` |
-| **Link form** | `@verifies(...)` | | | `verifies(...)` in the test name or tag | a `verifies:` line in the test's comment | `#[verifies(...)]` |
-| **Evidence tools** | pytest, Hypothesis, deal, pytest-benchmark | | | vitest or jest, fast-check | go test, rapid, testing.B | cargo test, proptest, Kani or contracts, criterion |
+| **Link form** | `@verifies(...)` | a `# verifies:` comment in a run or directly above it | | `verifies(...)` in the test name or tag | a `verifies:` line in the test's comment | `#[verifies(...)]` |
+| **Evidence tools** | pytest, Hypothesis, deal, pytest-benchmark | `terraform test` | | vitest or jest, fast-check | go test, rapid, testing.B | cargo test, proptest, Kani or contracts, criterion |
 | **Profiler** | scalene | | | clinic | pprof | cargo flamegraph |
 | **Mutation tool** | mutmut | | | Stryker | go-mutesting | cargo-mutants |
-| **Linter and type checker** | ruff, ty | | | eslint, tsc | golangci-lint, go vet | clippy, cargo check |
-| **Security checker** | bandit | | | eslint-plugin-security | gosec | cargo-audit |
+| **Linter and type checker** | ruff, ty | tflint | | eslint, tsc | golangci-lint, go vet | clippy, cargo check |
+| **Security checker** | bandit | trivy | | eslint-plugin-security | gosec | cargo-audit |
 | **Watching tests** | strong: audit hooks, wrapped calls, `sys.monitoring` | none | none | partial | partial | weak |
 
 What Python's watching cannot see: reading the clock through `datetime` (its types cannot be wrapped),
@@ -1078,6 +1099,10 @@ Each adapter reads its linter and type checker in one form: the GitLab Code Qual
 ruff and ty write with `--output-format=gitlab` and which tools in the other languages can write too. A
 report with an issue that lacks a rule code, a message, a path or a line is refused whole, so no
 diagnostic is dropped unseen.
+
+tflint and trivy write no such report. Both write SARIF, which is read the same way: whole, or refused
+whole. trivy names a file from the folder it was given and wraps each message in a small form, so the
+Terraform adapter reads the path from the root module's folder and keeps only the message.
 
 bandit writes no such report, so the Python adapter reads bandit's own JSON. It maps bandit's severity:
 a low issue, such as importing `subprocess`, is a thing to do, and a medium or high one breaks. A report
@@ -1112,31 +1137,80 @@ runtime.
 
 The infrastructure description is the code for the container level.
 
-**zigdag never contacts a cloud and never runs the infrastructure tool itself.** A `build` process
-variable renders the plan (for Terraform, `terraform show -json` of a plan), and zigdag reads that
-file. It also reads the source files, to give each finding its location. If the plan is older than its
-inputs, findings that depend on it are to do.
+**zigdag never contacts a cloud and never runs the infrastructure tool itself**, except to run the
+project's own tests, as below. A `build` process variable renders the plan (for Terraform,
+`terraform show -json` of a plan), and zigdag reads that file. It also reads the source files, to give
+each finding its location.
+
+**A plan older than its source is a thing to do.** zigdag tells by what is written, never by when a file
+was written, so that two runs on the same files find the same: the plan is older when the source
+declares a resource or a module call that the plan lacks, or the plan has one the source no longer
+declares. A change inside a block that declares nothing new is not noticed.
 
 **From resources to containers:**
 - **Resources that run code or store data are containers.** Examples: `aws_ecs_service`,
   `aws_lambda_function`, `aws_db_instance`, `aws_s3_bucket`, `aws_sqs_queue`. Each is mapped to a DP in
-  `physical.yaml`.
+  `physical.yaml`. The adapter knows the common AWS types, and a project names more with `containers`
+  in `[adapters.terraform]`.
 - **Supporting resources** (roles, policies, security groups) belong to the container that references
-  them. A resource that several containers reference, such as a network, belongs to the system.
+  them, directly or through other supporting resources. A resource that several containers reference,
+  such as a network, belongs to the system.
+- **A supporting resource that nothing references belongs with what it references.** An attachment, a
+  bucket policy or a permission is written pointing at what it is for. One that points at the resources
+  of several containers belongs to the system.
+- **A supporting resource needs no name in the design.** `designed-modules` does not ask for one.
 - **Coverage applies:** every resource in the plan belongs to exactly one DP.
 - **The code deployed into a container** is written in its `physical.yaml` entry beside its resource,
   for example `[terraform:aws_ecs_service.api, python:shop.api]`. Where the plan names the code
   directly, as a Lambda's source folder does, the adapter follows it.
 
-**Relationships between containers** come from three places in the plan:
+**Relationships between containers** come from three places:
 - **permissions:** a role granted an action on a resource gives `read` or `write` of that container;
 - **connections:** network rules that let one container reach another;
 - **settings:** an environment variable set to another resource's address. `DATABASE_URL` set to the
   orders database's endpoint is an example.
 
+What a security group refers to in its own network rules says what may reach it. That relates two
+containers and makes neither a part of the other.
+
+**Where each is read from.** Connections are read from the plan. So are the grants of a policy written
+as a policy document (`aws_iam_policy_document`), whose actions the plan has as constants. Two things the
+plan cannot give, and they are read from the source:
+- **A policy written as text**, with `jsonencode` or as a heredoc. The plan records only which resources
+  the whole text refers to. Its statements are read from the block, and only as far as they can be read
+  for certain: a policy that names something passed in from elsewhere, or that excludes rather than names
+  (`NotAction`, `NotResource`), is not read at all, and what it grants is a question. A statement half
+  read would report access as missing that is granted.
+- **A setting's name.** It is written inside a map or an encoded text, where the plan records only that
+  the whole of it refers to some resources.
+
+An action whose name begins as a read does (`Get`, `List`, `Describe` and the like) grants `read`, and
+any other grants `write`. A grant on resources written as constants, such as `"*"`, names no resource
+here, and is a question. A local value that is a plain constant refers to nothing; any other local the
+plan does not spell out, so a resource that refers to one is a question.
+
 **Linking code to resources.** A call in the code, such as a `boto3` write to a bucket, becomes the
 resource effect `shop.receipts.write` when the bucket's name reaches the call through a setting the
-plan sets. When zigdag cannot trace the name, the result is a question.
+plan sets. When zigdag cannot trace the name, the result is a question. For Python, the calls read are
+those of `boto3` clients, and the setting is the environment variable the call's resource argument is
+read from. Statements sent over a database connection wait for the SQL adapter.
+
+**Tests.** A run of a `terraform test` file is a test, and it says what it verifies in a comment:
+
+```hcl
+# verifies: shop.receipts#keep
+run "receipts_are_private" {
+  command = plan
+  ...
+}
+```
+
+`zigdag test` runs them after the watched tests, and reads the JUnit report `terraform test` writes.
+Terraform applies a run unless the run says `command = plan`, and has no option that makes every run plan
+only. So tests only plan unless the project says `test = "apply"` in `[adapters.terraform]`: until it
+does, a run that does not say `command = plan` breaks, and its file is left out of the run. Nothing real
+is created by an oversight. A project that lets its tests apply points its providers at an emulator or an
+account itself; zigdag names neither.
 
 **A project that describes no infrastructure** grants nothing and has no resource effects, so
 `permitted-effects` and `least-privilege` hold. They wait only when the project configures an
@@ -1452,7 +1526,7 @@ answer, critique and approve is logged.
 |---|---|---|
 | `[settings]` | `ruleset`, `tests`, `test_command`, `test_reports`, `vendor`, `editor`, `people` | the rule set the project is pinned to (now `1`; a new zigdag release never changes results until the project raises it), where tests are, how to run them, and who counts as a person for `person-approves-design`: anyone not listed is an agent |
 | `[adapters]` | `default` | the adapter for code names without a prefix |
-| `[adapters.<name>]` | that adapter's settings, for example `source` for a language, or `plan` and `source` for Terraform; for Python, also `ruff`, `ty` and `bandit`: how to start each tool, such as `"uv run ruff"` (default: its name) | where each adapter reads from, and how it runs the project's tools |
+| `[adapters.<name>]` | that adapter's settings, for example `source` for a language; for Python, also `ruff`, `ty` and `bandit`: how to start each tool, such as `"uv run ruff"` (default: its name). For Terraform: `source` (the root module's folder, or a list that begins with it), `plan` (default `.zigdag/plan.json`), `containers` (more resource types that are containers), `test` (`"plan"`, the default, or `"apply"`), and `terraform`, `tflint` and `trivy`: how to start each | where each adapter reads from, and how it runs the project's tools |
 | `[lexicon.<name>]` | `add`, `remove` | adjust a built-in lexicon |
 | `[effects."<name>"]` | `description`, `calls` | a custom effect: the calls that perform it |
 
@@ -1904,12 +1978,17 @@ A critic answers questions about what checks cannot see, one set for each kind o
 ## 12. Open questions
 
 1. **Build steps:** how zigdag decides that build outputs are current without running the step
-   itself, for example by recording a digest of the inputs in the output.
+   itself, for example by recording a digest of the inputs in the output. A Terraform plan is compared
+   with what its source declares (§5.3), which misses a change inside a block.
 2. **Validation reports:** the format a measurement report uses to give the outcome's value.
 3. **Adapters after Python:** the exact link forms and effect lists for TypeScript, Go and Rust, and
    how much each can observe while tests run.
-4. **Infrastructure:** which resource types count as containers in each provider, and how far setting
-   values can be traced from the plan to a call in the code.
+4. **Infrastructure:** which resource types count as containers in each provider other than AWS, whose
+   are built in; how policies that sit on a resource, such as a bucket policy, grant access; and how far
+   a setting can be traced when its value passes through a variable or a local.
+7. **Two adapters, one name:** the code model names a unit by its path alone, so a table `orders` and a
+   package `orders` would be one unit. Today that is a break; before SQL, a unit is named by its adapter
+   and its path.
 5. **Defaults on existing systems:** whether `one-writer-per-data-store`, `edge-types` and
    `declared-errors` should start on (with everything current under `except`) or start off. The same
    goes for `mutation`, whose first run on existing code is slow and leaves many survivors.

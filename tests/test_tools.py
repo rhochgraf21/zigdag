@@ -9,7 +9,10 @@ import subprocess
 
 from zigdag import verifies
 from zigdag.adapters.code_quality import read_report
-from zigdag.adapters.python.tools import ExitStatus, Started, Tool, ToolOutput, diagnostics, finished, not_started, runs
+from zigdag.adapters.python.adapter import PythonAdapter
+from zigdag.adapters.adapter import Presence
+from zigdag.adapters.python.tools import RUFF, TY, diagnostics
+from zigdag.adapters.tools import ExitStatus, Started, ToolOutput, finished, not_started
 from zigdag.cli import main
 from zigdag.core.code import Diagnosis, Severity, ToolName
 from zigdag.core.codec import Unreadable
@@ -112,22 +115,24 @@ def test_a_code_quality_report_is_read_whole_or_refused_whole():
 @verifies("zigdag.adapters.python#tools")
 def test_only_the_tools_a_rule_needs_run_and_each_starts_as_the_settings_say():
     settings, _ = read_settings('[adapters.python]\nsource = ["src"]\nty = "uv run ty"\n')
-    assert runs(settings, ("src",), ()) == ()
-    (lint,) = runs(settings, ("src",), (Diagnosis.LINT,))
-    assert lint.tool is Tool.RUFF and lint.command[0] == "ruff" and lint.command[-1] == "src"
-    (types,) = runs(settings, ("",), (Diagnosis.TYPES,))
+    python = PythonAdapter.of(settings, Presence.ABSENT)
+    source = {"src/shop/core.py": ""}
+    assert python.tool_runs(source, ()) == () and python.tool_runs({}, (Diagnosis.LINT,)) == ()  # no source, no run
+    (lint,) = python.tool_runs(source, (Diagnosis.LINT,))
+    assert lint.tool is RUFF and lint.command[0] == "ruff" and lint.command[-1] == "src"
+    (types,) = PythonAdapter(settings, ("",)).tool_runs(source, (Diagnosis.TYPES,))
     assert types.command[:3] == ("uv", "run", "ty") and types.command[-1] == "."  # the project itself as a folder
 
 
 @verifies("zigdag.adapters.python#tool-failed")
 def test_a_tool_that_cannot_report_breaks_instead_of_passing():
-    reported, failure = diagnostics(not_started(Tool.TY))
+    reported, failure = diagnostics(not_started(TY))
     assert not reported and "ty could not be started" in failure.say
-    crashed = finished(Tool.RUFF, ExitStatus(2), ToolText(""), ToolText("error: bad config\nmore"))
+    crashed = finished(RUFF, ExitStatus(2), ToolText(""), ToolText("error: bad config\nmore"))
     assert "ruff failed (exit 2): error: bad config" in diagnostics(crashed)[1].say
-    garbled = ToolOutput(Tool.RUFF, Started.STARTED, out=ToolText("{"))
+    garbled = ToolOutput(RUFF, Started.STARTED, out=ToolText("{"))
     assert "cannot read" in diagnostics(garbled)[1].say
-    for output in (not_started(Tool.TY), crashed, garbled):
+    for output in (not_started(TY), crashed, garbled):
         assert diagnostics(output)[1].result.value == "breaks"
 
 
