@@ -30,7 +30,9 @@ from zigdag.core.checks.directions import COUNTED, Standing, counted, standings
 from zigdag.core.codec import Unreadable
 from zigdag.core.profile import Cost, Profile, Suspect, by_part, compared, suspects
 from zigdag.core.kinds.registry import Direction
-from zigdag.core.checks.gates import check_gates
+from zigdag.core.checks.evidence import check_changed
+from zigdag.core.checks.gates import THE_CHANGE, check_gates
+from zigdag.core.checks.part_rules import PartBranch, check_part
 from zigdag.core.checks.rules import kinds_named
 from zigdag.core.checks.tool_rules import wanted
 from zigdag.core.checks.run import Analysis, ProjectFiles, analyse
@@ -57,12 +59,13 @@ from zigdag.core.settings import (
     read_settings,
 )
 from zigdag.core.watch import PLAN_VARIABLE, LastRun
+from zigdag.core.work import NOT_WAITING, Answer, Step, Taken, Waiting, asked, delta, next_step, unsettled, waiting
 from zigdag.core.watch import plan as watch_plan
 from zigdag.core.code import CodeModel, ToolName, joined
 from zigdag.core.findings import Finding, RecordPath, Report, Result, Span, finding
-from zigdag.core.log import LOG_FILE
+from zigdag.core.log import GIT_ATTRIBUTES, LOG_FILE
 from zigdag.core.measures import Count
-from zigdag.core.names import FolderName, FrName, RuleId, fr_name
+from zigdag.core.names import PART_BRANCHES, BranchName, FolderName, FrName, RuleId, branch_of, fr_name, part_built_on
 from zigdag.core.checks.custom import CHECKS_DIR, CUSTOM_CHECKS, CompiledCode, Loaded, Loading, fresh_names, read_checks
 from zigdag.core.measures import Column, Line
 from zigdag.core.effects import phrase
@@ -96,7 +99,6 @@ DESIGN_DEPTHS = (2, 3)  # design/<domain>.yaml, and design/<domain>/<part>.yaml
 ALWAYS_READ = frozenset({RecordPath(SETTINGS_FILE), LOG_FILE, OBSERVED_FILE, CARRIED_FILE})  # zigdag's own
 GIT_MISSING = "missing"  # what `git cat-file --batch` says instead of a size for a path absent at the revision
 
-GIT_ATTRIBUTES = RecordPath(".gitattributes")
 UNION_MERGE = f"{lg.LOG_FILE} merge=union"
 CRITIQUE_REQUEST = RecordPath(f"{WORK_DIR}/critique/request.json")
 REPORTS = RecordPath(f"{WORK_DIR}/check")  # each direction's findings in full, rewritten by every check
@@ -104,6 +106,7 @@ BREAKS_SHOWN = 10  # breaks of a direction shown under it; the rest are in its f
 COLUMN_GAP = 2  # spaces between the columns of the summary
 READY = "ready: yes"
 NOT_READY = "ready: no"
+BUILT = "built: waiting on"  # how ready answers for a part's branch that only waits for other parts to land
 FULL = "zigdag check --full"  # what shows every finding, with what the last zigdag test saw
 HOOK_FINDINGS = 15  # at most this many findings in what a hook tells an agent
 TEST = "test"
@@ -320,6 +323,172 @@ def git_files(reading: Reading, texts: Mapping[RecordPath, FileText]) -> dict[Re
     return {path: texts[path] for path in reading.chosen(texts)}
 
 
+# ---- the branch that is checked out ------------------------------------------------------------------------------
+
+UPSTREAM = "@{upstream}"  # as git names the branch that the one checked out tracks
+# What git is asked about the folder a command runs in, in the order checkout reads the answers. Each is asked
+# whatever the others answer: one that cannot be answered, as on a branch that tracks none, says so by failing.
+CHECKOUT_QUESTIONS: tuple[tuple[Argument, ...], ...] = (
+    ("symbolic-ref", "--short", "-q", "HEAD"),  # the branch checked out
+    ("rev-parse", "--abbrev-ref", UPSTREAM),  # the branch it tracks
+    ("merge-base", "HEAD", UPSTREAM),  # where it left that branch
+    ("rev-list", "--count", f"HEAD..{UPSTREAM}"),  # how many commits of that branch it does not have
+    ("diff", "--name-only", "--relative", "--merge-base", UPSTREAM),  # the files that differ from where it left
+    ("ls-files", "--others", "--exclude-standard"),  # and the files git does not know yet
+)
+
+
+@dataclass(frozen=True)
+class GitAnswer:
+    """What git answered one question with: the code it exited with, and what it printed."""
+
+    exit: ExitCode
+    out: GitOutput
+
+    @property
+    @deal.ensure(lambda self, result: self.exit == OK or result == ())  # a failure answers nothing
+    def lines(self) -> tuple[Written, ...]:
+        """What it printed, line by line; nothing, when git failed."""
+        return tuple(Written(said) for said in self.out.decode(errors="surrogateescape").splitlines()) if (
+            self.exit == OK) else ()
+
+
+@dataclass(frozen=True)
+class Checkout:
+    """What git says of the folder a command runs in: the branch checked out there, and how it stands against the
+    branch it tracks. A branch that tracks none has no line, no start and nothing touched."""
+
+    branch: BranchName | None  # None when no branch is checked out
+    line: BranchName | None  # the branch it tracks, which is the one it lands on
+    start: Revision | None  # where it left the line
+    behind: Count  # commits of the line it does not have
+    touched: tuple[RecordPath, ...]  # files that are not as they were at the start, zigdag's own work files aside
+
+    @property
+    @deal.ensure(lambda self, result: result is None or (self.branch is not None and part_built_on(self.branch)
+                                                         == result))
+    def part(self) -> FrName | None:
+        """The part this is the branch of; None for any other branch."""
+        return part_built_on(self.branch) if self.branch is not None else None
+
+
+def _made_by_tools(path: str) -> bool:
+    """Whether a file is one that running the project leaves behind, and nobody wrote: zigdag's own work files, or
+    one in a cache folder. A project's .gitignore usually hides these; one that does not must not make every run
+    of the tests look like a change."""
+    return _under(path, WORK_DIR) or not SKIPPED_FOLDERS.isdisjoint(path.split("/")[:-1])
+
+
+@deal.pre(lambda answers: len(answers) == len(CHECKOUT_QUESTIONS))  # one answer for each question, in their order
+@deal.ensure(lambda answers, result: list(result.touched) == sorted(set(result.touched))
+             and not any(_made_by_tools(path) for path in result.touched))
+def checkout(answers: Sequence[GitAnswer]) -> Checkout:
+    """The answers to CHECKOUT_QUESTIONS, read."""
+    head, line, start, behind, changed, unknown = (answer.lines for answer in answers)
+    return Checkout(BranchName(head[0]) if head else None, BranchName(line[0]) if line else None,
+                    Revision(start[0]) if start else None, Count(int(behind[0])) if behind else Count(0),
+                    tuple(RecordPath(path) for path in sorted({*changed, *unknown}) if not _made_by_tools(path)))
+
+
+@dataclass(frozen=True)
+class OnPart:
+    """The part's branch a command runs on, with the revision it left its line at; no branch, when the command runs
+    on any other; or why the command cannot run there."""
+
+    refused: bool
+    refusal: Outcome
+    branch: PartBranch | None = None
+    starts: tuple[Revision, ...] = ()  # the revisions to read: where the branch left its line
+
+
+@deal.ensure(lambda found, base, result: (result.branch is None) == (found.part is None or result.refused))
+@deal.ensure(lambda found, base, result: len(result.starts) == (result.branch is not None))
+def on_part(found: Checkout, base: Revision | None) -> OnPart:
+    """What a command that judges a whole change is told of the branch it runs on. On a part's branch it needs to
+    know where the change began, to tell what the change asks of the part, and what the branch lands on, to tell
+    what the branch itself changed."""
+    part = found.part
+    if part is None:
+        return OnPart(False, Outcome())
+    if base is None:
+        return OnPart(True, refused(f"this is the branch of {part}: say where the change it is part of began, with "
+                                    f"--base"))
+    if found.line is None or found.start is None:
+        return OnPart(True, refused(f"the branch of {part} tracks no branch, so what it lands on cannot be told: "
+                                    f"git branch --set-upstream-to=<the branch it lands on>"))
+    return OnPart(False, Outcome(), PartBranch(part, found.line, found.behind, found.touched), (found.start,))
+
+
+HEAD = Revision("HEAD")  # as git names the commit that is checked out
+WORKTREE, CHECKED_OUT = "worktree ", "branch refs/heads/"  # how `git worktree list --porcelain` starts two of its lines
+STATUS_PREFIX = 3  # `git status --porcelain` writes two letters and a space before each path
+# What git is asked before work is handed out, in the order claims reads the answers.
+WORK_QUESTIONS: tuple[tuple[Argument, ...], ...] = (
+    ("for-each-ref", "--format=%(refname:short)", f"refs/heads/{PART_BRANCHES}"),  # the branches of parts
+    ("worktree", "list", "--porcelain"),  # the folders branches are checked out in
+    ("rev-parse", "--show-prefix"),  # where the project is inside its repository, and so inside each such folder
+    ("status", "--porcelain", "--", DESIGN_DIR),  # what of the design is not committed
+)
+
+
+@dataclass(frozen=True)
+class Claimed:
+    """A part whose branch exists, and the project's folder where that branch is checked out, when it is."""
+
+    part: FrName
+    folder: FilePath | None
+
+
+@dataclass(frozen=True)
+class Claims:
+    """What git says before work is handed out: the parts that are taken, and the design files that are not as the
+    last commit has them."""
+
+    parts: tuple[Claimed, ...]
+    uncommitted: tuple[RecordPath, ...]  # design files, the log aside: it is added to all the time
+
+    @property
+    @deal.ensure(lambda self, result: len(result) == sum(c.folder is not None for c in self.parts))
+    def folders(self) -> tuple[FilePath, ...]:
+        """The folders to read, in the order of the parts that have one."""
+        return tuple(c.folder for c in self.parts if c.folder is not None)
+
+
+def _checked_out(listing: Sequence[str], prefix: str) -> dict[BranchName, FilePath]:
+    """Each branch that is checked out in a folder, with the project's folder there."""
+    out: dict[BranchName, FilePath] = {}
+    folder = None
+    for said in listing:
+        if said.startswith(WORKTREE):
+            folder = Path(said.removeprefix(WORKTREE)) / prefix
+        elif said.startswith(CHECKED_OUT) and folder is not None:
+            out[BranchName(said.removeprefix(CHECKED_OUT))] = FilePath(folder)
+    return out
+
+
+@deal.pre(lambda answers: len(answers) == len(WORK_QUESTIONS))
+@deal.ensure(lambda answers, result: [c.part for c in result.parts] == sorted({c.part for c in result.parts}))
+@deal.ensure(lambda answers, result: not any(path.endswith(LOG_FILE) for path in result.uncommitted))
+def claims(answers: Sequence[GitAnswer]) -> Claims:
+    """The answers to WORK_QUESTIONS, read."""
+    branches, listing, prefix, status = (answer.lines for answer in answers)
+    folders = _checked_out(listing, prefix[0] if prefix else "")
+    parts = {part: Claimed(part, folders.get(BranchName(branch))) for branch in branches
+             if (part := part_built_on(BranchName(branch))) is not None}
+    changed = sorted({RecordPath(said[STATUS_PREFIX:]) for said in status})
+    return Claims(tuple(parts[part] for part in sorted(parts)),
+                  tuple(path for path in changed if not path.endswith(LOG_FILE)))
+
+
+@deal.ensure(lambda files, log, result: result.get(LOG_FILE) == log and all(
+    result[path] == text for path, text in files.items() if path != LOG_FILE))
+def with_log(files: Files, log: FileText | None) -> Files:
+    """A project's files with another log: what was committed, with the log as it is on disk, where what was just
+    raised or answered is before anyone commits it."""
+    kept = {path: text for path, text in files.items() if path != LOG_FILE}
+    return {**kept, LOG_FILE: log} if log is not None else kept
+
+
 # ---- what was read -----------------------------------------------------------------------------------------------
 
 def _conventional(files: Files) -> Presence:
@@ -511,11 +680,18 @@ class Changeset:
         return list(check_gates(a.record, a.log, a.people, self.changed, a.report))
 
     @property
+    def unverified(self) -> list[Finding]:
+        """The statements the change changed, whose tests it left as they were."""
+        return list(check_changed(self.before.record, self.before.tests, self.after.record, self.after.tests,
+                                  Revision(self.base)))
+
+    @property
     def brought(self) -> list[Finding]:
         """What the change brought; a rule the base could not check had no chance to find anything there, so what it
         finds now is not counted as new."""
         unchecked = self.before.unchecked
-        return [f for f in new_findings(self.before.report, self.after.report) if f.rule not in unchecked]
+        return [*(f for f in new_findings(self.before.report, self.after.report) if f.rule not in unchecked),
+                *self.unverified]
 
 
 @deal.ensure(lambda base, result: result == (() if base is None else (base,)))
@@ -559,10 +735,12 @@ def _chosen(a: Analysis, earlier: Sequence[Analysis], names: Sequence[str], base
 # ---- commands ----------------------------------------------------------------------------------------------------
 
 def _gated(a: Analysis, earlier: Sequence[Analysis], base: Revision | None) -> Report:
-    """The report, with the workflow gates for what changed since the base, when there is one."""
+    """The report, with what only a change can be held to, when there is a base to compare with: the workflow gates
+    for the entries it changed, and the statements it changed whose tests it left as they were."""
     report = a.report
     for before in earlier:
-        report = Report.of([*report.findings, *Changeset.of(base or Revision(""), before, a).gates])
+        changes = Changeset.of(base or Revision(""), before, a)
+        report = Report.of([*report.findings, *changes.gates, *changes.unverified])
     return report
 
 
@@ -837,25 +1015,65 @@ def _not_ready(report: Report, returncode: ExitCode, unformatted: Count, brought
     return tuple(Say(say) for holds, say in reasons if holds)
 
 
-@deal.ensure(lambda run, seen, returncode, after, earlier, base, files, result: _reports_only(result))
-@deal.ensure(lambda run, seen, returncode, after, earlier, base, files, result:
+def _held_to(branch: PartBranch | None, started: Sequence[Analysis], after: Analysis) -> tuple[Finding, ...]:
+    """What a part's branch breaks by what it changed; nothing, on any other branch."""
+    return tuple(f for start in started for f in check_part(branch, start, after)) if branch is not None else ()
+
+
+def _waits(branch: PartBranch | None, earlier: Sequence[Analysis], after: Analysis) -> Waiting:
+    """Which failing tests of a part's branch wait for other parts to land; none, on any other branch."""
+    if branch is None or not earlier:
+        return NOT_WAITING
+    return waiting(after, branch.part, asked(earlier[0], after))
+
+
+def _verdict(reasons: Sequence[Say], waits: Waiting) -> Shown:
+    """The last thing ready says: yes; that a part's branch is built and only waits; or no, with each reason."""
+    held_up = "1 failing test waits" if len(waits.tests) == 1 else f"{len(waits.tests)} failing tests wait"
+    if reasons:
+        return Shown("\n".join([NOT_READY, *(f"  {reason}" for reason in reasons),
+                                *([f"  {held_up} for {', '.join(waits.on)} to land, which is not this branch's to "
+                                   f"fix"] if waits.tests else [])]))
+    return Shown(f"{BUILT} {', '.join(waits.on)} to land") if waits.is_all else Shown(READY)
+
+
+@deal.ensure(lambda run, seen, returncode, after, earlier, base, files, branch=None, started=(), *, result:
+             _reports_only(result))
+@deal.ensure(lambda run, seen, returncode, after, earlier, base, files, branch=None, started=(), *, result:
              result.exit != OK or (returncode == OK and _gated(after, earlier, base).passes))  # never yes on a no
+@deal.ensure(lambda run, seen, returncode, after, earlier, base, files, branch=None, started=(), *, result:
+             (result.exit == OK) == (result.out[-1:] == (READY,)))
 def ready(run: WatchedRun, seen: Presence, returncode: ExitCode, after: Analysis, earlier: Sequence[Analysis],
-          base: Revision | None, files: Files) -> Outcome:
+          base: Revision | None, files: Files, branch: PartBranch | None = None,
+          started: Sequence[Analysis] = ()) -> Outcome:
     """One answer to "is this change ready?", after the tests ran under the watcher. Yes only when the tests pass,
     nothing breaks, no question is open, no result is out of date, the design files are in their layout and, when
-    there is a base to compare with, the change adds nothing to do."""
+    there is a base to compare with, the change adds nothing to do.
+
+    On the branch of a part, the change is the part's alone. It is held to what the change asks of that part, to
+    changing nothing but the part, and to having every commit of the line it lands on. A test that fails because it
+    ran another part's code that is not written yet is not the branch's to fix: when only such tests stand in the
+    way, the answer is that the part is built and waits."""
     shown = run.shown
     if seen is Presence.ABSENT and run.command:
         return refused(f"the tests ran ({shown} exited {returncode}), but the watcher saw nothing: "
                        f"{run.unseen}")
-    report = _gated(after, earlier, base)
-    summed, writes = summary(standings(after, report))
+    outside = _held_to(branch, started, after)
+    summed, writes = summary(standings(after, Report.of([*_gated(after, earlier, base).findings, *outside])))
+    waits = _waits(branch, earlier, after)
+    # What a waiting test's failure says is set aside before the gates are asked, so that a gate which stops a
+    # change while anything breaks does not stop a branch for a break that is not its own.
+    calm = replace(after, report=Report(tuple(f for f in after.report.findings if f not in waits.set_aside)))
+    judged = Report.of([*_gated(calm, earlier, base).findings, *outside])
     brought = [f for before in earlier for f in Changeset.of(base or Revision(""), before, after).brought
-               if f.result is Result.TODO]
-    reasons = _not_ready(report, returncode, Count(len(Formatted.of(files).changed)), brought, base)
-    verdict = READY if not reasons else "\n".join([NOT_READY, *(f"  {reason}" for reason in reasons)])
-    return Outcome(FOUND if reasons else OK, (summed, f"tests: {shown} exited {returncode}", "", verdict),
+               if f.result is Result.TODO and (branch is None or after.is_under(f, branch.part))]
+    behind = branch.behind if branch is not None else Count(0)
+    reasons = (*_not_ready(judged, OK if waits.is_all else returncode, Count(len(Formatted.of(files).changed)),
+                           brought, base),
+               *([Say(f"{branch.line} has {'1 commit' if behind == 1 else f'{behind} commits'} that this branch "
+                      f"does not: merge {branch.line}, and ask again")] if branch is not None and behind else []))
+    verdict = _verdict(reasons, waits)
+    return Outcome(OK if verdict == READY else FOUND, (summed, f"tests: {shown} exited {returncode}", "", verdict),
                    writes=writes)
 
 
@@ -946,15 +1164,25 @@ def findings(a: Analysis) -> Outcome:
     return Outcome(out=("\n".join([*lines, f"{len(threads)} open threads, {len(questions)} open questions"]),))
 
 
-@deal.ensure(lambda a, name, target, result: _changes_nothing(result) and len(result.out) == 1)
-def view(a: Analysis, name: View, target: Written | None) -> Outcome:
+def _delta(a: Analysis, earlier: Sequence[Analysis], base: Revision | None, target: Written):
+    """What the change since the base says of the part a context is asked for; None with no base, or no such part."""
+    part = a.dp_of(target)
+    if part is None or base is None or not earlier:
+        return None
+    return delta(base, earlier[0], a, part)
+
+
+@deal.ensure(lambda a, name, target, earlier=(), base=None, *, result: _changes_nothing(result)
+             and len(result.out) == 1)
+def view(a: Analysis, name: View, target: Written | None, earlier: Sequence[Analysis] = (),
+         base: Revision | None = None) -> Outcome:
     match name:
         case View.SHOW:
             return Outcome(out=(views.show(a, FrName(target) if target else None),))
         case View.DATA:
             return Outcome(out=(views.data(a, FrName(target) if target else None),))
         case View.CONTEXT:
-            return Outcome(out=(views.context(a, target or Written("")),))
+            return Outcome(out=(views.context(a, target or Written(""), _delta(a, earlier, base, target or Written(""))),))
     return Outcome(out=(views.next_steps(a),))
 
 
@@ -1130,6 +1358,90 @@ def hook(a: Analysis, event: claude.HookEvent, payload: claude.Payload) -> Outco
     return Outcome(ExitCode(claude.FEEDBACK_EXIT), err=("\n".join(["zigdag check found:", *map(line, shown)]),))
 
 
+# ---- handing out the work of a change ----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Claim:
+    """A branch to make for a part, tracking the branch it lands on: how a part is taken."""
+
+    branch: BranchName
+    line: BranchName
+
+    @property
+    @deal.ensure(lambda self, result: result[-2:] == (self.branch, self.line))
+    def command(self) -> tuple[Argument, ...]:
+        """What git is asked, to make it. Git refuses a branch that exists, so a part is never taken twice."""
+        return (Argument("branch"), Argument("--track"), Argument(self.branch), Argument(self.line))
+
+
+@dataclass(frozen=True)
+class Handout:
+    """What work answers, and the branch to make first when the answer hands a free part out."""
+
+    outcome: Outcome
+    claims: tuple[Claim, ...] = ()
+
+
+def _not_settled(base: Revision, before: Analysis, line: Analysis, uncommitted: Sequence[RecordPath]) -> tuple[Say, ...]:
+    """Each reason the design is not settled yet: a design file that is not committed, so no part's branch would
+    have it; a changed entry that has not passed a gate; and what the change brought that is wrong with the design
+    itself. A gate that stops a change while anything breaks is not asked: building the parts is what mends that."""
+    gates = [f for f in Changeset.of(base, before, line).gates if f.about != THE_CHANGE]
+    return (*(Say(f"{path} has changes that are not committed, so no part's branch would have them")
+              for path in uncommitted),
+            *(Say(f"{f.about}: {f.say}") for f in (*gates, *unsettled(before, line))))
+
+
+def _handed(answer: Answer, base: Revision, line: BranchName) -> list[str]:
+    """An answer as work prints it: what to do in the first line, and under it what whoever does it needs."""
+    why = [f"  {said}" for said in answer.why]
+    if answer.part is None:
+        first, *rest = answer.why or (Say(""),)
+        return [f"{answer.step.value}: {first}" if first else answer.step.value, *(f"  {said}" for said in rest)]
+    branch = branch_of(answer.part)
+    if answer.step is Step.LAND:
+        return [f"{Step.LAND.value} {answer.part}", *why,
+                f"  bring {branch} up to date with {line}, then: zigdag ready --base {base}",
+                f"  on yes, merge {branch} into {line}"]
+    return [f"{Step.BUILD.value} {answer.part}", *why, f"  on {branch}, which lands on {line}",
+            f"  what to build: zigdag context {answer.part} --base {base}",
+            f"  built when: zigdag ready --base {base} says yes, or built"]
+
+
+@deal.pre(lambda base, before, line, found, taken, folders: len(folders) == len(taken.folders))
+@deal.ensure(lambda base, before, line, found, taken, folders, result: _changes_nothing(result.outcome))
+@deal.ensure(lambda base, before, line, found, taken, folders, result: all(
+    part_built_on(c.branch) is not None and part_built_on(c.branch) not in {t.part for t in taken.parts}
+    for c in result.claims))  # only a part nobody has is taken
+def work(base: Revision, before: Analysis, line: Analysis, found: Checkout, taken: Claims,
+         folders: Sequence[Analysis]) -> Handout:
+    """What to do next on a change that is built part by part, since the revision the change began at (DESIGN2 §4.8).
+    `line` is the project where the parts land, as committed; `folders` are the projects in the folders of the parts
+    that are checked out, in their order."""
+    if found.branch is None:
+        return Handout(refused("no branch is checked out: ask from the branch the parts land on"))
+    if found.part is not None:
+        return Handout(refused(f"this is the branch of {found.part}: ask from the branch the parts land on"))
+    read = iter(folders)
+    held = tuple(Taken(c.part, next(read) if c.folder is not None else None) for c in taken.parts)
+    answer = next_step(before, line, held, _not_settled(base, before, line, taken.uncommitted))
+    free = answer.step is Step.BUILD and answer.part not in {c.part for c in taken.parts}
+    return Handout(Outcome(FOUND if answer.step is Step.BLOCKED else OK,
+                           (Shown("\n".join(_handed(answer, base, found.branch))),)),
+                   (Claim(branch_of(answer.part), found.branch),) if free and answer.part is not None else ())
+
+
+@deal.pre(lambda handout, made: len(made) == len(handout.claims))
+@deal.ensure(lambda handout, made, result: result == handout.outcome or result.exit == REFUSED)
+def handed_out(handout: Handout, made: Sequence[GitAnswer]) -> Outcome:
+    """What work says once the branch it needed was made: its answer, or, when git made no branch, that the part
+    could not be taken. An answer is not given for a part that was not taken: two agents would be told to build it."""
+    failed = [claim.branch for claim, answer in zip(handout.claims, made) if answer.exit != OK]
+    if failed:
+        return refused(f"git did not make {', '.join(failed)}, so the part is not taken: ask again")
+    return handout.outcome
+
+
 # ---- which command -----------------------------------------------------------------------------------------------
 
 class Command(enum.Enum):
@@ -1146,6 +1458,7 @@ class Command(enum.Enum):
     FINDINGS = "findings"
     VIEW = "view"  # show, context, next, and show --data
     READY = "ready"
+    WORK = "work"
     CHECKS = "checks"
     INIT = "init"
     INIT_FORCED = "init --force"
@@ -1182,6 +1495,7 @@ class Route:
     refusal: Outcome  # for a command that cannot run as asked
     view: View = View.NEXT
     target: Written | None = None
+    base: Revision | None = None  # for a view that takes one: where the change it shows began
 
 
 def _command(args: argparse.Namespace) -> Command:
@@ -1210,4 +1524,4 @@ def route(args: argparse.Namespace, passed_on: Sequence[str], cwd: Path) -> Rout
         args.command in _VIEWS) else View.NEXT
     target = getattr(args, "name", None) or getattr(args, "target", None)
     return Route(command, cwd / (args.project or cwd), args, tuple(passed_on), rejected,
-                 f"unrecognized arguments: {' '.join(passed_on)}", refusal, view, target)
+                 f"unrecognized arguments: {' '.join(passed_on)}", refusal, view, target, getattr(args, "base", None))

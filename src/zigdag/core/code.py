@@ -400,6 +400,7 @@ class Test:
     imports: tuple[Qualified, ...]  # what the test's module imports, to see which code it can run
     span: Span
     place: Place | None = None  # for a contract, the operation it is on
+    source: Digest | None = None  # of the test as written, with what it verifies; None when its adapter does not say
 
 
 @dataclass(frozen=True)

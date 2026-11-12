@@ -70,6 +70,11 @@ def _parser() -> argparse.ArgumentParser:
     show.add_argument("--data", action="store_true", help="the data model under the FR, and who touches which data")
     context = commands.add_parser("context", help="what an agent needs before changing some code")
     context.add_argument("target", help="a source file, or an FR")
+    context.add_argument("--base", help="also show what changed since this git revision that concerns it, and what "
+                         "that change asks of it")
+    work = commands.add_parser("work", help="what to do next on a change that is built part by part: build a part, "
+                               "land one, wait, or what blocks it")
+    work.add_argument("--base", required=True, help="the git revision the change began at, before its design changed")
     commands.add_parser("next", help="what is to do, in the order the design matrix allows building it")
 
     init = commands.add_parser("init", help="record existing code as it is, so the first check holds")
@@ -121,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             return c.test(project, list(route.passed_on))
         case plans.Command.READY:
             return c.ready(project, a.base, list(route.passed_on))
+        case plans.Command.WORK:
+            return c.work(project, a.base)
         case plans.Command.CHECKS:
             return c.checks(project)
         case plans.Command.PROFILE:
@@ -138,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         case plans.Command.FINDINGS:
             return c.findings(project)
         case plans.Command.VIEW:
-            return c.view(project, route.view, route.target)
+            return c.view(project, route.view, route.target, route.base)
         case plans.Command.INIT:
             return c.init_project(project)
         case plans.Command.INIT_FORCED:

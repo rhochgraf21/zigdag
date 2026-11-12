@@ -20,10 +20,10 @@ from tree_sitter import Node
 
 from zigdag.adapters.typescript.scan import Parsed
 from zigdag.core.code import Link, Outcome, Qualified, Test, TestId
-from zigdag.core.findings import RecordPath, Span
+from zigdag.core.findings import RecordPath, Span, digest_of
 from zigdag.core.measures import Column, Line
 from zigdag.core.record.model import EvidenceKind
-from zigdag.core.texts import FileText, Written
+from zigdag.core.texts import Content, FileText, Written
 
 ENCODING = "utf-8"
 GROUPS = frozenset({"describe", "suite"})
@@ -95,7 +95,7 @@ def read_tests(parsed: Parsed, imports: Iterable[Qualified]) -> tuple[Test, ...]
         links = tuple(Link(Written(target.strip()), span) for written in _VERIFIES.findall(chain[-1])
                       for target in written.split(",") if target.strip())
         found.append(Test(TestId(f"{parsed.path}::{SEPARATOR.join(chain)}"), links, _kind(called, call), imported,
-                          span))
+                          span, source=digest_of(Content(_text(call)))))
     return tuple(found)
 
 

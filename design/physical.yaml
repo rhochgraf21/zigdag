@@ -23,6 +23,19 @@ zigdag.core.record.rules.evidence_kind: [model.EvidenceKind]
 zigdag.core.analysis.watch.guarded_structure: [Guarded]
 zigdag.core.analysis.watch.mutation_target: [Mutated]
 zigdag.cli.plans.git_error: [GitError]
+zigdag.cli.plans.branches.git_answer: [GitAnswer]
+zigdag.cli.plans.branches.checkout_state: [Checkout]
+zigdag.cli.plans.branches.part_checkout: [OnPart]
+zigdag.cli.plans.branches.claimed_part: [Claimed]
+zigdag.cli.plans.branches.claims: [Claims]
+zigdag.cli.plans.branches.branch_claim: [Claim]
+zigdag.cli.plans.branches.handout: [Handout]
+zigdag.core.analysis.work.asked_work: [Asked]
+zigdag.core.analysis.work.waiting_tests: [Waiting]
+zigdag.core.analysis.work.taken_part: [Taken]
+zigdag.core.analysis.work.answer: [Answer]
+zigdag.core.analysis.work.step: [Step]
+zigdag.core.analysis.work.part_delta: [Delta]
 zigdag.core.record.sentences.sentence: [model.Sentence]
 zigdag.core.record.sentences.statement: [model.Statement]
 zigdag.adapters: [adapters, adapters.adapter, adapters.code_quality, adapters.known, adapters.sarif]
@@ -77,11 +90,13 @@ zigdag.core.analysis.checks:
   - checks.gates
   - checks.interface_rules
   - checks.mutation_rules
+  - checks.part_rules
   - checks.plan_rules
   - checks.record_rules
   - checks.rules
   - checks.run
   - checks.tool_rules
+zigdag.core.analysis.checks.part_branch: [part_rules.PartBranch]
 zigdag.core.analysis.checks.context: [context.Context]
 zigdag.core.analysis.checks.rule_use: [rules.RuleUse]
 zigdag.core.analysis.checks.analysis: [run.Analysis]

@@ -16,7 +16,7 @@ from pathlib import Path
 from zigdag.adapters.adapter import Adapter, Presence
 from zigdag.agents import claude
 from zigdag.cli import plans
-from zigdag.cli.files import from_disk, from_git, loaded, ran, text
+from zigdag.cli.files import checkout, claims, from_disk, from_git, loaded, made, ran, text
 from zigdag.cli.plans import Files, GitError, Outcome, WatchedRun
 from zigdag.core import log as lg
 from zigdag.core.checks.run import Analysis
@@ -54,6 +54,11 @@ class Project:
     def at(self, revision: str) -> Analysis:
         """The analysis of the project as it was at a git revision."""
         files = from_git(self.root, revision)
+        return plans.analysis(files, loaded=loaded(plans.loadings(files)))
+
+    def committed(self) -> Analysis:
+        """The analysis of the project as its last commit has it, with the log as it is on disk."""
+        files = plans.with_log(from_git(self.root, plans.HEAD), self.read(lg.LOG_FILE))
         return plans.analysis(files, loaded=loaded(plans.loadings(files)))
 
     def read(self, path: RecordPath) -> str | None:
@@ -156,9 +161,14 @@ def test(project: Project, extra: list[str]) -> int:
 
 
 def ready(project: Project, base: Revision | None, extra: list[str]) -> int:
-    """Run the tests with the watcher, then give one answer for the whole change."""
+    """Run the tests with the watcher, then give one answer for the whole change. On the branch of a part, the
+    change is the part's: what the branch left its line with is read too, to see what the branch itself changed."""
+    on = plans.on_part(checkout(project.root), base)
+    if on.refused:
+        return perform(project, on.refusal)
     try:
         earlier = _earlier(project, base)
+        started = tuple(project.at(revision) for revision in on.starts)
     except GitError as e:
         return perform(project, plans.unreadable(base, e))
     run = plans.test(project.analysis, project.files, project.root, extra, dict(os.environ))
@@ -167,7 +177,7 @@ def ready(project: Project, base: Revision | None, extra: list[str]) -> int:
     ran = _watched(project, run)
     after = Project(run.root)
     return perform(project, plans.ready(run, Presence(run.observed.is_file()), ran, after.analysis,
-                                        earlier, base, after.files))
+                                        earlier, base, after.files, on.branch, started))
 
 
 def fmt(project: Project) -> int:
@@ -190,8 +200,24 @@ def findings(project: Project) -> int:
     return perform(project, plans.findings(project.analysis))
 
 
-def view(project: Project, name: str, target: str | None) -> int:
-    return perform(project, plans.view(project.analysis, name, target))
+def view(project: Project, name: str, target: str | None, base: Revision | None) -> int:
+    try:
+        earlier = _earlier(project, base)
+    except GitError as e:
+        return perform(project, plans.unreadable(base, e))
+    return perform(project, plans.view(project.analysis, name, target, earlier, base))
+
+
+def work(project: Project, base: Revision) -> int:
+    """Say what to do next on a change that is built part by part, and take the part that is handed out."""
+    taken = claims(project.root)
+    try:
+        before, line = project.at(base), project.committed()
+    except GitError as e:
+        return perform(project, plans.unreadable(base, e))
+    folders = tuple(Project(folder).analysis for folder in taken.folders)
+    handout = plans.work(base, before, line, checkout(project.root), taken, folders)
+    return perform(project, plans.handed_out(handout, made(project.root, handout.claims)))
 
 
 def init_project(project: Project) -> int:

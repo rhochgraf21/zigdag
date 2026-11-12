@@ -7,18 +7,19 @@ generated inputs. Before it, whether a test runs the DP's code is a guess from w
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import deal
 
-from zigdag.core.code import CodeModel, Observations, Outcome, Run, Test
-from zigdag.core.findings import Finding, Result, Span, finding
+from zigdag.core.code import CodeModel, Observations, Outcome, Run, Test, TestId
+from zigdag.core.findings import Digest, Finding, Result, Span, Subject, finding
 from zigdag.core.language.performance import bounds
-from zigdag.core.names import FrName, is_within
+from zigdag.core.names import FrName, Revision, is_within
 from zigdag.core.record.model import EvidenceKind, Record, Verification
 from zigdag.core.resolve import Tree
 from zigdag.core.settings import DEFAULT_REPORT
+from zigdag.core.texts import Content, Say
 
 EVIDENCE = "evidence"
 LINKS = "evidence.links"
@@ -150,3 +151,48 @@ def check_evidence(record: Record, model: CodeModel, tree: Tree) -> Iterable[Fin
         for kind in sorted(_needed(record, s) - {t.evidence for t in passed}, key=lambda k: k.value):
             yield finding(Result.TODO, EVIDENCE, s.ref, s.span, f"{s.ref} needs {kind.value} evidence that passed",
                           kind.value)
+
+
+def _verifying(tests: Sequence[Test], ref: str) -> Mapping[TestId, Digest | None]:
+    """The tests that say they verify a statement, each with the digest of its source."""
+    return {t.id: t.source for t in tests if any(link.target == ref for link in t.links)}
+
+
+def _unanswered(before: Record, tests_before: Sequence[Test], after: Record,
+                tests_after: Sequence[Test]) -> list[Stated]:
+    """The statements a change added or changed that no test it added or changed verifies. A test whose source the
+    adapter does not give is taken to have changed: zigdag cannot say it did not."""
+    was = {s.ref: s.text for s in stated(before)}
+    out = []
+    for s in stated(after):
+        now, then = _verifying(tests_after, s.ref), _verifying(tests_before, s.ref)
+        if was.get(s.ref) != s.text and all(source is not None and then.get(test) == source
+                                            for test, source in now.items()):
+            out.append(s)
+    return out
+
+
+@deal.post(lambda found: found.result is Result.TODO and found.rule == EVIDENCE)
+def unanswered(before: Record, tests_before: Sequence[Test], after: Record,
+               tests_after: Sequence[Test]) -> Iterable[Finding]:
+    """A thing to do for each statement a change added or changed that no test it added or changed verifies: what
+    the change asks for and has not been given yet. Whether a test passes is not asked, so this says the same of a
+    revision whose tests never ran as of a folder where they did."""
+    for s in _unanswered(before, tests_before, after, tests_after):
+        yield finding(Result.TODO, EVIDENCE, Subject(s.ref), s.span,
+                      Say(f"needs a test of what it says now: {s.text}"), Content(s.text))
+
+
+@deal.post(lambda found: found.result is Result.TODO and found.rule == EVIDENCE)
+def check_changed(before: Record, tests_before: Sequence[Test], after: Record, tests_after: Sequence[Test],
+                  base: Revision) -> Iterable[Finding]:
+    """A thing to do for each statement that says something else than it did at the base of a change, while every
+    test that verifies it is as it was there. Such a test passed for the old sentence, and its passing says nothing
+    of the new one. A statement no test verifies is left to check_evidence, which reports it with or without a
+    base."""
+    known = {s.ref for s in stated(before)}
+    for s in _unanswered(before, tests_before, after, tests_after):
+        if s.ref in known and _verifying(tests_after, s.ref):
+            yield finding(Result.TODO, EVIDENCE, s.ref, s.span,
+                          f"{s.ref} changed since {base}, and no test that verifies it has: change a test to fit "
+                          f"what it says now, or add one", s.text)

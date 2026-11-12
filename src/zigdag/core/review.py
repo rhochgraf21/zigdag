@@ -41,6 +41,13 @@ class Change:
     def domain(self) -> Domain:
         return self.entry.domain
 
+    @property
+    @deal.ensure(lambda self, result: len(result) == 1 + len(self.details) and self.entry.name in result[0])
+    def shown(self) -> tuple[Shown, ...]:
+        """The change as a review shows it: what was done to which entry, then each detail under it."""
+        return (Shown(f"{_MARK[self.kind]} {self.entry.kind.value} {self.entry.name}"),
+                *(Shown(f"    {d}") for d in self.details))
+
 
 def _show(value: object) -> str:
     if isinstance(value, list):

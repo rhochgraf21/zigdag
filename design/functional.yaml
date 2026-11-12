@@ -17,6 +17,7 @@ frs:
     statements:
       read: The names shall read each kind of name that the record uses.
       parts: When a code name is inside another, the names shall tell the names apart by the dots and the slashes that join the parts.
+      branches: When a design parameter is built on a branch, the names shall name the branch after the design parameter.
 
   zigdag.core.vocabulary.names.code_name:
     statements:
@@ -709,6 +710,13 @@ frs:
       undesigned: If a file of code is one that no design parameter names, then the checks shall report a break.
       custom: When a rule names a check that the project wrote, the checks shall report what the check of the project finds.
       custom-refused: If a file of custom checks has an effect, then the checks shall report a break.
+      changed-statements: If a statement changed since the base of a change and no test that verifies the statement changed, then the checks shall report a thing to do.
+      stay-in-part: If the branch of a design parameter changes a file outside the design parameter, then the checks shall report a break.
+      settled-first: If the branch of a design parameter changes a name that another design parameter uses, then the checks shall report a break.
+
+  zigdag.core.analysis.checks.part_branch:
+    statements:
+      hold: The part branch shall hold the branch that one design parameter is built on, as git has the branch.
 
   zigdag.core.analysis.checks.loaded_checks:
     statements:
@@ -742,9 +750,42 @@ frs:
     statements:
       hold: The standing shall give the findings of one direction of quality with whether every check of the direction passed.
 
+  zigdag.core.analysis.work:
+    statements:
+      next: The work shall tell what to do next on a change that is built one design parameter at a time.
+      asked: When a change adds or changes a statement, the work shall ask the design parameter of the statement for a test of the statement.
+      waiting: If a failing test ran the code of a design parameter that the change still asks of, then the work shall count the test as waiting.
+      stops: If a question that was raised since the base of a change is open, then the work shall give no design parameter to build.
+      delta: When asked about one design parameter, the work shall give each changed entry that concerns the design parameter.
+
+  zigdag.core.analysis.work.asked_work:
+    statements:
+      hold: The asked work shall hold what a change asks of one design parameter.
+
+  zigdag.core.analysis.work.waiting_tests:
+    statements:
+      hold: The waiting tests shall tell the failing tests that wait for another design parameter from the failing tests of the branch.
+
+  zigdag.core.analysis.work.taken_part:
+    statements:
+      hold: The taken part shall hold a design parameter whose branch exists with the project in the folder of the branch.
+
+  zigdag.core.analysis.work.answer:
+    statements:
+      hold: The answer shall hold what to do next on a change with each reason.
+
+  zigdag.core.analysis.work.step:
+    statements:
+      hold: The step shall name what there is to do next on a change.
+
+  zigdag.core.analysis.work.part_delta:
+    statements:
+      hold: The part delta shall hold what a change says of one design parameter.
+
   zigdag.core.views:
     statements:
       show: The views shall show a design parameter with the rules and the code around the design parameter.
+      changed: When a context has a base, the views shall show each changed entry that concerns the design parameter.
       next: When asked what is to do, the views shall show the first kinds of thing to do with every thing of one kind in one line.
       rules: When asked for the rules, the views shall list each rule with the settings of the rule.
       data: When asked for the data, the views shall show each structure under a design parameter with the design parameters that touch the structure.
@@ -909,6 +950,7 @@ frs:
     statements:
       run: The cli shall run a command on the project that the user names.
       test: When asked to test, the cli shall run the tests of the project with the watcher before the cli checks the project.
+      work: When asked for work, the cli shall take the design parameter that the plans hand out.
 
   zigdag.cli.plans:
     statements:
@@ -917,6 +959,9 @@ frs:
       summary: When a command reports the findings in short, the plans shall show each direction of quality in one line with the file of the findings of the direction and the breaks of the direction.
       costs: When a profile of the tests exists, the plans shall show the time and the memory of each design parameter beside the cost of the design parameter in the run before.
       unchecked: If no adapter supplied what a rule reads at the base of a review, then the plans shall leave the findings of the rule out of what the change brought.
+      part-branch: When a command runs on the branch of a design parameter, the plans shall tell the command the design parameter.
+      part-ready: When asked whether the branch of a design parameter is ready, the plans shall hold the branch to the checks of a branch.
+      built-waiting: If only tests that wait for another design parameter fail on the branch of a design parameter, then the plans shall answer that the design parameter is built.
 
   zigdag.cli.plans.runs:
     statements:
@@ -957,6 +1002,38 @@ frs:
   zigdag.cli.plans.git_error:
     statements:
       hold: The git error shall give the reason that git failed to read a revision.
+
+  zigdag.cli.plans.branches:
+    statements:
+      hold: The branches shall hold what git says of the branches that design parameters are built on.
+
+  zigdag.cli.plans.branches.git_answer:
+    statements:
+      hold: The git answer shall hold what git answered one question with.
+
+  zigdag.cli.plans.branches.checkout_state:
+    statements:
+      hold: The checkout state shall hold the branch that is checked out in a folder with the branch that the branch tracks.
+
+  zigdag.cli.plans.branches.part_checkout:
+    statements:
+      hold: The part checkout shall hold the branch of the design parameter that a command runs on, or the reason that the command cannot run.
+
+  zigdag.cli.plans.branches.claimed_part:
+    statements:
+      hold: The claimed part shall hold a design parameter whose branch exists with the folder of the branch.
+
+  zigdag.cli.plans.branches.claims:
+    statements:
+      hold: The claims shall hold every design parameter that is taken with the design files that are not committed.
+
+  zigdag.cli.plans.branches.branch_claim:
+    statements:
+      hold: The branch claim shall hold the branch to make for a design parameter with the branch that the branch tracks.
+
+  zigdag.cli.plans.branches.handout:
+    statements:
+      hold: The handout shall hold what the cli answers when asked for work with the branch to make first.
 
 constraints:
   pure-core:  # the same text must always give the same findings

@@ -15,7 +15,7 @@ from zigdag.core.checks.evidence import check_evidence
 from zigdag.core.checks.gates import check_gates
 from zigdag.core.checks.record_rules import check_record, registry
 from zigdag.core.checks.rules import RuleUse, rules_in_force
-from zigdag.core.code import CodeModel, Qualified
+from zigdag.core.code import CodeModel, Qualified, Test
 from zigdag.core.data import DataModel, work_out
 from zigdag.core.findings import Finding, RecordPath, Report, Result, Span, finding
 from zigdag.core.kinds.registry import Part
@@ -77,6 +77,12 @@ class Analysis:
             return None
         return Context(self.record, self.settings, self.code, self.tree, self.relations, self.data,
                        self.log.answered_questions, declared_pure(self.code, self.tree, self.rules))
+
+    @property
+    @deal.ensure(lambda self, result: result == (self.code.tests if self.code is not None else ()))
+    def tests(self) -> tuple[Test, ...]:
+        """The project's tests, as the adapters read them; none when no code was read."""
+        return self.code.tests if self.code is not None else ()
 
     @property
     @deal.ensure(lambda self, result: result == self.settings.people)

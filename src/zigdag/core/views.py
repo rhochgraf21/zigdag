@@ -20,6 +20,7 @@ from zigdag.core.kinds.registry import CheckKind, Exactness
 from zigdag.core.settings import Settings
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.checks.run import Analysis
+from zigdag.core.work import Delta, build_order
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import Pattern, parse_ears
 from zigdag.core.record.builtins import BUILT_INS
@@ -181,12 +182,23 @@ def data(a: Analysis, name: FrName | None = None) -> Shown:
     return "\n".join(lines)
 
 
-@deal.ensure(lambda a, target, result: (dp := a.dp_of(target)) is None or result.startswith(f"{dp}:"))
-def context(a: Analysis, target: Written) -> Shown:
+def _changed(delta: Delta) -> list[str]:
+    """What a change says of a part: what it changed in the design that concerns the part, then what it asks of the
+    part. This comes first in the part's context, since it is what whoever builds the part is there to do."""
+    lines = [f"  changed since {delta.base}:", *(f"    {line}" for c in delta.changes for line in c.shown)] if (
+        delta.changes) else [f"  nothing that concerns it changed since {delta.base}"]
+    if delta.asked is not None:
+        lines += ["", "  asked, and not given yet:", *(f"    {reason}" for reason in delta.asked.reasons)]
+    return [*lines, ""]
+
+
+@deal.ensure(lambda a, target, delta=None, *, result: (dp := a.dp_of(target)) is None or result.startswith(f"{dp}:"))
+def context(a: Analysis, target: Written, delta: Delta | None = None) -> Shown:
     name = a.dp_of(target)
     if name is None:
         return f'no FR, and no code zigdag read, is "{target}"'
-    lines = [f"{name}: {_function(a, name)}", f"  code: {_code(a, name)}", "", "  why it exists:"]
+    lines = [f"{name}: {_function(a, name)}", f"  code: {_code(a, name)}", "",
+             *(_changed(delta) if delta is not None else []), "  why it exists:"]
     chain = []
     n: FrName | None = name
     while n is not None:
@@ -234,30 +246,6 @@ def context(a: Analysis, target: Written) -> Shown:
     return "\n".join(lines)
 
 
-def _build_order(a: Analysis) -> list[FrName]:
-    """Every DP, after the siblings it depends on: the order the design matrix allows building in."""
-    if a.tree is None or a.relations is None:
-        return sorted(a.record.frs)
-    out: list[FrName] = []
-
-    def visit(name: FrName) -> None:
-        out.append(name)
-        order, cells = a.relations.matrix(a.tree, name)
-        placed: list[FrName] = []
-        remaining = list(order)
-        while remaining:
-            ready = [c for c in remaining if all((c, d) not in cells for d in remaining if d != c)] or remaining[:1]
-            for c in ready:
-                remaining.remove(c)
-                placed.append(c)
-        for c in placed:
-            visit(c)
-
-    if a.record.root is not None:
-        visit(a.record.root.name)
-    return out + sorted(set(a.record.frs) - set(out))
-
-
 def _kind_of(f: Finding) -> tuple[RuleName, Say]:
     """What makes two things to do the same kind of work: the rule that found them, and what it says once the name
     of what each is about is taken out."""
@@ -270,7 +258,7 @@ def _kind_of(f: Finding) -> tuple[RuleName, Say]:
 def next_steps(a: Analysis) -> Shown:
     """What is to do, in the order the design matrix allows. Things of one kind share a line, so that one kind with
     many cases cannot bury the rest, and only the first kinds are shown: what to do next is a short list."""
-    order = {n: i for i, n in enumerate(_build_order(a))}
+    order = {n: i for i, n in enumerate(build_order(a))}
     todo = [f for f in a.report.findings if f.result is Result.TODO]
     ranked = sorted(todo, key=lambda f: (order.get(a.dp_of_finding(f) or "", len(order)), f.about, f.say))
     if not ranked:

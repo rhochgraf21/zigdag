@@ -12,10 +12,13 @@ import deal
 from zigdag.core.record.entries import Entry
 from zigdag.core.record.model import Gate, Record, Workflow
 from zigdag.core.rubric import RUBRIC_VERSION
-from zigdag.core.findings import Report, Finding, Result, finding
+from zigdag.core.findings import Report, Finding, Result, Subject, finding
 from zigdag.core.log import Answer, Answered, Kind, Log
 from zigdag.core.names import is_within
 from zigdag.core.log import Actor
+
+
+THE_CHANGE = Subject("change")  # what stop-on-error is about: the change as a whole, and no one entry of it
 
 
 def _gates(record: Record) -> list[tuple[str, Gate, str]]:
@@ -40,7 +43,7 @@ def check_gates(record: Record, log: Log, people: tuple[Actor, ...], changed: li
             continue
         if gate is Gate.STOP_ON_ERROR:
             if report.breaks:
-                yield finding(Result.BREAKS, name, "change", None, "the change cannot be accepted while a check breaks")
+                yield finding(Result.BREAKS, name, THE_CHANGE, None, "the change cannot be accepted while a check breaks")
             continue
         for entry in changed:
             if not _covers(on, entry, root):

@@ -589,6 +589,11 @@ Each adapter says how its language provides these (§5.2).
   evidence.
 - A `verification` process variable adds its evidence kind as a requirement for every statement it
   covers.
+- **A changed statement needs a changed test.** With a base to compare with, a statement that says
+  something else than it did at the base, while every test that verifies it is as it was there, is to
+  do. Such a test passed for the old sentence, and its passing says nothing of the new one. A test is
+  compared by a digest of its source, with what says which statement it verifies; a test whose adapter
+  gives no digest is taken to have changed.
 
 ### 4.4 Free: built-in rules
 
@@ -916,7 +921,10 @@ reason under it. The answer is yes only when all of these hold:
 - no result is out of date;
 - every design file is in its layout (`zigdag fmt --check`);
 - with `--base`, the workflow gates hold for what changed, and the change adds nothing to do. Things to do that
-  were there at the base are debt, and do not stand in the way; new ones are not let in.
+  were there at the base are debt, and do not stand in the way; new ones are not let in. A statement the change
+  changed, whose tests it left as they were, is one of the new ones (§4.3).
+
+On the branch of one part, `ready` judges the part's own change, and has a third answer (§4.8).
 
 `check` and `test` pass by the same rule for what each of them sees: a break, an open question or a result out of
 date is a no, and a thing to do is not.
@@ -1027,6 +1035,92 @@ same from the latest two profiles, without running anything.
 
 A profile is a view. It never breaks and never asks: it says where cost is, and only a bound written
 down can say that a cost is too much.
+
+### 4.8 Building a change part by part
+
+A larger change touches several parts of the design. The design matrix says how the parts depend on
+each other, so it can say which of them can be built at the same time, by agents that cannot see each
+other. `zigdag work` hands that work out, and `zigdag ready` holds each agent to its part.
+
+**Nothing is kept.** There is no plan, no ticket and no list of who has what. Each answer is worked out
+from the design, the code, git's branches and the log, as they are. So an answer cannot go out of date
+when the design is amended while parts are being built, and whoever asks needs to remember nothing.
+
+**The order of a change.**
+1. **The design changes first, in one place,** with what the parts share: the structures, and the
+   names, parameters and fields that cross between parts. It only adds, so everything still passes. It
+   is committed, critiqued and approved before any part is built.
+2. **Each part is built on its own branch,** against what step 1 settled.
+3. **Each part lands** when `zigdag ready` says yes on its branch, brought up to date with the branch it
+   lands on.
+4. **What the change replaced is removed,** once everything has landed.
+
+| Term | Definition |
+|---|---|
+| **The base of a change** | The git revision the change began at, before its design changed. |
+| **Asked** | What a change asks of a part and has not been given yet: a test of each statement it added or changed that no test it added or changed verifies; code, for a part that has none; and each break and question the change brought to the part's code. Whether tests pass is not asked, so the same is said of a revision whose tests never ran. |
+| **The line** | The branch the parts land on. |
+| **A part's branch** | `part/<fr name>`, tracking the line. A part whose branch exists is **taken**. |
+| **Concerns** | What is said of one part concerns another when it is said of the part itself, of a part it is inside or that is inside it, or of a part whose code it uses. |
+
+**Why a part, and not a file or a line of code.** What two agents must not both change has to be
+something that can be named before the work starts, and checked after it ends. Lines cannot be named
+ahead of time. Files can, but they are the wrong boundary: what breaks is one agent changing what
+another relied on, not two agents editing text near each other. A part can be named, and the rules
+below hold a branch inside it.
+
+**What a part's branch is held to.** `zigdag ready --base <base of the change>`, on a part's branch:
+
+| Rule | Breaks when |
+|---|---|
+| `stay-in-part` | the branch changed a file that is not the part's own code, a test, or the log. Compared with where the branch left the line, with files git does not know yet. The design is among what it may not change: an agent that finds the design wrong raises that (`zigdag raise`), and stops. |
+| `settled-first` | the branch changed, or removed, a name that code outside the part uses: its parameters, what it returns, its fields, bases or members. What a function does is the part's own; what it takes and gives is not. The same holds for a structure that is another part's and is written in the part's file. |
+
+Beyond these, on a part's branch `ready`:
+- counts only the things to do that are **under the part** as added by the change. What the change asks
+  of other parts is theirs;
+- says no while the line has commits the branch does not have;
+- **tells a waiting test from a failing one.** A failing test that ran, as the watcher saw it, code of
+  another part that the change still asks something of, waits for that part: the code it needs is not
+  written yet. When only such tests stand in the way, the answer is `built: waiting on <parts> to land`.
+  It is not a yes, and nothing lands on it.
+
+So there is no rule for which part lands first. A part lands when its tests pass against the line as it
+is; if they need another part, they fail until that part has landed.
+
+**`zigdag work --base <base of the change>`** is asked from the line, and gives one answer:
+
+| Answer | When | Does |
+|---|---|---|
+| `build <part>` | a part is asked of and free; or it is taken and the design changed, where it lands, in a way that concerns it, since its branch last had the line | for a free part, makes its branch, so that no second answer hands it out |
+| `land <part>` | a taken part's folder shows it built: its tests ran, nothing is asked of it there, and no failing test is its own to fix | nothing; it is said again until the part has landed |
+| `wait: …` | everything left is taken, or waits for something that is | |
+| `blocked: …` | waiting will not help: the design is not settled, or a question or defect raised since the base is open | exits 1 |
+| `done` | the change asks nothing more | |
+
+- **Order.** Blocked comes first: while it stands nothing new is handed out, since what is built
+  against a design that is about to move may be built for nothing. Then landing, which is what other
+  parts wait for. Then building, in the order the design matrix allows.
+- **Nested parts.** A part is not handed out while the change still asks something of a part inside it,
+  which is built first, or while a part it is inside, or that is inside it, is taken.
+- **Not settled** means: a design file is not committed, so no branch would have it; a changed entry has
+  not passed `critique-before-review` or `person-approves-design`; or the change brought a break or a
+  question about the design itself. `stop-on-error` is not asked here: building the parts is what mends
+  the breaks it would stop for.
+- **A question stops the parts it concerns.** A question or defect raised since the base, and answered
+  nowhere, is read from the line's log and from the log in each taken part's folder, since a part's log
+  is not seen elsewhere until the part lands. The answer names the parts stopped, and those that go on.
+- **Where each thing is read.** The line is read as committed, with the log as it is on disk. A taken
+  part is read from the folder its branch is checked out in (`git worktree`), with what its tests last
+  showed. A part taken and checked out nowhere is being built.
+
+**What zigdag cannot tell.**
+- Whether whoever has a part is still working. A part whose agent has died stays taken until its branch
+  is deleted. Whoever starts the agents knows which are alive.
+- Whether a landing is already under way. `land` is said until the part has landed, so whoever hands the
+  work on must not hand the same landing on twice.
+- What a part with no code yet depends on. The design matrix is read from the code, so what such a part
+  waits for is known only once its branch has code.
 
 ---
 
@@ -1974,15 +2068,16 @@ Views are generated from the record and the code. None of them is written by han
 |---|---|
 | `zigdag init` | records what is there (§7.9). With `--default`, also writes `zigdag.toml`, a starter record and every tunable rule with its default values, and works before there is any code. |
 | `zigdag check` | runs every static check, and uses the latest observed results that are still current. Fast enough to run after every edit. Which directions it checks, and which wait for `test`: §4.6. Prints a line for each direction, and its breaks; `--full` prints every finding. It passes only when nothing breaks and no question is open: things to do do not stand in the way. |
-| `zigdag ready [--base <base>] [arguments]` | one answer for a whole change: runs the tests under observation, checks everything, and says `ready: yes`, or `ready: no` with each reason (§4.6). Other arguments go to the test command. |
+| `zigdag ready [--base <base>] [arguments]` | one answer for a whole change: runs the tests under observation, checks everything, and says `ready: yes`, or `ready: no` with each reason (§4.6). Other arguments go to the test command. On the branch of a part it needs `--base`, holds the branch to its part, and may say `built: waiting on <parts> to land` (§4.8). |
+| `zigdag work --base <base>` | what to do next on a change that is built part by part: `build <part>`, `land <part>`, `wait`, `blocked` or `done` (§4.8). Handing a free part out makes its branch. |
 | `zigdag test [arguments]` | runs the project's tests under observation, then zigdag's generated tests, then the tests against mutants, then everything `check` does (§4.5). Other arguments go to the test command. It passes when the tests do and `check` would. |
 | `zigdag fmt` | gives every design file its canonical layout. With `--check`, changes nothing and fails if a file is not in it. |
 | `zigdag rename <old> <new>` | renames an FR and its DP everywhere it is used: the record, and every `verifies` link in the tests |
 | `zigdag show [name]` | one level of the zigzag: the FR's statements, its children, the design matrix, the constraints and process variables in force (as sentences), evidence, and what is broken |
 | `zigdag show --data [name]` | the data model: each structure, what it contains and refers to, with cardinalities; and a create, read, update and delete table of structures against the DPs that access them |
-| `zigdag context <file or name>` | what an agent needs before changing that code: the chain up to its outcomes and job, its statements, the constraints and process variables in force, the interfaces of what it depends on, and evidence |
+| `zigdag context <file or name> [--base <base>]` | what an agent needs before changing that code: the chain up to its outcomes and job, its statements, the constraints and process variables in force, the interfaces of what it depends on, and evidence. With `--base`, first what changed in the design since the base that concerns the part, and what that change asks of the part (§4.8). |
 | `zigdag review <base>` | what a change does to the record, in domain order (customer, functional, physical, process): each entry added, changed, removed or renamed, with rules shown as sentences, and whether each was critiqued and approved; then the gates, then what the change brought. The base is any git revision. |
-| `zigdag check --base <base>` | everything `check` does, plus the workflow gates for the entries changed since the base |
+| `zigdag check --base <base>` | everything `check` does, plus the workflow gates for the entries changed since the base, and the statements changed since the base whose tests were not (§4.3) |
 | `zigdag approve [entries] [--base <base>] --by <who>` | approves entries at their current content |
 | `zigdag critique --request [entries] [--base <base>]` | writes a request for a fresh critic: each entry, what it serves, and the rubric questions still to ask |
 | `zigdag critique --record <answer> --by <critic>` | records the answer: a `critiqued` event per entry, and a `raised` event per finding. Findings whose evidence is not words from the entry, and entries changed since the request, are refused. |

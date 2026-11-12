@@ -60,6 +60,28 @@ def from_git(root: Path, revision: str) -> Files:
     return plans.git_files(reading, _git_read(root, revision, reading.chosen(listing.paths)))
 
 
+def checkout(root: Path) -> plans.Checkout:
+    """What git says of the branch checked out in a folder. Outside a git repository git answers nothing, which
+    reads as no branch."""
+    return plans.checkout(_asked(root, plans.CHECKOUT_QUESTIONS))
+
+
+def _asked(root: Path, questions: Sequence[Sequence[str]]) -> list[plans.GitAnswer]:
+    """What git answers each of some questions, each asked whatever the others answered."""
+    return [plans.GitAnswer(plans.ExitCode(done.returncode), done.stdout)
+            for done in (_git(root, *question) for question in questions)]
+
+
+def claims(root: Path) -> plans.Claims:
+    """The parts whose branches exist, where each is checked out, and what of the design is not committed."""
+    return plans.claims(_asked(root, plans.WORK_QUESTIONS))
+
+
+def made(root: Path, wanted: Sequence[plans.Claim]) -> list[plans.GitAnswer]:
+    """Make each branch, and say how git answered."""
+    return _asked(root, [claim.command for claim in wanted])
+
+
 def loaded(loadings: Sequence[Loading]) -> tuple[Loaded, ...]:
     """What each file of custom checks defines, found by running the file. They are run from their text, not
     imported, so that a revision read from git is checked by the checks it had; plans.loadings has already left out

@@ -11,6 +11,7 @@ import deal
 from zigdag.core.checks.code_rules import CANT_TELL, CONTRACTS, DECLARED_EFFECTS
 from zigdag.core.checks.data_rules import FEATURE, STATE
 from zigdag.core.checks.evidence import EVIDENCE, LINKS, OBSERVATIONS, REPORTS
+from zigdag.core.checks.part_rules import SETTLED_FIRST, STAY_IN_PART
 from zigdag.core.checks.record_rules import ADAPTER, registry
 from zigdag.core.checks.run import EXCEPT, Analysis
 from zigdag.core.checks.tool_rules import DIAGNOSES, tolerated
@@ -39,6 +40,8 @@ _OWN: Mapping[RuleName, Direction] = {
     RuleName(LEVELS): Direction.ARCHITECTURE,  # code at a level the tree does not allow
     RuleName(PLACEMENT): Direction.ARCHITECTURE,  # a placement that names no code
     RuleName(EXCEPT): Direction.ARCHITECTURE,  # an except that names no code
+    STAY_IN_PART: Direction.ARCHITECTURE,  # a part's branch changed a file that is not the part's
+    SETTLED_FIRST: Direction.ARCHITECTURE,  # a part's branch changed what other parts are built against
 }
 _DESIGNED = Direction.DESIGN  # the one direction that needs no code: its checks always run
 _DIAGNOSED: Mapping[Diagnosis, Direction] = {Diagnosis.LINT: Direction.LINT, Diagnosis.TYPES: Direction.TYPECHECK,

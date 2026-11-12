@@ -40,7 +40,7 @@ from zigdag.core.code import (
     ResourceUse,
 )
 from zigdag.core.effects import Effect
-from zigdag.core.findings import RecordPath, Span
+from zigdag.core.findings import Digest, RecordPath, Span, digest_of
 from zigdag.core.names import CodePath
 from zigdag.core.record.model import EvidenceKind
 
@@ -142,9 +142,17 @@ def _uses(body: list[ast.stmt], names: list[str]) -> dict[str, _Uses]:
     return {n: _Uses(n in tested, tuple(reads[n]), n in whole) for n in names}
 
 
+def written(text: str, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Digest:
+    """A digest of a function as it is written, from its first decorator to its last line. What a test verifies, and
+    what a contract promises, are said in decorators, so a function whose decorators changed has changed too."""
+    first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    return digest_of(*text.splitlines()[first - 1:node.end_lineno or node.lineno])
+
+
 class Scanner(ast.NodeVisitor):
     def __init__(self, unit: CodePath, package: str, path: RecordPath, tree: ast.Module, text: str):
         self.unit = unit
+        self.text = text
         self.package = package
         self.path = path
         self.tree = tree
@@ -354,7 +362,8 @@ class Scanner(ast.NodeVisitor):
                 unmutated=self._unmutated(node)))
             if contract and links:
                 self.facts.contracts.append(Test(TestId(f"{self.unit}::{name}"), tuple(links),
-                                                 EvidenceKind.CONTRACT, (), self.span(node), Place(self.unit, name)))
+                                                 EvidenceKind.CONTRACT, (), self.span(node), Place(self.unit, name),
+                                                 written(self.text, node)))
             self.places.append(Place(self.unit, name))
         for arg in [*node.args.defaults, *node.args.kw_defaults]:
             if arg is not None:

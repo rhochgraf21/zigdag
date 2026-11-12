@@ -22,6 +22,7 @@ from zigdag.core.texts import FileText, Say, Written
 
 LOG_FILE = RecordPath(f"{DESIGN_DIR}/log.jsonl")
 LOG_RULE = "log"
+GIT_ATTRIBUTES = RecordPath(".gitattributes")  # where git is told to merge the log as a union, when an event is added
 
 Timestamp = NewType("Timestamp", str)  # UTC, to the second: 2026-11-04T14:12:05Z
 Actor = NewType("Actor", str)  # who: a person or an agent

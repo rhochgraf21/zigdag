@@ -26,11 +26,11 @@ import deal
 
 from zigdag.adapters.terraform.source import Block, BlockKind, blocks
 from zigdag.core.code import Link, Outcome, Qualified, Test, TestId
-from zigdag.core.findings import RecordPath, Span
+from zigdag.core.findings import Digest, RecordPath, Span, digest_of
 from zigdag.core.measures import Column
 from zigdag.core.names import Argument
 from zigdag.core.record.model import EvidenceKind
-from zigdag.core.texts import FileText, Written
+from zigdag.core.texts import Content, FileText, Written
 
 SUFFIX = ".tftest.hcl"
 _VERIFIES = re.compile(r"verifies:\s*(.+)$")
@@ -68,13 +68,20 @@ def _links(path: RecordPath, run: Block) -> tuple[Link, ...]:
                  for target in found.group(1).split(",") if target.strip())
 
 
+def _written(text: FileText, run: Block) -> Digest:
+    """A digest of a run as it is written: every line of it, with the blocks inside it, where its assertions are,
+    and its comments, where what it verifies is said."""
+    lines = text.splitlines()[run.line - 1:run.line - 1 + run.size]
+    return digest_of(*(Content(line) for line in (*lines, *(comment for _, comment in run.comments))))
+
+
 @deal.ensure(lambda files, units, result: all(t.id.partition("::")[0] in files for t in result))
 def read_tests(files: Mapping[RecordPath, FileText], units: Iterable[Qualified]) -> tuple[Test, ...]:
     """Every run of every test file. A test of a module can run any of what the module deploys, so each run counts
     as importing every unit given."""
     imports = tuple(sorted(units))
     return tuple(Test(test_id(path, run), _links(path, run), EvidenceKind.UNIT_TEST, imports,
-                      Span(path, run.line, Column(1)))
+                      Span(path, run.line, Column(1)), source=_written(text, run))
                  for path, text in sorted(files.items()) for run in _runs(text))
 
 

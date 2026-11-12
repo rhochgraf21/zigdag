@@ -23,6 +23,7 @@ Library = NewType("Library", str)  # an importable top-level package that is not
 Api = NewType("Api", str)  # an API as the code writes it: open, subprocess.run, print
 Glob = NewType("Glob", str)  # a file pattern, such as .zigdag/*.xml
 Revision = NewType("Revision", str)  # a git revision, such as main
+BranchName = NewType("BranchName", str)  # a git branch, as git names it: main, part/shop.checkout
 ShellCommand = NewType("ShellCommand", str)  # a command a shell runs, such as zigdag or uv run zigdag
 Argument = NewType("Argument", str)  # one argument of a command line, as it was typed or as zigdag builds it
 ParamName = NewType("ParamName", str)  # the name of a rule's parameter, such as allow
@@ -116,6 +117,21 @@ def subject(name: FrName) -> SentenceText:
     (above := parent(name)) is not None and is_within(above, ancestor))))  # the name, or within its parent
 def is_within(name: FrName, ancestor: FrName) -> bool:
     return name == ancestor or name.startswith(ancestor + ".")
+
+
+PART_BRANCHES = "part/"  # what the name of the branch one part is built on starts with; the part's name follows
+
+
+@deal.ensure(lambda part, result: part_built_on(result) == part)  # the branch says whose it is
+def branch_of(part: FrName) -> BranchName:
+    """The branch a part is built on. A part is one agent's at a time, and its branch is how everyone sees that."""
+    return BranchName(f"{PART_BRANCHES}{part}")
+
+
+@deal.ensure(lambda branch, result: result is None or branch == f"{PART_BRANCHES}{result}")
+def part_built_on(branch: BranchName) -> FrName | None:
+    """The part a branch is the branch of; None for any other branch."""
+    return fr_name(Written(branch.removeprefix(PART_BRANCHES))) if branch.startswith(PART_BRANCHES) else None
 
 
 @dataclass(frozen=True, order=True)

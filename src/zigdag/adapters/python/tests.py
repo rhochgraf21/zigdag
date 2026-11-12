@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import deal
 
 from zigdag.adapters.python import apis
-from zigdag.adapters.python.scan import Scanner
+from zigdag.adapters.python.scan import Scanner, written
 from zigdag.core.code import Link, Outcome, Qualified, Test
 from zigdag.core.findings import RecordPath, Span
 from zigdag.core.names import CodePath
@@ -62,7 +62,7 @@ def read_tests(files: Mapping[RecordPath, str]) -> tuple[tuple[Test, ...], tuple
                                if isinstance(m, ast.FunctionDef | ast.AsyncFunctionDef) and m.name.startswith("test")]
         for name, node in candidates:
             tests.append(Test(f"{module}::{name}", _links(scanner, node, path), _kind(scanner, node), imports,
-                              Span(path, node.lineno, node.col_offset + 1)))
+                              Span(path, node.lineno, node.col_offset + 1), source=written(text, node)))
     return tuple(tests), tuple(unreadable)
 
 

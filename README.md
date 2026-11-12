@@ -110,4 +110,6 @@ functional
 
 [docs/practices.md](docs/practices.md) teaches how to work with zigdag, start to finish, on one small example.
 
+[docs/flow.md](docs/flow.md) walks through one change, first with one agent, then with many agents each building one part (`zigdag work`).
+
 Every rule is listed in [docs/rules.md](docs/rules.md). `zigdag checks` prints the same list. You can add your own as plain Python functions in `design/checks/`.
