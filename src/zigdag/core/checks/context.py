@@ -12,7 +12,7 @@ from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import CodeModel, Observations, Qualified, SymbolKind
 from zigdag.core.data import DataModel
 from zigdag.core.findings import Digest, Finding, Result, RuleName, Span, Subject, finding
-from zigdag.core.kinds.registry import EFFECTS
+from zigdag.core.kinds.registry import EFFECTS, Part
 from zigdag.core.names import FrName, is_within
 from zigdag.core.record.model import Record
 from zigdag.core.relate import Relations
@@ -35,6 +35,14 @@ class Context:
                                                             in self.answered))
     def is_answered(self, question: Finding) -> bool:
         return (question.rule, question.about, question.digest) in self.answered
+
+    @deal.ensure(lambda self, name, part, result: result or self.model.unit_of(name) is not None)
+    def is_read(self, name: Qualified, part: Part) -> bool:
+        """Whether a part of the code model was read for the code a name is in. An adapter may not read a part its
+        code has: then a rule that reads the part has nothing to say of that code, and must not find it wanting."""
+        unit = self.model.unit_of(name)
+        adapter = self.model.units[unit].adapter if unit is not None else None
+        return part not in self.model.unread.get(adapter, frozenset())
 
     @deal.ensure(lambda self, rule, dp, result: result == (dp is not None and is_within(dp, rule.on)))
     def in_scope(self, rule: RuleUse, dp: FrName | None) -> bool:

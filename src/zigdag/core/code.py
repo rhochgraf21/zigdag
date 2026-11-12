@@ -17,7 +17,7 @@ from zigdag.core.effects import Effect
 from zigdag.core.kinds.registry import Part
 from zigdag.core.record.model import EvidenceKind
 from zigdag.core.findings import Digest, Finding, RecordPath, Result, RuleName, Span, Subject, finding
-from zigdag.core.names import AdapterName, CodePath
+from zigdag.core.names import AdapterName, CodePath, enclosing, is_inside, nesting
 from zigdag.core.measures import Count, LineCount, Seconds
 from zigdag.core.names import Api, Identifier, Library
 from zigdag.core.texts import Say, Written
@@ -626,6 +626,9 @@ class Libraries:
     standard: frozenset[Library]
 
 
+NO_LIBRARIES = Libraries(None, frozenset(), frozenset())  # of a language that declares and brings none
+
+
 @dataclass(frozen=True)
 class CodeModel:
     units: Mapping[CodePath, Unit] = field(default_factory=dict)
@@ -643,13 +646,31 @@ class CodeModel:
     results: Mapping[TestId, Outcome] = field(default_factory=dict)  # test id -> its latest result
     observed: Observations | None = None  # None until the tests have been run under observation
     reports_read: bool = False
-    libraries: Libraries = field(default_factory=lambda: Libraries(None, frozenset(), frozenset()))
+    # Each language's own: a name that is standard in one, or declared for one, says nothing of another.
+    libraries: Mapping[AdapterName, Libraries] = field(default_factory=dict)
     diagnostics: tuple[Diagnostic, ...] = ()  # from the linters and type checkers that ran on the code as it is
     resource_uses: tuple[ResourceUse, ...] = ()  # the code's calls to clients of deployed resources
     settings: tuple[Setting, ...] = ()  # for infrastructure: which settings point at which resource
     grants: tuple[Grant, ...] = ()  # for infrastructure: who is granted what
     supplied: frozenset[Part] = frozenset()
+    # How a function states a contract in each adapter's language, for a finding that asks for one to say.
+    contract_forms: Mapping[AdapterName, Say] = field(default_factory=dict)
+    # For each adapter, the parts its code has that it does not read yet. A rule that reads one says nothing of
+    # that adapter's code, which is not the code passing the rule (principle 6). A part its kind of code does not
+    # have at all, as a deployed resource has no symbols, is not listed: there is nothing there to check.
+    unread: Mapping[AdapterName, frozenset[Part]] = field(default_factory=dict)
     problems: tuple[Finding, ...] = ()
+
+    @deal.ensure(lambda self, place, result: result is None or result == self.units[place.unit].adapter)
+    def adapter_of(self, place: Place) -> AdapterName | None:
+        """The adapter that read the code at a place; None for a place in no unit that was read."""
+        unit = self.units.get(place.unit)
+        return unit.adapter if unit is not None else None
+
+    @deal.ensure(lambda self, adapter, result: adapter in self.libraries or result == NO_LIBRARIES)
+    def libraries_of(self, adapter: AdapterName | None) -> Libraries:
+        """What an adapter's language knows of libraries; nothing, for one that read none."""
+        return self.libraries.get(adapter, NO_LIBRARIES) if adapter is not None else NO_LIBRARIES
 
     @property
     @deal.ensure(lambda self, result: all(u.adapter in result for u in self.units.values()))
@@ -664,7 +685,7 @@ class CodeModel:
     def unit_at(self, path: RecordPath) -> Unit | None:
         """The unit read from a file: the most specific one, since a folder with no file of its own is placed at
         the first file inside it."""
-        return max((u for u in self.units.values() if u.span.path == path), key=lambda u: u.path.count("."),
+        return max((u for u in self.units.values() if u.span.path == path), key=lambda u: nesting(u.path),
                    default=None)
 
     @deal.ensure(lambda self, span, result: result is None or self.unit_of(Qualified(result)) is not None)
@@ -685,7 +706,7 @@ class CodeModel:
         then the one whose lines the place is in, and otherwise the file's own unit."""
         over = [u for u in self.units.values() if u.span.path == span.path
                 and u.span.line <= span.line < u.span.line + max(u.size, 1)]
-        return max(over, key=lambda u: (u.span.line, u.path.count(".")), default=self.unit_at(span.path))
+        return max(over, key=lambda u: (u.span.line, nesting(u.path)), default=self.unit_at(span.path))
 
     @property
     @deal.ensure(lambda self, result: all(self.units[unit].span.path == path for path, unit in result.items()))
@@ -703,16 +724,10 @@ class CodeModel:
         return [s for q, s in sorted(self.symbols.items()) if q.startswith(prefix) and s.kind is SymbolKind.METHOD
                 and (s.public or s.name.endswith(CONSTRUCTOR)) and "." not in q[len(prefix):]]
 
-    @deal.ensure(lambda self, name, result: result is None or (result in self.units and (
-        name == result or name.startswith(f"{result}."))))
+    @deal.ensure(lambda self, name, result: result is None or (result in self.units and is_inside(name, result)))
     def unit_of(self, name: Qualified) -> CodePath | None:
         """The most specific unit a qualified name is in, or None when it is outside the project."""
-        parts = name.split(".")
-        for i in range(len(parts), 0, -1):
-            candidate = CodePath(".".join(parts[:i]))
-            if candidate in self.units:
-                return candidate
-        return None
+        return next((CodePath(outer) for outer in enclosing(name) if outer in self.units), None)
 
     @deal.ensure(lambda self, value, result: result is None or value.root in self.symbols)
     @deal.ensure(lambda self, value, result: value.called or bool(value.path) or result == (
@@ -756,14 +771,22 @@ def _same_name(models: Sequence[CodeModel]) -> list[Finding]:
     return problems
 
 
-def _libraries(models: Sequence[CodeModel]) -> Libraries:
-    # An adapter that could read no declaration says None. One that could stands for the project here, so a second
-    # language whose own declaration is missing goes unnoticed: Libraries has to be kept by adapter before two
-    # languages that import are read together.
-    declared = [m.libraries.declared for m in models if m.libraries.declared is not None]
-    return Libraries(frozenset().union(*declared) if declared else None,
-                     frozenset().union(*(m.libraries.vendored for m in models)),
-                     frozenset().union(*(m.libraries.standard for m in models)))
+def _seen(watched: Sequence[Observations]) -> Observations | None:
+    """What several watchers saw, as one: each watches its own language's tests, so no test is in two of them.
+    None when no watcher saw anything."""
+    if len(watched) < 2:
+        return watched[0] if watched else None
+    return Observations(
+        runs={test: run for seen in watched for test, run in seen.runs.items()},
+        crossings=tuple(c for seen in watched for c in seen.crossings),
+        escapes=tuple(e for seen in watched for e in seen.escapes),
+        leaks=tuple(leak for seen in watched for leak in seen.leaks),
+        replays=tuple(r for seen in watched for r in seen.replays),
+        cases=tuple(c for seen in watched for c in seen.cases),
+        mutants=tuple(m for seen in watched for m in seen.mutants),
+        mutation_unavailable=next((seen.mutation_unavailable for seen in watched if seen.mutation_unavailable), None),
+        unwatched=tuple(unit for seen in watched for unit in seen.unwatched),
+        stale=Count(sum(seen.stale for seen in watched)))
 
 
 @deal.pre(lambda models: bool(models))  # with no adapter's model there is no code, which is said as None, not as empty
@@ -790,14 +813,15 @@ def joined(models: Sequence[CodeModel]) -> CodeModel:
         computations=tuple(c for m in models for c in m.computations),
         tests=tuple(t for m in models for t in m.tests),
         results={test: outcome for m in models for test, outcome in m.results.items()},
-        # One adapter has a watcher today. When a second does, what each saw has to be joined run by run.
-        observed=next((m.observed for m in models if m.observed is not None), None),
+        observed=_seen([m.observed for m in models if m.observed is not None]),
         reports_read=any(m.reports_read for m in models),
-        libraries=_libraries(models),
+        libraries={adapter: libraries for m in reversed(models) for adapter, libraries in m.libraries.items()},
         diagnostics=tuple(d for m in models for d in m.diagnostics),
         resource_uses=tuple(u for m in models for u in m.resource_uses),
         settings=tuple(s for m in models for s in m.settings),
         grants=tuple(g for m in models for g in m.grants),
         supplied=frozenset().union(*(m.supplied for m in models)),
+        contract_forms={adapter: form for m in models for adapter, form in m.contract_forms.items()},
+        unread={adapter: parts for m in models for adapter, parts in m.unread.items()},
         problems=(*(p for m in models for p in m.problems), *_same_name(models)),
     )

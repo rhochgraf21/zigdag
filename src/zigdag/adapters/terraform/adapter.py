@@ -117,8 +117,8 @@ class TerraformAdapter:
         return read_terraform(TerraformFiles(sources, self.root, files.get(self.plan), self.plan, self.containers,
                                              self._tests(files), files.get(REPORT), REPORT, self.mode, tuple(ran)))
 
-    @deal.ensure(lambda self, files, extra, result: result is None or not result.watched)  # it has no watcher
-    def test_run(self, files: Files, extra: Sequence[Argument]) -> TestRun | None:
+    @deal.ensure(lambda self, files, extra, root, result: result is None or not result.watched)  # it has no watcher
+    def test_run(self, files: Files, extra: Sequence[Argument], root: ProjectRoot) -> TestRun | None:
         """How the test files that may run are run, their report written where the next check reads it; None when
         there are none. The user's extra arguments are for the watched run, which this is not."""
         runnable = tests.runnable(self._tests(files), self.mode)
@@ -129,7 +129,7 @@ class TerraformAdapter:
         return TestRun(tests.command(start, self.root, runnable, REPORT))
 
     @deal.post(lambda result: result is None)
-    def profiled_tests(self, extra: Sequence[Argument]) -> None:
+    def profiled_tests(self, extra: Sequence[Argument], root: ProjectRoot) -> None:
         return None
 
     @deal.post(lambda result: isinstance(result, Unreadable))

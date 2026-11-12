@@ -115,6 +115,7 @@ security:
     - watchers.python.mutants._compiled  # it runs the project's own code, edited, with exec: that is what a mutant is
     - adapters.python.tests.read_reports  # the JUnit report the project's own tests wrote; Python's expat refuses the entity attacks bandit warns of
     - adapters.terraform.tests.read_report  # the JUnit report terraform test wrote for the project; the same holds
+    - adapters.typescript.tests.read_report  # the JUnit report vitest wrote for the project; the same holds
     - cli.commands.test  # it starts the project's tests: the cli's job
     - cli.files._git  # it runs git, with arguments zigdag makes
     - cli.files.ran  # it starts the project's own linter, type checker and security checker

@@ -14,7 +14,7 @@ import deal
 from zigdag.core import codec
 from zigdag.core.checks.data_rules import protected_types
 from zigdag.core.checks.run import Analysis
-from zigdag.core.kinds.registry import DATA_FLOW, EFFECTS, MUTATION
+from zigdag.core.kinds.registry import DATA_FLOW, EFFECTS, MUTATION, Part
 from zigdag.core.settings import CARRIED_FILE, OBSERVED_FILE
 from zigdag.core.code import CodeModel, Mutant, Place, Qualified, SearchBound, SymbolKind, TestId
 from zigdag.core.findings import Digest, RecordPath, digest_of
@@ -195,6 +195,7 @@ def plan(analysis: Analysis, tests: Iterable[RecordPath], sources: Mapping[Recor
         elif rule.kind == MUTATION:
             mutated += [Mutated(p, rule.params["paths"], rule.params["seconds"], callees[p]) for p in covered
                         if (q := Qualified(str(p))) in ctx.declared_pure and model.symbols[q].contract
+                        and ctx.is_read(q, Part.MUTANTS)  # only code whose language has its mutants made
                         and _pure(ctx.relations.effects, unknowable, p)]
         elif rule.kind == DATA_FLOW:
             protected |= protected_types(ctx, rule)[0]
@@ -206,6 +207,6 @@ def plan(analysis: Analysis, tests: Iterable[RecordPath], sources: Mapping[Recor
                       if (s := ctx.data.structures[dp]).owner is not None),
         replayed=_sorted(replayed),
         protected=tuple(sorted(protected)),
-        contracts=_sorted(s.place for s in operations if s.contract),
+        contracts=_sorted(s.place for s in operations if s.contract and ctx.is_read(s.qualified, Part.MUTANTS)),
         mutated=tuple(sorted(set(mutated), key=lambda m: str(m.place))),
     )

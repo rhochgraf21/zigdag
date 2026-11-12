@@ -616,23 +616,23 @@ class ProfiledRun:
     unwritten: Say = Say("")  # what to look at when the tests ran and the profiler wrote no profile
 
 
-def _profiler(a: Analysis, adapters: Sequence[Adapter],
+def _profiler(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot,
               extra: Sequence[Argument] = ()) -> tuple[Adapter, Profiling] | None:
     """The adapter whose profiler the tests run under, and how: the first that has both code here and a profiler,
     since a profile is of one run of the tests."""
     having = a.code.adapters if a.code is not None else frozenset()
     return next(((adapter, profiling) for adapter in adapters if adapter.name in having
-                 and (profiling := adapter.profiled_tests(extra)) is not None), None)
+                 and (profiling := adapter.profiled_tests(extra, root)) is not None), None)
 
 
-@deal.ensure(lambda a, adapters, root, extra, result: result.refused or PROFILE_FILE in result.command)
+@deal.ensure(lambda a, adapters, root, extra, result: result.refused or bool(result.command))
 def profile(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot, extra: Sequence[Argument]) -> ProfiledRun:
     """The tests run once more, under the adapter's profiler, for zigdag stats (DESIGN2 §4.7)."""
     written, before = root / PROFILE_FILE, root / PROFILE_BEFORE
     if a.code is None:
         return ProfiledRun(True, refused("no code was read, so there is nothing to profile"), Outcome(), (), root,
                            written, before)
-    chosen = _profiler(a, adapters, extra)
+    chosen = _profiler(a, adapters, root, extra)
     if chosen is None:
         return ProfiledRun(True, refused("no adapter that read code here has a profiler"), Outcome(), (), root,
                            written, before)
@@ -647,6 +647,15 @@ NEW = "none"  # what a part cost in the run before, when it had no cost then
 def _shown(c: Cost | None) -> tuple[str, str, str]:
     """A part's CPU time, its share of the run, and its memory, as the table shows them."""
     return (f"{c.seconds:.2f} s", f"{c.time:.0f}%", f"{c.allocated:.1f} MB") if c is not None else (NEW, NEW, NEW)
+
+
+_COLUMNS = ("part", "CPU time", "share", "memory allocated")
+
+
+def _run(profile: Profile) -> str:
+    """How long a profiled run took, and the most memory it held, when the profiler measures memory."""
+    took = f"{profile.elapsed:.1f} s"
+    return f"{took}, holding at most {profile.peak:.0f} MB at once" if profile.peak is not None else took
 
 
 def _leaks(found: tuple[Suspect, ...], profiler: ToolName) -> list[str]:
@@ -674,7 +683,7 @@ def costs(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot, now: File
     """Where the time and memory of the latest profiled run went, by design part, beside the run before it."""
     if a.code is None or a.tree is None:
         return refused("no code was read, so a profile cannot be told by design part")
-    chosen = _profiler(a, adapters)
+    chosen = _profiler(a, adapters, root)
     if chosen is None:
         return refused("no adapter that read code here has a profiler")
     adapter, profiling = chosen
@@ -687,17 +696,22 @@ def costs(a: Analysis, adapters: Sequence[Adapter], root: ProjectRoot, now: File
     earlier = earlier if isinstance(earlier, Profile) else None  # one that cannot be read compares with nothing
     tests = a.settings.test_roots
     parts = by_part(latest, a.code, a.tree, tests)
-    head = f"the tests ran for {latest.elapsed:.1f} s, holding at most {latest.peak:.0f} MB at once"
+    # A profiler that measures no memory has no memory to show: its column and its leaks are left out, not shown
+    # as nothing.
+    columns = len(_COLUMNS) if latest.peak is not None else len(_COLUMNS) - 1
+    head = f"the tests ran for {_run(latest)}"
     if earlier is not None:
-        head += f"; the run before, {earlier.elapsed:.1f} s and {earlier.peak:.0f} MB"
-    rows: list[tuple[str, ...]] = [("part", "CPU time", "share", "memory allocated")]
+        held = f" and {earlier.peak:.0f} MB" if earlier.peak is not None else ""
+        head += f"; the run before, {earlier.elapsed:.1f} s{held}"
+    rows: list[tuple[str, ...]] = [_COLUMNS[:columns]]
     for c in compared(parts, by_part(earlier, a.code, a.tree, tests) if earlier is not None else ())[:PARTS_SHOWN]:
         now_, then = _shown(c.now), _shown(c.before)
-        rows.append((c.now.part, *(_change(n, b) if earlier is not None else n for n, b in zip(now_, then))))
+        rows.append((c.now.part, *(_change(n, b) if earlier is not None else n for n, b in zip(now_, then)))[:columns])
     more = len(parts) - PARTS_SHOWN
-    found = suspects(latest, a.code, a.tree, tests)
+    memory = (_leaks(suspects(latest, a.code, a.tree, tests), profiling.profiler) if latest.peak is not None
+              else [f"{profiling.profiler} measures time only: memory and leaks are not known"])
     return Outcome(out=(Shown("\n".join([head, "", *_table(rows), *([f"and {more} more parts"] if more > 0 else []),
-                                         "", *_leaks(found, profiling.profiler), "", profiling.full])),))
+                                         "", *memory, "", profiling.full])),))
 
 
 @deal.ensure(lambda run, written, returncode, a, adapters, now, before, result:
@@ -727,6 +741,7 @@ class WatchedRun:
     environment: Environment
     unseen: Say = Say("")  # what to look at when the tests ran and the watcher wrote nothing
     unwatched: tuple[tuple[Argument, ...], ...] = ()  # the test commands of adapters that have no watcher, run after
+    cleared: tuple[FilePath, ...] = ()  # what the run before wrote that this one writes anew: removed first
 
     @property
     @deal.ensure(lambda self, result: len(result) == len(self.unwatched) + bool(self.command))
@@ -771,21 +786,27 @@ def test(a: Analysis, files: Files, root: ProjectRoot, extra: Sequence[Argument]
     observed = root / OBSERVED_FILE
     if watch is None:
         return WatchedRun(True, refused("no code was read, so there is nothing to watch"), "", observed, (), root, {})
-    runs = [run for adapter in reading_of(files).adapters if (run := adapter.test_run(files, extra)) is not None]
+    runs = [run for adapter in reading_of(files).adapters
+            if (run := adapter.test_run(files, extra, root)) is not None]
     # One run is watched, since a watcher writes what it saw to one file: the first adapter's that has a watcher.
     watching = next((run for run in runs if run.watched), None)
     if not runs:
         return WatchedRun(True, refused("no adapter that read code here has tests to run"), "", observed, (),
                           root, {})
+    told = {name: value for run in runs for name, value in run.environment.items()}
     return WatchedRun(False, Outcome(), replace(watch, last_run=carried(files)).to_text(), observed,
                       watching.command if watching is not None else (), root,
-                      {**environment, PLAN_VARIABLE: str(root / PLAN_FILE)},
+                      {**environment, **told, PLAN_VARIABLE: str(root / PLAN_FILE)},
                       (watching.unseen if watching is not None else None) or Say(""),
-                      tuple(run.command for run in runs if run is not watching))
+                      tuple(run.command for run in runs if run is not watching),
+                      tuple(root / path for run in runs for path in run.clears))
 
 
 @deal.ensure(lambda run, seen, returncode, after, result: _reports_only(result))
-@deal.ensure(lambda run, seen, returncode, after, result: seen is Presence.PRESENT or result.exit == REFUSED)
+# A run with a watched command must have been seen by its watcher. One with none, such as a project whose tests
+# are all run without a watcher, has no watcher's file to wait for.
+@deal.ensure(lambda run, seen, returncode, after, result: seen is Presence.PRESENT or not run.command
+             or result.exit == REFUSED)
 def tested(run: WatchedRun, seen: Presence, returncode: ExitCode, after: Analysis) -> Outcome:
     shown = run.shown
     if seen is Presence.ABSENT and run.command:

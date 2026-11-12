@@ -19,7 +19,7 @@ from zigdag.core.resolve import Tree
 from zigdag.core.settings import Settings
 from zigdag.core.code import Place, Qualified
 from zigdag.core.findings import BUILT_IN_SPAN, Span
-from zigdag.core.names import CheckKindName, FrName, RuleId
+from zigdag.core.names import CheckKindName, FrName, RuleId, is_inside, within
 from zigdag.core.names import CodePath
 
 
@@ -36,13 +36,13 @@ class RuleUse:
     def skips(self, tree: Tree, where: Place | Qualified | CodePath) -> bool:
         """Whether the code is excepted: it is, or is inside, a name under `except`."""
         text = str(where)
-        return any(text == c or text.startswith(c + ".") for c in self._candidates(tree))
+        return any(is_inside(text, c) for c in self._candidates(tree))
 
     def _candidates(self, tree: Tree) -> list[str]:
         bases = tree.code_base(self.on)
         out = []
         for e in self.excepted:
-            out += [f"{b}.{e.code.path}" for b in bases] + [e.code.path]
+            out += [inner for b in bases for inner in within(b, e.code.path)] + [e.code.path]
         return out
 
 

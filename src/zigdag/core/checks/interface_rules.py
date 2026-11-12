@@ -11,6 +11,7 @@ from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import CONSTRUCTOR_NAME, Abstraction, CodeModel, Param, Qualified, Symbol, SymbolKind, TypeExpr, \
     TypeKind
 from zigdag.core.findings import Finding
+from zigdag.core.kinds.registry import Part
 from zigdag.core.names import CheckKindName
 
 _OPERATIONS = (SymbolKind.FUNCTION, SymbolKind.METHOD)
@@ -147,10 +148,13 @@ def contracted_interfaces(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
     """Each pure function an interface offers has a contract."""
     for name, relied in sorted(_offered(ctx, rule).items()):
         function = ctx.model.symbols[name]
+        if not ctx.is_read(name, Part.CONTRACTS):
+            continue  # its language has no contracts that are read: the check says so, once, for all such code
         if not _contracted(ctx.model, function):
+            form = ctx.model.contract_forms.get(ctx.model.units[function.unit].adapter)
+            how = f" ({form})" if form else ""
             yield broken(rule, name, function.span, f"{name} is {relied}, but states no contract: say what it "
-                         f"promises (@deal.post, @deal.ensure), so its callers can rely on it and its mutants are "
-                         f"judged by it")
+                         f"promises{how}, so its callers can rely on it and its mutants are judged by it")
 
 
 CHECKS: Mapping[CheckKindName, Check] = {

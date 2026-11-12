@@ -111,9 +111,11 @@ class PythonAdapter:
             return ()
         return tools.runs(TOOLS, self.settings, self.source_roots, wanted)
 
-    @deal.ensure(lambda self, files, extra, result: result is None or (WATCHER in result.command and result.watched))
-    @deal.ensure(lambda self, files, extra, result: (result is None) == (not any(self.is_source(p) for p in files)))
-    def test_run(self, files: Files, extra: Sequence[Argument]) -> TestRun | None:
+    @deal.ensure(lambda self, files, extra, root, result: result is None or (
+        WATCHER in result.command and result.watched))
+    @deal.ensure(lambda self, files, extra, root, result: (result is None) == (
+        not any(self.is_source(p) for p in files)))
+    def test_run(self, files: Files, extra: Sequence[Argument], root: ProjectRoot) -> TestRun | None:
         """The project's test command, with zigdag's pytest plugin watching, and a report written where the next
         check reads it; None when there is no Python source to watch."""
         if not any(self.is_source(path) for path in files):
@@ -122,8 +124,8 @@ class PythonAdapter:
         return TestRun((*(Argument(a) for a in start), Argument(_PLUGIN_OPTION), Argument(WATCHER),
                          Argument(f"{_REPORT_OPTION}={DEFAULT_REPORT}"), *extra), _UNSEEN)
 
-    @deal.ensure(lambda self, extra, result: result.command[-len(extra):] == tuple(extra) if extra else True)
-    def profiled_tests(self, extra: Sequence[Argument]) -> Profiling:
+    @deal.ensure(lambda self, extra, root, result: result.command[-len(extra):] == tuple(extra) if extra else True)
+    def profiled_tests(self, extra: Sequence[Argument], root: ProjectRoot) -> Profiling:
         return Profiling(profiler.profiled(self.settings, extra), ToolName(profiler.PROFILER), _UNWRITTEN,
                          profiler.full_profile(self.settings))
 

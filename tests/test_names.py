@@ -1,4 +1,6 @@
-from zigdag.core.names import CodeName, OutcomeRef, fr_name, parent, slug, subject
+from zigdag.core.code import CodeModel, Unit, UnitKind
+from zigdag.core.findings import Span
+from zigdag.core.names import TYPESCRIPT, CodeName, OutcomeRef, enclosing, fr_name, is_inside, nesting, parent, slug, subject, within
 from zigdag import verifies
 
 
@@ -34,3 +36,17 @@ def test_the_subject_is_the_last_part_with_underscores_as_spaces():
     assert subject("shop.orders_db") == "orders db"
     assert parent("shop.orders_db") == "shop"
     assert parent("shop") is None
+
+
+@verifies("zigdag.core.vocabulary.names#parts")
+def test_a_code_names_parts_are_joined_by_dots_or_by_slashes():
+    assert enclosing("web/src/cart.Order") == ("web/src/cart.Order", "web/src/cart", "web/src", "web")
+    assert enclosing("shop.api.orders") == ("shop.api.orders", "shop.api", "shop")
+    assert is_inside("web/src/cart", "web/src") and is_inside("shop.api", "shop") and is_inside("web", "web")
+    assert not is_inside("web/srcs", "web/src") and not is_inside("shopping", "shop")  # a part is a whole part
+    assert nesting("web/src/cart.Order") == 3 and nesting("shop") == 0
+    assert within("web/src", "cart") == ("web/src.cart", "web/src/cart")
+    folder, module = (Unit(path, TYPESCRIPT, UnitKind.MODULE, True, Span(f"{path}.ts", 1, 1), 1)
+                      for path in ("web/src", "web/src/cart"))
+    model = CodeModel(units={folder.path: folder, module.path: module})
+    assert model.unit_of("web/src/cart.Order") == "web/src/cart" and model.unit_of("web/other") is None

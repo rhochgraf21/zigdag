@@ -49,20 +49,6 @@ def runs(settings: Settings, root: RecordPath, wanted: Iterable[Diagnosis]) -> t
     return tuple(out)
 
 
-def _meant(path: RecordPath, sources: Iterable[RecordPath], root: RecordPath) -> RecordPath:
-    """The source file a reported path means: the path itself when it is one, then the path read from the root
-    module's folder, where a tool given that folder names its files from. Failing both, the one source file whose
-    path ends as the reported one does, or that the reported one ends with, as a full path on disk does."""
-    known = sorted(sources)
-    if path in known:
-        return path
-    inside = RecordPath(f"{root}/{path}" if root else path)
-    if inside in known:
-        return inside
-    alike = [s for s in known if s.endswith(f"/{path}") or path.endswith(f"/{s}")]
-    return alike[0] if len(alike) == 1 else path
-
-
 _MESSAGE = re.compile(r"\bMessage: (.+?)(?: Link: |$)")  # the part of trivy's form that says what is wrong
 
 
@@ -78,5 +64,5 @@ def diagnostics(output: ToolOutput, sources: Mapping[RecordPath, object],
     """What one of Terraform's tools reported, each diagnostic at the source file it is about, or why the tool
     reported nothing that can be used."""
     reported, failure = tools.diagnostics(output, read_sarif)
-    return tuple(replace(d, say=_said(d.say), span=replace(d.span, path=_meant(d.span.path, sources, root)))
+    return tuple(replace(d, say=_said(d.say), span=replace(d.span, path=tools.source_meant(d.span.path, sources, root)))
                  for d in reported), failure

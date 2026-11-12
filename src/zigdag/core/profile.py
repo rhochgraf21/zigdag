@@ -39,7 +39,7 @@ class Leak:
 @dataclass(frozen=True)
 class Profile:
     elapsed: Seconds
-    peak: Megabytes  # the most memory the run held at once
+    peak: Megabytes | None  # the most memory the run held at once; None when the profiler measures no memory
     lines: tuple[ProfiledLine, ...]
     leaks: tuple[Leak, ...] = ()
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import NewType, Protocol
 
 import deal
 
@@ -24,10 +24,11 @@ from zigdag.core.codec import Unreadable
 from zigdag.core.findings import RecordPath
 from zigdag.core.names import AdapterName, Argument, ProjectRoot
 from zigdag.core.profile import Profile
-from zigdag.core.settings import PROFILE_FILE
 from zigdag.core.texts import FileText, Say
 
 Files = Mapping[RecordPath, FileText]  # project-relative path -> text, as the shell read it
+EnvironmentName = NewType("EnvironmentName", str)  # the name of an environment variable
+EnvironmentValue = NewType("EnvironmentValue", str)  # what an environment variable is set to
 
 
 class Presence(enum.Enum):
@@ -44,6 +45,8 @@ class TestRun:
 
     command: tuple[Argument, ...]  # run from the project's root
     unseen: Say | None = None  # for a watched run: what to look at when it ran and the watcher wrote nothing
+    environment: Mapping[EnvironmentName, EnvironmentValue] = field(default_factory=dict)  # what the run is also told, by name
+    clears: tuple[RecordPath, ...] = ()  # what the run before wrote that this one writes anew: removed first
 
     @property
     @deal.ensure(lambda self, result: result == (self.unseen is not None))
@@ -103,15 +106,17 @@ class Adapter(Protocol):
         project holds nothing of its kind."""
         ...
 
-    @deal.ensure(lambda self, files, extra, result: result is None or bool(result.command))
-    def test_run(self, files: Files, extra: Sequence[Argument]) -> TestRun | None:
+    @deal.ensure(lambda self, files, extra, root, result: result is None or bool(result.command))
+    def test_run(self, files: Files, extra: Sequence[Argument], root: ProjectRoot) -> TestRun | None:
         """How its tests are run, with its watcher when it has one; None when it has no tests to run here. The extra
-        arguments are the user's, for the watched run."""
+        arguments are the user's, for the watched run. The project's root is given for a test runner that must be
+        told where to write its report by a full path."""
         ...
 
-    @deal.ensure(lambda self, extra, result: result is None or PROFILE_FILE in result.command)
-    def profiled_tests(self, extra: Sequence[Argument]) -> Profiling | None:
-        """How its tests are run under its profiler; None when it has no profiler."""
+    @deal.ensure(lambda self, extra, root, result: result is None or bool(result.command))
+    def profiled_tests(self, extra: Sequence[Argument], root: ProjectRoot) -> Profiling | None:
+        """How its tests are run under its profiler, which writes the profile to PROFILE_FILE; None when it has no
+        profiler. The project's root is given for a profiler that must be told where to write by a full path."""
         ...
 
     @deal.ensure(lambda self, text, root, result: isinstance(result, Unreadable) or all(

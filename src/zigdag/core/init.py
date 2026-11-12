@@ -82,7 +82,7 @@ def _effects_and_dependencies(files: ProjectFiles, code: CodeModel, first_level:
         top = next((n for n in first_level if source and tree.within(source, n)), None)
         if top is None:
             continue
-        target = classify(code, tree, d.target)
+        target = classify(code, tree, d.target, code.adapter_of(d.source))
         if target.where is Where.PROJECT and target.owner and not tree.within(target.owner, top):
             other = next((n for n in first_level if tree.within(target.owner, n)), None)
             if other:

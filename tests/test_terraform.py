@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from zigdag import verifies
 from zigdag.adapters.adapter import Presence
@@ -27,6 +28,7 @@ from zigdag.core.findings import Result, Span
 from zigdag.core.names import PYTHON, TERRAFORM
 from zigdag.core.settings import read_settings
 
+ROOT = Path("/project")  # where a project is, for an adapter that must name a file in full
 SETTINGS = ('[settings]\nruleset = 1\n[adapters]\ndefault = "python"\n[adapters.python]\nsource = ["src"]\n'
             '[adapters.terraform]\nsource = "infra"\n')
 MAIN_TF = '''resource "aws_s3_bucket" "receipts" {
@@ -199,7 +201,7 @@ def test_the_adapter_is_there_only_when_configured_and_wants_its_source_and_its_
     assert terraform.wants("infra/tests/site.tftest.hcl") and not terraform.is_source("infra/tests/site.tftest.hcl")
     assert not terraform.wants("src/main.tf") and not terraform.wants("infra/readme.md")
     assert terraform.read({"src/shop/api.py": ""}) is None  # nothing of its kind here
-    assert terraform.test_run({}, ()) is None and terraform.profiled_tests(()) is None
+    assert terraform.test_run({}, (), ROOT) is None and terraform.profiled_tests((), ROOT) is None
 
 
 @verifies("zigdag.adapters#known", "zigdag.adapters.terraform#read")
@@ -288,12 +290,12 @@ def test_a_run_that_would_apply_breaks_and_its_file_is_left_out_unless_the_proje
     (problem,) = model.problems
     assert problem.result is Result.BREAKS and "service_starts would apply" in problem.say
     settings, _ = read_settings(SETTINGS + 'terraform = "tofu"\n')
-    run = TerraformAdapter.of(settings).test_run(files, ("-k", "ignored"))
+    run = TerraformAdapter.of(settings).test_run(files, ("-k", "ignored"), ROOT)
     assert not run.watched and run.command == (
         "tofu", "-chdir=infra", "test", "-junit-xml=../.zigdag/terraform.junit", "-filter=tests/plans.tftest.hcl")
     allowed, _ = read_settings(SETTINGS + 'test = "apply"\n')
-    assert len([a for a in TerraformAdapter.of(allowed).test_run(files, ()).command if a.startswith("-filter=")]) == 2
-    assert TerraformAdapter.of(settings).test_run({TEST_FILE: TESTS_TF}, ()) is None  # no file may run
+    assert len([a for a in TerraformAdapter.of(allowed).test_run(files, (), ROOT).command if a.startswith("-filter=")]) == 2
+    assert TerraformAdapter.of(settings).test_run({TEST_FILE: TESTS_TF}, (), ROOT) is None  # no file may run
 
 
 @verifies("zigdag.adapters.terraform#tests")

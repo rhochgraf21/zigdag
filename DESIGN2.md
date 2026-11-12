@@ -1065,6 +1065,8 @@ nobody supplied gives a question.
 | **symbols** | functions, types and fields, with signatures, sizes and locations |
 | **structures** | types and tables, with their fields and the relationships between them |
 | **calls and effects** | who calls what, and which effects start where |
+| **contracts** | what each function promises, stated in code and checked when it runs |
+| **mutants** | what became of each small change made to a function with a contract |
 | **permissions and connections** | for infrastructure: who is granted what, what can reach what, which settings point at which resource |
 | **tests** | each test, its links, its evidence kind and its latest result |
 | **observations** | what was seen while tests ran |
@@ -1089,7 +1091,7 @@ They are supported in this order: Python, Terraform, SQL, TypeScript, Go, Rust.
 | **Mutation tool** | mutmut | | | Stryker | go-mutesting | cargo-mutants |
 | **Linter and type checker** | ruff, ty | tflint | | eslint, tsc | golangci-lint, go vet | clippy, cargo check |
 | **Security checker** | bandit | trivy | | eslint-plugin-security | gosec | cargo-audit |
-| **Watching tests** | strong: audit hooks, wrapped calls, `sys.monitoring` | none | none | partial | partial | weak |
+| **Watching tests** | strong: audit hooks, wrapped calls, `sys.monitoring` | none | none | partial: which modules each test ran | partial | weak |
 
 What Python's watching cannot see: reading the clock through `datetime` (its types cannot be wrapped),
 writing to a file that is already open (only opening it is an event), and the content of network
@@ -1128,6 +1130,88 @@ told apart from one that raises another error. CrossHair runs the code it search
 reason only pure functions are mutated. It is imported only when the first search runs, since
 importing it turns deal's contracts off for the whole process (and icontract's); zigdag turns deal
 back on at once. A search that runs three times longer than its `seconds` is stopped from outside.
+
+**TypeScript is read by a parser, tree-sitter, and never by running the compiler.** It reads text and nothing
+else, so a revision read from git is read as the files on disk are, and checking a project needs neither Node
+nor its packages installed. What is written is known, and what the compiler would infer is not: a value's type
+is known where the code says it, in an annotation or a `new`, as it is for Python. A file the parser cannot read
+whole is a question, and nothing is taken from it.
+
+- **A file is a module**, named by its path without its extension: `web/src/cart`. A folder's `index` file is
+  the folder itself, and every folder on the way to a module is a package. A code name's parts are joined by
+  slashes or by dots, so a name written inside `web/src` may be `cart` or `cart.Cart`.
+- **An import is followed** beside the importing file, or through the aliases a `tsconfig.json` gives (`baseUrl`,
+  `paths`). A name imported from a module that only passes it on, as a folder's index does, is followed to the
+  module that declares it. Anything else is a library, by its package's name. A tsconfig's `extends` and a
+  package's own `exports` are not followed.
+- **Structures** are classes, interfaces, type aliases of an object type, and enums. An interface that asks for
+  methods is a protocol. A constructor's parameter written with a modifier is a field.
+- **Declared libraries** are what the project's `package.json` files declare, those used only to build or test
+  among them. Each language keeps its own: what is standard or declared for Python says nothing of TypeScript.
+- **Test files** are told by their names, as vitest and jest have it: `cart.test.ts`, `cart.spec.tsx`,
+  `__tests__/`.
+- **A test** is one that vitest runs, and it says what it verifies in its name:
+  `it("holds a line verifies(shop.cart#hold)", ...)`. It is named by its file and the groups it is in, as
+  vitest's own report names it. `zigdag test` runs the project's test command (`test_command` in
+  `[adapters.typescript]`, by default `npx vitest run`) and reads the JUnit report vitest writes. A test
+  written for several cases ran once for each, and the worst of their results is its own. A test whose name is
+  worked out when it runs has no name to know it by, and is not read.
+- **eslint and tsc** are its linter and type checker. Neither writes a report other tools write: eslint's own
+  JSON and the lines tsc prints are read, each whole or refused whole. Neither can be told to exit with zero
+  when it finds something, so what each exits with then is not a failure to run. Each is started through `npx`
+  unless `eslint` or `tsc` in `[adapters.typescript]` says how.
+- **The profiler** is the one Node has built in (`--cpu-prof`), on the one process vitest runs the tests in. It
+  measures time and no memory, so `zigdag stats` shows no memory for it, and says so.
+
+- **A contract** is stated with `requires` and `ensures`: a function whose body calls either states one.
+
+  ```ts
+  export function total(lines: readonly Line[]): number {
+    requires(lines.length > 0, "an order has a line");
+    ...
+  }
+  ```
+
+  The two words are read from `ts-code-contracts`, or from a module of the project's own that `contracts` in
+  `[adapters.typescript]` names. Two words are needed, and one that checks any condition is not read as a
+  contract: what must hold of what a function is given, and what must hold of what it gives back, fail to
+  opposite ends. The first says the input is not one the function takes; the second says the function is wrong.
+  A project that writes its own two has a failed `requires` throw an error named `PreconditionError`, so that
+  the two can be told apart when contracts are run. Contracts are read, and not run yet: no inputs are generated
+  for them and no mutants are made, so `mutation` says nothing of TypeScript, and says so.
+- **A zod schema of an object is a structure.** A project that uses zod says what its data is made of there, and
+  takes its types from the schemas:
+
+  ```ts
+  export const Order = z.object({ id: z.string(), lines: z.array(Line) });
+  export type Order = z.infer<typeof Order>;
+  ```
+
+  The schema's keys are the fields, what each is given is its type, and `.describe(...)` or the comment above a
+  key is its description. A schema made with `.extend` has the schema it extends as its base, and `z.enum` is an
+  enumeration. The type taken from a schema of the same name is the same structure, not one more. A schema
+  worked out from another, by picking, leaving out or merging, is not followed. zod checks what data looks like
+  where it comes in; it is not read as a contract, since a schema of what a function gives back cannot say how
+  that relates to what the function was given.
+- **The watcher** is a setup file for vitest, which takes setup files only from its config. So a project
+  attaches it by one line in the test section of its vitest config:
+  `setupFiles: process.env.ZIGDAG_WATCHER ? [process.env.ZIGDAG_WATCHER] : []`. `zigdag test` sets that variable,
+  and zigdag writes nothing into the project. Tests that ran with no watcher attached are a thing to do, which
+  says the line to add. The watcher asks V8 which functions ran between the start of a test and its end, so it
+  changes and wraps nothing in the project's code. It sees which modules ran in each test, and no more: not
+  the effects the code has, nor the values it passes. Each file is written with a digest of what it held, and
+  what was seen counts only while each of those files is unchanged.
+
+**Built for TypeScript:** units, public names, dependencies, symbols, structures, calls and effects, contracts,
+tests, lint and type diagnostics, the profile, which modules each test ran, and the facts inside a function that
+`planned-effects`, `narrow-parameters` and `data-flow` read. **Not built yet:** running contracts on generated
+inputs and making mutants, watching what the code does while the tests run, and a security checker.
+
+**A rule says so when it could not check a language's code.** Each adapter names the parts its code has that it
+does not read yet. A rule that reads one of them, over code of that language, is a question naming the rule: the
+rule ran, since another language's adapter supplied the part, and found nothing in the code that was not read,
+which is not the code passing it (principle 6). A part that a kind of code does not have at all, as a deployed
+resource has no symbols, is not such a gap.
 
 Typed languages make some checks exact that are guesses in Python. Examples are `data-ownership` in
 Rust, through private fields and `&mut`, and public names in Go and Rust. Python makes up for it at

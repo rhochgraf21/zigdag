@@ -13,7 +13,7 @@ import deal
 from zigdag.core.record.model import Record
 from zigdag.core.code import CodeModel, DependencyKind, Level, Place, Qualified, SymbolKind, UnitKind
 from zigdag.core.findings import Finding, Result, Span, finding
-from zigdag.core.names import AdapterName, CodePath, FrName, is_within, parent
+from zigdag.core.names import AdapterName, CodePath, FrName, enclosing, is_inside, is_within, parent, within
 
 DEPLOYED = (UnitKind.RESOURCE, UnitKind.SUPPORT)  # what infrastructure adapters read: named absolutely, not in code
 COVERAGE = "coverage"
@@ -48,12 +48,10 @@ class Tree:
                                                                           *self.type_owner.values()})
     def owner(self, name: Qualified | CodePath) -> FrName | None:
         """The DP a unit, or a name inside one, belongs to: a structure's own type first, then the unit."""
-        parts = name.split(".")
-        for i in range(len(parts), 0, -1):
-            prefix = ".".join(parts[:i])
-            if (dp := self.type_owner.get(Qualified(prefix))) is not None:
+        for outer in enclosing(name):
+            if (dp := self.type_owner.get(Qualified(outer))) is not None:
                 return dp
-            if (dp := self.unit_owner.get(CodePath(prefix))) is not None:
+            if (dp := self.unit_owner.get(CodePath(outer))) is not None:
                 return dp
         return None
 
@@ -114,8 +112,7 @@ def _camel(name: str) -> str:
 
 def _claim(model: CodeModel, adapter: AdapterName | None, bases: tuple[str, ...], path: str) -> Claim | None:
     """A unit or type of an adapter, named relative to the bases (or absolutely, when no base has it)."""
-    for base in (*bases, ""):
-        candidate = f"{base}.{path}" if base else path
+    for candidate in (*(inner for base in bases for inner in within(base, path)), path):
         unit = model.units.get(CodePath(candidate))
         if unit is not None and unit.adapter == adapter:
             return Claim(unit.path)
@@ -196,8 +193,7 @@ def _supported(model: CodeModel, unit_owner: Mapping[CodePath, FrName], root: Fr
 
 
 def _default(model: CodeModel, bases: tuple[str, ...], last: str) -> Claim | None:
-    for base in bases or ("",):
-        candidate = f"{base}.{last}" if base else last
+    for candidate in [inner for base in bases for inner in within(base, last)] or [last]:
         if CodePath(candidate) in model.units:
             return Claim(CodePath(candidate))
     for base in bases:
@@ -284,16 +280,13 @@ def resolve(record: Record, model: CodeModel, default_adapter: AdapterName | Non
                                     f"{unit} is claimed by both {owners[0]} and {owners[1]}"))
     unit_owner: dict[CodePath, FrName] = {}
     for unit in model.units:
-        parts = unit.split(".")
-        for i in range(len(parts), 0, -1):
-            owners = unit_claims.get(CodePath(".".join(parts[:i])))
-            if owners:
-                unit_owner[unit] = owners[0]
-                break
+        owners = next((claimed for outer in enclosing(unit) if (claimed := unit_claims.get(CodePath(outer)))), None)
+        if owners:
+            unit_owner[unit] = owners[0]
     unit_owner.update(_supported(model, dict(unit_owner), names[0] if names and "." not in names[0] else None))
     for unit in sorted(set(model.units) - set(unit_owner)):
         u = model.units[unit]
-        if any(other.startswith(unit + ".") and other in unit_owner for other in model.units) and u.size == 0:
+        if any(other != unit and is_inside(other, unit) and other in unit_owner for other in model.units) and u.size == 0:
             continue  # a folder whose contents all belong somewhere has nothing of its own to cover
         problems.append(finding(Result.BREAKS, COVERAGE, unit, Span(u.span.path, 1, 1),
                                 f"{unit} belongs to no design parameter: give it an FR, or place it in physical.yaml"))

@@ -40,6 +40,41 @@ RUST = AdapterName("rust")
 ADAPTERS: frozenset[AdapterName] = frozenset({PYTHON, TERRAFORM, SQL, TYPESCRIPT, GO, RUST})
 INFRASTRUCTURE: frozenset[AdapterName] = frozenset({TERRAFORM})  # the adapters that read what is deployed
 
+# How the parts of a code name are joined. A language joins its units its own way: Python's packages by dots, the
+# folders of TypeScript and Go by slashes. A name inside a unit, such as a type's, is joined by a dot in each.
+PART_SEPARATORS = (".", "/")
+_PART = re.compile("[./]")
+
+
+@deal.ensure(lambda name, result: result[0] == name and len(result) == nesting(name) + 1)
+@deal.ensure(lambda name, result: all(is_inside(name, outer) for outer in result))
+def enclosing(name: Written) -> tuple[Written, ...]:
+    """A code name, then each name it is inside, the nearest first: web/src/cart.Order, web/src/cart, web/src,
+    web."""
+    cuts = [found.start() for found in _PART.finditer(name)]
+    return (name, *(Written(name[:cut]) for cut in reversed(cuts)))
+
+
+@deal.ensure(lambda name, outer, result: result == (name == outer or any(
+    name.startswith(outer + separator) for separator in PART_SEPARATORS)))
+def is_inside(name: Written, outer: Written) -> bool:
+    """Whether a code name is another, or is inside it."""
+    return name == outer or name.startswith(tuple(outer + separator for separator in PART_SEPARATORS))
+
+
+@deal.ensure(lambda name, result: result >= 0)
+def nesting(name: Written) -> Count:
+    """How many names a code name is inside."""
+    return Count(len(_PART.findall(name)))
+
+
+@deal.ensure(lambda outer, name, result: all(is_inside(joined, outer) and joined.endswith(name) for joined in result))
+def within(outer: Written, name: Written) -> tuple[Written, ...]:
+    """The names a name written inside another could be, one for each way parts are joined: inside shop, api is
+    shop.api or shop/api."""
+    return tuple(Written(f"{outer}{separator}{name}") for separator in PART_SEPARATORS)
+
+
 _FR = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*")
 _SLUG = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 _CODE_PATH = re.compile(r"[^\s:]+")

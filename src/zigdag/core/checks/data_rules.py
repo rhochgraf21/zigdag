@@ -17,7 +17,7 @@ from zigdag.core.effects import expand, phrase
 from zigdag.core.findings import Finding, Result, Span, finding
 from zigdag.core.language.lexicons import Lexicons
 from zigdag.core.language.sentences import DataClause, parse_ears
-from zigdag.core.names import CheckKindName, FrName
+from zigdag.core.names import CheckKindName, FrName, within
 from zigdag.core.record.model import Record, Sentence
 
 STATE = "ears.state"
@@ -138,7 +138,7 @@ def protected_types(ctx: Context, rule: RuleUse) -> tuple[frozenset[Qualified], 
         if s is not None:
             out |= {rep.qualified for rep in s.representations.values()}
             continue
-        candidates = [Qualified(f"{b}.{name}") for b in bases] + [Qualified(name)]
+        candidates = [Qualified(inner) for b in bases for inner in within(b, name)] + [Qualified(name)]
         found = next((q for q in candidates if (sym := ctx.model.symbols.get(q)) is not None
                       and sym.kind in (SymbolKind.CLASS, SymbolKind.NAMED_TYPE)), None)
         if found is None:

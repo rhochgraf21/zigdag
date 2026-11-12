@@ -10,6 +10,7 @@ from collections.abc import Iterable, Mapping
 from zigdag.core.checks import data_rules, interface_rules, mutation_rules, plan_rules, tool_rules
 from zigdag.core.checks.context import Check, Context, a_type, asked, broken
 from zigdag.core.checks.custom import run_custom
+from zigdag.core.checks.record_rules import registry
 from zigdag.core.checks.rules import RuleUse
 from zigdag.core.code import (
     RETURNED,
@@ -30,7 +31,7 @@ from zigdag.core.effects import Effect, expand, phrase
 from zigdag.core.relate import Edge, ResourceEffect, Where, classify
 from zigdag.core.resolve import Level
 from zigdag.core.findings import Finding, Result, finding
-from zigdag.core.names import CheckKindName, FrName
+from zigdag.core.names import AdapterName, CheckKindName, FrName
 
 NOT_CHECKED = "not-checked"
 DECLARED_EFFECTS = "declared-effects"
@@ -117,7 +118,7 @@ def may_depend_on(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
         source = ctx.relations.dp_of(d.source)
         if not ctx.in_scope(rule, source) or rule.skips(ctx.tree, d.source):
             continue
-        target = classify(ctx.model, ctx.tree, d.target)
+        target = classify(ctx.model, ctx.tree, d.target, ctx.model.adapter_of(d.source))
         if target.where is Where.STANDARD:
             continue
         if target.where is Where.PROJECT:
@@ -137,16 +138,17 @@ def may_depend_on(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
 
 
 def declared_libraries(ctx: Context, rule: RuleUse) -> Iterable[Finding]:
-    declared = ctx.model.libraries.declared
-    seen: set[str] = set()
+    seen: set[tuple[AdapterName | None, str]] = set()
     for d in ctx.model.dependencies:
-        target = classify(ctx.model, ctx.tree, d.target)
+        language = ctx.model.adapter_of(d.source)
+        declared = ctx.model.libraries_of(language).declared  # each language declares its own dependencies
+        target = classify(ctx.model, ctx.tree, d.target, language)
         source = ctx.relations.dp_of(d.source)
-        if target.where is not Where.THIRD_PARTY or not ctx.in_scope(rule, source) or target.top in seen:
+        if target.where is not Where.THIRD_PARTY or not ctx.in_scope(rule, source) or (language, target.top) in seen:
             continue
         if rule.skips(ctx.tree, d.source):
             continue
-        seen.add(target.top)
+        seen.add((language, target.top))
         if declared is None:
             yield finding(Result.QUESTION, rule.name, str(d.source), d.span,
                           f"{target.top} is imported, and no declared dependencies could be read to check it",
@@ -543,9 +545,30 @@ CHECKS: Mapping[CheckKindName, Check] = {
 RECORD_KINDS = frozenset({CheckKindName("max-children")})
 
 
+def not_read(ctx: Context, rules: list[RuleUse], supplied_kinds: frozenset[CheckKindName]) -> Iterable[Finding]:
+    """A question for each language whose code a rule covers while its adapter does not read what the rule reads.
+    Another language's adapter may supply the same part, so the rule runs, and finds nothing in the code that was
+    not read: without this, that would look like the code passing."""
+    kinds = registry(ctx.settings)
+    for adapter, parts in sorted(ctx.model.unread.items()):
+        owners = {ctx.tree.unit_owner.get(path) for path, unit in ctx.model.units.items() if unit.adapter == adapter}
+        # A rule that no adapter could feed waits as a whole, and is said to wait elsewhere.
+        waiting = sorted(rule.name for rule in rules if rule.kind in supplied_kinds and kinds[rule.kind].reads & parts
+                         and any(ctx.in_scope(rule, owner) for owner in owners))
+        missing = sorted({part.value for rule in rules if rule.name in waiting for part in kinds[rule.kind].reads & parts})
+        if waiting:
+            yield finding(Result.QUESTION, NOT_CHECKED, adapter, None,
+                          f"these rules say nothing of {adapter} code, since the {adapter} adapter does not read "
+                          f"its {_and(missing)} yet: {', '.join(waiting)}", *waiting)
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def check_code(ctx: Context, rules: list[RuleUse], supplied_kinds: frozenset[CheckKindName]) -> list[Finding]:
     """Every rule whose kind this version checks; one question naming the rest that the adapters could feed."""
-    out: list[Finding] = [*declared_effects(ctx), *contracts(ctx)]
+    out: list[Finding] = [*declared_effects(ctx), *contracts(ctx), *not_read(ctx, rules, supplied_kinds)]
     unchecked = []
     for rule in rules:
         check = CHECKS.get(rule.kind)

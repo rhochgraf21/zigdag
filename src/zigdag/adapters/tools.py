@@ -40,6 +40,8 @@ class Tool:
     name: ToolName
     diagnosis: Diagnosis  # what it reports on: one tool for each, so a rule of each kind names its tool
     arguments: tuple[Argument, ...]  # what it is run with, before the folders it reads: what writes the report
+    # What it exits with when it ran and found something, for a tool that cannot be told to exit with zero then.
+    found: tuple[ExitStatus, ...] = ()
 
 
 class Started(enum.Enum):
@@ -100,6 +102,25 @@ def not_started(tool: Tool) -> ToolOutput:
     return ToolOutput(tool, Started.NOT_FOUND)
 
 
+@deal.ensure(lambda path, sources, root, result: result == path or result in sources)
+def source_meant(path: RecordPath, sources: Iterable[RecordPath], root: RecordPath) -> RecordPath:
+    """The source file a reported path means: the path itself when it is one, then the path read from the folder
+    the tool was given, where a tool given a folder may name its files from. Failing both, the source file whose
+    whole path the reported one ends with, as a full path on disk does, or that ends with the reported one when
+    only one does."""
+    known = sorted(sources)
+    if path in known:
+        return path
+    inside = RecordPath(f"{root}/{path}" if root else path)
+    if inside in known:
+        return inside
+    ending = [s for s in known if path.endswith(f"/{s}")]
+    if ending:
+        return max(ending, key=len)  # the longest is the whole of it: a/b/c.ts, not b/c.ts
+    alike = [s for s in known if s.endswith(f"/{path}")]
+    return alike[0] if len(alike) == 1 else path
+
+
 def _failed(output: ToolOutput, say: str) -> Finding:
     # A rule the record puts in force could not be checked, which must not pass as if it held (principle 6).
     return finding(Result.BREAKS, TOOL_FAILED, Subject(output.tool.diagnosis.value), None,
@@ -113,7 +134,7 @@ def diagnostics(output: ToolOutput, read: ReportReader) -> tuple[tuple[Diagnosti
     if output.started is Started.NOT_FOUND:
         return (), _failed(output, f"could not be started: install it, or say in [adapters.{tool.adapter}] "
                                    f"{tool.name} = \"...\" how to start it")
-    if output.status != _SUCCESS:
+    if output.status != _SUCCESS and output.status not in tool.found:
         shown = " / ".join(output.err.strip().splitlines()[:_SHOWN_LINES]) or "no error output"
         return (), _failed(output, f"failed (exit {output.status}): {shown}")
     reported = read(output.out, tool.diagnosis, tool.name)

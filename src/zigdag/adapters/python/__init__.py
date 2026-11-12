@@ -26,6 +26,7 @@ from zigdag.core.texts import FileText
 
 PYTHON = AdapterName("python")
 ADAPTER_RULE = "python"
+CONTRACT_FORM = "@deal.post, @deal.ensure"  # how a Python function states what it promises
 
 
 @dataclass(frozen=True)
@@ -121,7 +122,7 @@ def read_python(files: PythonFiles) -> CodeModel:
     symbols = {s.qualified: s for f in facts for s in f.symbols}
     seen = _observed(files, units, problems)
     supplied = {Part.RECORD, Part.UNITS, Part.PUBLIC_NAMES, Part.DEPENDENCIES, Part.SYMBOLS, Part.STRUCTURES,
-                Part.CALLS_AND_EFFECTS, Part.TESTS}
+                Part.CALLS_AND_EFFECTS, Part.CONTRACTS, Part.MUTANTS, Part.TESTS}
     diagnosed: list[Diagnostic] = []
     for output in files.tools:
         reported, failure = diagnostics(output)
@@ -148,8 +149,9 @@ def read_python(files: PythonFiles) -> CodeModel:
         observed=seen.observations if seen else None,
         diagnostics=tuple(diagnosed),
         resource_uses=tuple(u for f in facts for u in f.resource_uses),
-        libraries=Libraries(declared_libraries(files.pyproject), frozenset(vendored),
-                            frozenset(sys.stdlib_module_names) | {"__future__"}),
+        libraries={PYTHON: Libraries(declared_libraries(files.pyproject), frozenset(vendored),
+                                     frozenset(sys.stdlib_module_names) | {"__future__"})},
+        contract_forms={PYTHON: CONTRACT_FORM},
         supplied=frozenset(supplied | ({Part.OBSERVATIONS} if seen else set())),
         problems=tuple(problems),
     )

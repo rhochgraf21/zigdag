@@ -25,6 +25,8 @@ class Part(enum.Enum):
     SYMBOLS = "symbols"
     STRUCTURES = "structures"
     CALLS_AND_EFFECTS = "calls and effects"
+    CONTRACTS = "contracts"  # what each function promises, stated in code and checked when it runs
+    MUTANTS = "mutants"  # what became of each small change made to a function with a contract
     PERMISSIONS = "permissions and connections"
     TESTS = "tests"
     OBSERVATIONS = "observations"
@@ -180,12 +182,13 @@ _KINDS = (
     CheckKind(CheckKindName("no-single-implementations"), {}, _C({_P.SYMBOLS}), Exactness.GUESS,
               _fixed("not keep an abstraction with only one implementation"), Direction.ARCHITECTURE),
     CheckKind(MUTATION, {"paths": ParamSpec(ParamType.COUNT, 200), "seconds": ParamSpec(ParamType.RATIO, 10.0)},
-              _C({_P.SYMBOLS}), Exactness.BOTH,
+              _C({_P.SYMBOLS, _P.CONTRACTS, _P.MUTANTS}), Exactness.BOTH,
               _fixed("have the contract of each function declared without effects notice every small change to "
                      "the function"), Direction.CORRECTNESS),
     CheckKind(PLANNED_EFFECTS, {}, _C({_P.SYMBOLS, _P.CALLS_AND_EFFECTS}), Exactness.BOTH,
               _fixed("make every decision in a function that is declared without effects"), Direction.ARCHITECTURE),
-    CheckKind(CONTRACTED_INTERFACES, {}, _C({_P.SYMBOLS, _P.DEPENDENCIES, _P.CALLS_AND_EFFECTS}), Exactness.EXACT,
+    CheckKind(CONTRACTED_INTERFACES, {}, _C({_P.SYMBOLS, _P.DEPENDENCIES, _P.CALLS_AND_EFFECTS, _P.CONTRACTS}),
+              Exactness.EXACT,
               _fixed("give a contract to each function declared without effects that an interface offers"), Direction.ARCHITECTURE),
     CheckKind(LINT, {}, _C({_P.LINT_DIAGNOSTICS}), Exactness.EXACT,
               _fixed("break no rule of the linter of the project"), Direction.LINT),

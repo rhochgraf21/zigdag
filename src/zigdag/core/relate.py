@@ -24,7 +24,7 @@ from zigdag.core.code import (
     TestId,
 )
 from zigdag.core.findings import Span
-from zigdag.core.names import CodePath, FrName
+from zigdag.core.names import AdapterName, CodePath, FrName
 from zigdag.core.names import Api
 
 
@@ -43,18 +43,21 @@ class Target:
     owner: FrName | None = None
 
 
-@deal.ensure(lambda model, tree, name, result: result.top == name.split(".")[0])
-@deal.ensure(lambda model, tree, name, result: (result.unit is not None) == (result.where is Where.PROJECT))
-@deal.ensure(lambda model, tree, name, result: result.owner is None or result.where is Where.PROJECT)
-def classify(model: CodeModel, tree: Tree, name: Qualified) -> Target:
+@deal.ensure(lambda model, tree, name, language, result: result.top == name.split(".")[0])
+@deal.ensure(lambda model, tree, name, language, result: (result.unit is not None) == (result.where is Where.PROJECT))
+@deal.ensure(lambda model, tree, name, language, result: result.owner is None or result.where is Where.PROJECT)
+def classify(model: CodeModel, tree: Tree, name: Qualified, language: AdapterName | None) -> Target:
+    """What a name is, as the language of the code that names it has it: what is standard or vendored is each
+    language's own to say."""
     top = name.split(".")[0]
-    vendored = model.libraries.vendored
+    libraries = model.libraries_of(language)
+    vendored = libraries.vendored
     if top in vendored or any(name == v or name.startswith(v + ".") for v in vendored if "." in v):
         return Target(Where.VENDORED, top)
     unit = model.unit_of(name)
     if unit is not None:
         return Target(Where.PROJECT, top, unit, tree.owner(name))
-    if top in model.libraries.standard:
+    if top in libraries.standard:
         return Target(Where.STANDARD, top)
     return Target(Where.THIRD_PARTY, top)
 
@@ -205,7 +208,7 @@ def relate(model: CodeModel, tree: Tree, custom_calls: Mapping[Api, Effect]) -> 
     edges = []
     for d in model.dependencies:
         source = places.get(d.source)
-        target = classify(model, tree, d.target)
+        target = classify(model, tree, d.target, model.adapter_of(d.source))
         if source and target.owner and target.owner != source:
             edges.append(Edge(source, target.owner, d))
 

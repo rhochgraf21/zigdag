@@ -8,6 +8,7 @@ import deal
 from zigdag.adapters.adapter import Adapter, Presence
 from zigdag.adapters.python.adapter import PythonAdapter
 from zigdag.adapters.terraform.adapter import TerraformAdapter
+from zigdag.adapters.typescript.adapter import TypeScriptAdapter
 from zigdag.core.settings import Settings
 
 
@@ -15,5 +16,5 @@ from zigdag.core.settings import Settings
 def adapters(settings: Settings, conventional_source: Presence) -> tuple[Adapter, ...]:
     """Each adapter that may find something to read in a project with these settings. Python reads a project that
     configures nothing; an adapter that must be told where to read is there only when its section is."""
-    terraform = TerraformAdapter.of(settings)
-    return (PythonAdapter.of(settings, conventional_source), *((terraform,) if terraform is not None else ()))
+    told = (TerraformAdapter.of(settings), TypeScriptAdapter.of(settings))
+    return (PythonAdapter.of(settings, conventional_source), *(adapter for adapter in told if adapter is not None))

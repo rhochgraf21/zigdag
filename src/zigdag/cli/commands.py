@@ -139,7 +139,8 @@ def _watched(project: Project, run: WatchedRun) -> plans.ExitCode:
     """Run the tests, the watched ones with the watcher, having cleared what the run before saw so that only this
     run's is read; then the tests of the adapters that have no watcher."""
     project.write(PLAN_FILE, run.watch)
-    run.observed.unlink(missing_ok=True)
+    for written_before in (run.observed, *run.cleared):
+        written_before.unlink(missing_ok=True)
     return plans.exited([plans.ExitCode(subprocess.run(command, cwd=run.root, env=run.environment).returncode)
                          for command in run.commands])
 

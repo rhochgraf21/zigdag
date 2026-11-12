@@ -16,6 +16,7 @@ frs:
   zigdag.core.vocabulary.names:
     statements:
       read: The names shall read each kind of name that the record uses.
+      parts: When a code name is inside another, the names shall tell the names apart by the dots and the slashes that join the parts.
 
   zigdag.core.vocabulary.names.code_name:
     statements:
@@ -694,6 +695,7 @@ frs:
       evidence-runs: If a test ran no code of the design parameter that the test verifies, then the checks shall report a break.
       permitted: If code has a resource effect that the infrastructure does not grant, then the checks shall report a break.
       least: If the infrastructure grants access that no code uses, then the checks shall report a question.
+      not-read: If a rule covers code whose adapter does not read what the rule reads, then the checks shall report a question.
       evidence-current: When a test passed against code that has changed since, the checks shall report the evidence as out of date.
       narrow: If a function that another design parameter uses reads a single field of a class that the function takes, then the checks shall ask about the function.
       single-implementation: If an abstraction has exactly one implementation, then the checks shall ask about the abstraction.
@@ -795,6 +797,28 @@ frs:
   zigdag.adapters.tools.tool_start:
     statements:
       hold: The tool start shall name whether the shell started a tool.
+
+  zigdag.adapters.typescript:
+    statements:
+      read: The typescript shall read the TypeScript source of a project into the code model.
+      imports: When a file imports a name, the typescript shall follow the import to the module that declares the name.
+      effects: When the code calls an API that has an effect, the typescript shall read the effect with the place that starts the effect.
+      unread: If the parser cannot read a file, then the typescript shall report a question.
+      tools: When a rule needs lint or type diagnostics, the typescript shall read what eslint or tsc report about the source.
+      tests: When a test file declares a test, the typescript shall read the test with the statements that the name of the test verifies.
+      values: When a function uses a value, the typescript shall read the constants, the parameters and the calls that the value comes from.
+      profile: When the tests are profiled, the typescript shall read the time of each line from the CPU profile that Node writes.
+      watched: When the watcher saw a test run, the typescript shall read the modules whose code ran while the test ran.
+      contracts: When a function calls requires or ensures, the typescript shall read the function as one that states a contract.
+      schemas: When a constant is a zod schema of an object, the typescript shall read the constant as a structure with the keys of the schema as fields.
+
+  zigdag.adapters.typescript.type_script_files:
+    statements:
+      hold: The type script files shall hold the text that the shell read for the TypeScript adapter.
+
+  zigdag.adapters.typescript.type_script_adapter:
+    statements:
+      choose: The type script adapter shall name the files of a project that the TypeScript adapter reads.
 
   zigdag.adapters.terraform:
     statements:
@@ -961,7 +985,7 @@ constraints:
     serves: [maintain.unrelated-breakage]
     check: may-depend-on
     with:
-      allow: [zigdag.core, deal]
+      allow: [zigdag.core, deal, tree_sitter, tree_sitter_typescript]
 
   shell-effects:  # the environment carries the watch plan's path from zigdag test to the watcher; CrossHair is imported only when a search runs, since importing it turns contracts off
     on: zigdag

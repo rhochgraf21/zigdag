@@ -195,8 +195,8 @@ def test_effects_reached_through_calls_break_the_rule_that_covers_them(tmp_path)
     a = run(build(tmp_path))
     assert any("leaky" in s and "writing to standard output" in s for s in found(a, "pure-core"))
     assert any("declares its effects" in s for s in found(a, "declared-effects"))
-    assert classify(a.code, a.tree, "subprocess.run").where is Where.STANDARD
-    assert classify(a.code, a.tree, "tiny.core.rules.price").owner == "tiny.core.rules"
+    assert classify(a.code, a.tree, "subprocess.run", "python").where is Where.STANDARD
+    assert classify(a.code, a.tree, "tiny.core.rules.price", "python").owner == "tiny.core.rules"
 
 
 def test_an_except_entry_skips_the_code_it_names(tmp_path):

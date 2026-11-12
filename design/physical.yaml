@@ -37,6 +37,18 @@ zigdag.adapters.terraform:
   - terraform.tests
   - terraform.tools
 zigdag.adapters.terraform.mode: [tests.Mode]
+zigdag.adapters.typescript:
+  - typescript
+  - typescript.adapter
+  - typescript.apis
+  - typescript.modules
+  - typescript.observed
+  - typescript.plans
+  - typescript.profiler
+  - typescript.scan
+  - typescript.schemas
+  - typescript.tests
+  - typescript.tools
 zigdag.adapters.python:
   - python
   - python.adapter
